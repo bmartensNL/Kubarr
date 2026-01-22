@@ -12,7 +12,7 @@ backend:
   replicaCount: 1
 
   image:
-    repository: kubarr/dashboard-backend
+    repository: kubarr-backend
     pullPolicy: Never
     tag: "latest"
 
@@ -50,13 +50,15 @@ backend:
       value: "media"
     - name: KUBARR_LOG_LEVEL
       value: "INFO"
+    - name: KUBARR_OAUTH2_ISSUER_URL
+      value: "http://localhost:8080"
 
 # Frontend configuration
 frontend:
   replicaCount: 1
 
   image:
-    repository: kubarr/dashboard-frontend
+    repository: kubarr-frontend
     pullPolicy: Never
     tag: "latest"
 
@@ -153,13 +155,13 @@ imagePullSecrets: []
 # OAuth2 configuration (for dashboard backend OAuth2 provider)
 oauth2:
   # Enable OAuth2 provider in the dashboard backend
-  enabled: false
+  enabled: true
 
   # OAuth2 provider settings (used by the backend)
   provider:
     # Base URL for the OAuth2 provider (this dashboard)
     # Used by the backend to generate correct issuer URLs
-    issuerUrl: "http://kubarr-dashboard.kubarr-system.svc.cluster.local:8000"
+    issuerUrl: "http://localhost:8080"
 
 # Database configuration
 database:

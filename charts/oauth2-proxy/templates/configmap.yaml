@@ -10,6 +10,13 @@ data:
     # Provider configuration
     provider = "oidc"
     oidc_issuer_url = "{{ .Values.provider.issuerUrl }}"
+    skip_oidc_discovery = true
+
+    # Manual endpoint configuration for internal service communication
+    login_url = "http://kubarr-dashboard.kubarr-system.svc.cluster.local:8000/auth/authorize"
+    redeem_url = "http://kubarr-dashboard.kubarr-system.svc.cluster.local:8000/auth/token"
+    validate_url = "http://kubarr-dashboard.kubarr-system.svc.cluster.local:8000/auth/userinfo"
+    oidc_jwks_url = "http://kubarr-dashboard.kubarr-system.svc.cluster.local:8000/auth/jwks"
 
     # Client configuration
     client_id = "{{ .Values.config.clientId }}"

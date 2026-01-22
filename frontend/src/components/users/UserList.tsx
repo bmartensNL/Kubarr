@@ -1,0 +1,120 @@
+import React from 'react';
+import { User } from '../../api/users';
+
+interface UserListProps {
+  users: User[];
+  onEdit?: (user: User) => void;
+  onDelete?: (user: User) => void;
+  onApprove?: (user: User) => void;
+  onReject?: (user: User) => void;
+  showActions?: boolean;
+}
+
+const UserList: React.FC<UserListProps> = ({
+  users,
+  onEdit,
+  onDelete,
+  onApprove,
+  onReject,
+  showActions = true,
+}) => {
+  const getStatusBadge = (user: User) => {
+    if (!user.is_approved) {
+      return <span className="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-900 text-yellow-300">Pending Approval</span>;
+    }
+    if (!user.is_active) {
+      return <span className="px-2 py-1 text-xs font-semibold rounded-full bg-gray-700 text-gray-300">Inactive</span>;
+    }
+    return <span className="px-2 py-1 text-xs font-semibold rounded-full bg-green-900 text-green-300">Active</span>;
+  };
+
+  const getRoleBadge = (user: User) => {
+    return user.is_admin ? (
+      <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-900 text-blue-300">Admin</span>
+    ) : (
+      <span className="px-2 py-1 text-xs font-semibold rounded-full bg-purple-900 text-purple-300">User</span>
+    );
+  };
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full divide-y divide-gray-700">
+        <thead className="bg-gray-800">
+          <tr>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">ID</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Username</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Email</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Role</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Status</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Created</th>
+            {showActions && <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Actions</th>}
+          </tr>
+        </thead>
+        <tbody className="bg-gray-900 divide-y divide-gray-700">
+          {users.length === 0 ? (
+            <tr>
+              <td colSpan={showActions ? 7 : 6} className="px-6 py-8 text-center text-gray-400">
+                No users found
+              </td>
+            </tr>
+          ) : (
+            users.map((user) => (
+              <tr key={user.id} className="hover:bg-gray-800 transition-colors">
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{user.id}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{user.username}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{user.email}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm">{getRoleBadge(user)}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm">{getStatusBadge(user)}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{new Date(user.created_at).toLocaleDateString()}</td>
+                {showActions && (
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <div className="flex space-x-2">
+                      {!user.is_approved && onApprove && (
+                        <button
+                          className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-medium transition-colors"
+                          onClick={() => onApprove(user)}
+                          title="Approve User"
+                        >
+                          Approve
+                        </button>
+                      )}
+                      {!user.is_approved && onReject && (
+                        <button
+                          className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-xs font-medium transition-colors"
+                          onClick={() => onReject(user)}
+                          title="Reject User"
+                        >
+                          Reject
+                        </button>
+                      )}
+                      {user.is_approved && onEdit && (
+                        <button
+                          className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-medium transition-colors"
+                          onClick={() => onEdit(user)}
+                          title="Edit User"
+                        >
+                          Edit
+                        </button>
+                      )}
+                      {onDelete && (
+                        <button
+                          className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-xs font-medium transition-colors"
+                          onClick={() => onDelete(user)}
+                          title="Delete User"
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                )}
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+export default UserList;

@@ -4,9 +4,10 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from kubarr.api.dependencies import get_k8s_client
+from kubarr.api.dependencies import get_current_active_user, get_k8s_client
 from kubarr.core.k8s_client import K8sClientManager
 from kubarr.core.models import ClusterInfo, SystemInfo
+from kubarr.core.models_auth import User
 from kubarr import __version__
 
 router = APIRouter()
@@ -14,9 +15,10 @@ router = APIRouter()
 
 @router.get("/info", response_model=SystemInfo)
 async def get_system_info(
-    k8s_client: K8sClientManager = Depends(get_k8s_client)
+    k8s_client: K8sClientManager = Depends(get_k8s_client),
+    current_user: User = Depends(get_current_active_user)
 ) -> SystemInfo:
-    """Get system information.
+    """Get system information (requires authentication).
 
     Returns:
         System information including Kubarr and Kubernetes versions
@@ -37,9 +39,10 @@ async def get_system_info(
 
 @router.get("/namespaces", response_model=List[str])
 async def list_namespaces(
-    k8s_client: K8sClientManager = Depends(get_k8s_client)
+    k8s_client: K8sClientManager = Depends(get_k8s_client),
+    current_user: User = Depends(get_current_active_user)
 ) -> List[str]:
-    """List all namespaces in the cluster.
+    """List all namespaces in the cluster (requires authentication).
 
     Returns:
         List of namespace names
@@ -57,9 +60,10 @@ async def list_namespaces(
 
 @router.get("/cluster-info", response_model=ClusterInfo)
 async def get_cluster_info(
-    k8s_client: K8sClientManager = Depends(get_k8s_client)
+    k8s_client: K8sClientManager = Depends(get_k8s_client),
+    current_user: User = Depends(get_current_active_user)
 ) -> ClusterInfo:
-    """Get Kubernetes cluster information.
+    """Get Kubernetes cluster information (requires authentication).
 
     Returns:
         Cluster information

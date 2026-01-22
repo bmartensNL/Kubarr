@@ -6,15 +6,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from kubarr.api.dependencies import (
     get_app_catalog,
+    get_current_active_user,
     get_k8s_client,
     get_monitoring_service,
 )
 from kubarr.core.app_catalog import AppCatalog
 from kubarr.core.k8s_client import K8sClientManager
 from kubarr.core.models import AppHealth, PodMetrics, PodStatus, ServiceEndpoint
+from kubarr.core.models_auth import User
 from kubarr.core.monitoring_service import MonitoringService
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_active_user)])
 
 
 @router.get("/pods", response_model=List[PodStatus])

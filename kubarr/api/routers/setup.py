@@ -15,6 +15,26 @@ from kubarr.core.setup import (
 router = APIRouter()
 
 
+async def verify_setup_required(db: AsyncSession = Depends(get_db)):
+    """Verify that setup is still required.
+
+    This dependency ensures setup endpoints are only accessible
+    when initial setup hasn't been completed yet.
+
+    Args:
+        db: Database session
+
+    Raises:
+        HTTPException: If setup has already been completed
+    """
+    if not await is_setup_required(db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Setup has already been completed. These endpoints are only available during initial setup."
+        )
+    return db
+
+
 class SetupRequest(BaseModel):
     """Setup request model."""
 
@@ -43,8 +63,8 @@ class GeneratedCredentialsResponse(BaseModel):
 
 
 @router.get("/status", response_model=SetupStatusResponse)
-async def setup_status(db: AsyncSession = Depends(get_db)):
-    """Check if setup is required.
+async def setup_status(db: AsyncSession = Depends(verify_setup_required)):
+    """Check setup status (only accessible during initial setup).
 
     Args:
         db: Database session
@@ -57,8 +77,8 @@ async def setup_status(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/initialize")
-async def initialize(setup_data: SetupRequest, db: AsyncSession = Depends(get_db)):
-    """Initialize the dashboard with admin user and OAuth2 client.
+async def initialize(setup_data: SetupRequest, db: AsyncSession = Depends(verify_setup_required)):
+    """Initialize the dashboard with admin user and OAuth2 client (only accessible during initial setup).
 
     Args:
         setup_data: Setup request data
@@ -91,12 +111,13 @@ async def initialize(setup_data: SetupRequest, db: AsyncSession = Depends(get_db
         )
 
 
-@router.get("/generate-credentials", response_model=GeneratedCredentialsResponse)
+@router.get("/generate-credentials", response_model=GeneratedCredentialsResponse, dependencies=[Depends(verify_setup_required)])
 async def generate_credentials():
-    """Generate random credentials for initial setup.
+    """Generate random credentials for initial setup (only accessible during initial setup).
 
     This endpoint can be used to generate secure random credentials
-    for the admin user and OAuth2 client.
+    for the admin user and OAuth2 client. It is only accessible when
+    setup has not yet been completed.
 
     Returns:
         Generated credentials

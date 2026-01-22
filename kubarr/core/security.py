@@ -35,18 +35,20 @@ def get_private_key() -> str:
     Returns:
         str: Private key in PEM format
     """
-    global _private_key
+    global _private_key, _public_key
 
     if _private_key:
         return _private_key
 
     if os.path.exists(JWT_PRIVATE_KEY_PATH):
         with open(JWT_PRIVATE_KEY_PATH, "r") as f:
-            _private_key = f.read()
-            return _private_key
+            content = f.read().strip()
+            if content:  # Only use if not empty
+                _private_key = content
+                return _private_key
 
     # Generate in-memory key for development
-    print("WARNING: JWT private key not found, generating temporary key")
+    print("WARNING: JWT private key not found or empty, generating temporary key")
     _private_key, _public_key = generate_rsa_key_pair()
     return _private_key
 
@@ -64,8 +66,10 @@ def get_public_key() -> str:
 
     if os.path.exists(JWT_PUBLIC_KEY_PATH):
         with open(JWT_PUBLIC_KEY_PATH, "r") as f:
-            _public_key = f.read()
-            return _public_key
+            content = f.read().strip()
+            if content:  # Only use if not empty
+                _public_key = content
+                return _public_key
 
     # Use public key from generated pair
     if _private_key:

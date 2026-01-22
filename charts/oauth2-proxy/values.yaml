@@ -15,7 +15,7 @@ replicaCount: 1
 # OAuth2 Provider configuration (Kubarr dashboard)
 provider:
   # OIDC issuer URL - should point to your Kubarr dashboard
-  issuerUrl: "http://kubarr-dashboard.kubarr-system.svc.cluster.local:8000/auth"
+  issuerUrl: "http://localhost:8080/auth"
 
 # OAuth2 Proxy configuration
 config:

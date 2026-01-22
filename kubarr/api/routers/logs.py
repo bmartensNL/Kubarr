@@ -4,12 +4,13 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from kubarr.api.dependencies import get_k8s_client, get_logs_service
+from kubarr.api.dependencies import get_current_active_user, get_k8s_client, get_logs_service
 from kubarr.core.k8s_client import K8sClientManager
 from kubarr.core.logs_service import LogsService
 from kubarr.core.models import LogEntry, LogFilter
+from kubarr.core.models_auth import User
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_active_user)])
 
 
 @router.get("/{pod_name}", response_model=List[LogEntry])

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from kubarr.api.dependencies import (
     get_app_catalog,
+    get_current_active_user,
     get_deployment_manager,
     get_k8s_client,
 )
@@ -13,8 +14,9 @@ from kubarr.core.app_catalog import AppCatalog
 from kubarr.core.deployment_manager import DeploymentManager
 from kubarr.core.k8s_client import K8sClientManager
 from kubarr.core.models import AppConfig, AppInfo, DeploymentRequest, DeploymentStatus
+from kubarr.core.models_auth import User
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_active_user)])
 
 
 @router.get("/catalog", response_model=List[AppConfig])

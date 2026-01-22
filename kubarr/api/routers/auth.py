@@ -12,12 +12,23 @@ from kubarr.api.config import settings
 from kubarr.api.dependencies import get_current_user, get_db
 from kubarr.core.models_auth import User
 from kubarr.core.oauth2_service import OAuth2Service
-from kubarr.core.security import decode_token
+from kubarr.core.security import create_access_token, decode_token, verify_password
 
 router = APIRouter()
 
 
 # Pydantic schemas
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str
+    user: dict
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str
@@ -37,6 +48,69 @@ class TokenRevocationRequest(BaseModel):
     token: str
     client_id: Optional[str] = None
     client_secret: Optional[str] = None
+
+
+@router.post("/api/login", response_model=LoginResponse)
+async def api_login(
+    login_data: LoginRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Direct API login endpoint for JSON requests.
+
+    This endpoint accepts username/password and returns a JWT token directly.
+    Used by the frontend for session-based authentication without OAuth2 flow.
+
+    Args:
+        login_data: Login credentials
+        db: Database session
+
+    Returns:
+        JWT access token and user info
+
+    Raises:
+        HTTPException: If credentials are invalid
+    """
+    # Find user
+    result = await db.execute(select(User).where(User.username == login_data.username))
+    user = result.scalar_one_or_none()
+
+    # Validate credentials
+    if not user or not verify_password(login_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password",
+        )
+
+    # Check if user is active
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is inactive",
+        )
+
+    # Check if user is approved
+    if not user.is_approved:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account pending approval",
+        )
+
+    # Create JWT token
+    access_token = create_access_token(data={"sub": str(user.id)})
+
+    # Return token and user info
+    return LoginResponse(
+        access_token=access_token,
+        token_type="bearer",
+        user={
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "is_admin": user.is_admin,
+            "is_active": user.is_active,
+            "is_approved": user.is_approved,
+        }
+    )
 
 
 @router.get("/authorize")

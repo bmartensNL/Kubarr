@@ -6,12 +6,17 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true, // Include cookies for OAuth2-Proxy authentication
 });
 
 // Request interceptor
 apiClient.interceptors.request.use(
   (config) => {
-    // Add auth token if available in the future
+    // Add auth token from localStorage if available
+    const token = localStorage.getItem('access_token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
     return config;
   },
   (error) => {
