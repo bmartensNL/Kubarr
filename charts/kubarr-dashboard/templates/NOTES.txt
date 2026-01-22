@@ -1,0 +1,53 @@
+Thank you for installing {{ .Chart.Name }}!
+
+Your Kubarr Dashboard has been deployed to namespace: {{ .Values.namespace.name }}
+
+To access the dashboard:
+
+{{- if .Values.ingress.enabled }}
+  The dashboard is available at:
+  {{- range .Values.ingress.hosts }}
+  - http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+  {{- end }}
+{{- else }}
+
+  1. Port-forward to access locally:
+
+     kubectl port-forward -n {{ .Values.namespace.name }} svc/{{ include "kubarr-dashboard.fullname" . }} 8080:80
+
+     Then visit: http://localhost:8080
+
+  2. Or get the service URL:
+
+     {{- if contains "NodePort" .Values.frontend.service.type }}
+     export NODE_PORT=$(kubectl get --namespace {{ .Values.namespace.name }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "kubarr-dashboard.fullname" . }})
+     export NODE_IP=$(kubectl get nodes --namespace {{ .Values.namespace.name }} -o jsonpath="{.items[0].status.addresses[0].address}")
+     echo http://$NODE_IP:$NODE_PORT
+     {{- else if contains "LoadBalancer" .Values.frontend.service.type }}
+     NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+     You can watch the status by running:
+       kubectl get --namespace {{ .Values.namespace.name }} svc -w {{ include "kubarr-dashboard.fullname" . }}
+
+     export SERVICE_IP=$(kubectl get svc --namespace {{ .Values.namespace.name }} {{ include "kubarr-dashboard.fullname" . }} --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
+     echo http://$SERVICE_IP:{{ .Values.frontend.service.port }}
+     {{- else if contains "ClusterIP" .Values.frontend.service.type }}
+     Use kubectl port-forward as shown above.
+     {{- end }}
+{{- end }}
+
+API Documentation:
+  Access the interactive API docs at: http://your-host/docs
+
+Features:
+  - Browse and install media apps (Radarr, Sonarr, qBittorrent, etc.)
+  - Monitor pod status and resource usage
+  - View logs from all applications
+  - Manage app lifecycle (install, restart, delete)
+
+Default namespace for apps: {{ (index .Values.backend.env 1).value }}
+
+For more information:
+  - Chart repository: {{ .Chart.Home }}
+  - Documentation: {{ .Chart.Home }}/blob/main/README.md
+
+Happy pirating! (Legally, of course 😉)

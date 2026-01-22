@@ -1,0 +1,16 @@
+apiVersion: v2
+name: oauth2-proxy
+description: OAuth2 Proxy for Kubarr media applications
+type: application
+version: 0.1.0
+appVersion: "7.5.1"
+keywords:
+  - oauth2
+  - proxy
+  - authentication
+  - kubarr
+home: https://github.com/yourusername/kubarr
+sources:
+  - https://github.com/oauth2-proxy/oauth2-proxy
+maintainers:
+  - name: Kubarr Team

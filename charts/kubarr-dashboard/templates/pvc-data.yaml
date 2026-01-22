@@ -1,0 +1,19 @@
+{{- if .Values.oauth2.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "kubarr-dashboard.fullname" . }}-data
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "kubarr-dashboard.labels" . | nindent 4 }}
+    component: database
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.database.storage | default "1Gi" }}
+  {{- if .Values.database.storageClassName }}
+  storageClassName: {{ .Values.database.storageClassName }}
+  {{- end }}
+{{- end }}

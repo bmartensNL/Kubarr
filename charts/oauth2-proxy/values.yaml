@@ -1,0 +1,61 @@
+# Default values for oauth2-proxy
+
+# Namespace to deploy to
+namespace: kubarr-system
+
+# OAuth2 Proxy image configuration
+image:
+  repository: quay.io/oauth2-proxy/oauth2-proxy
+  tag: "v7.5.1"
+  pullPolicy: IfNotPresent
+
+# Number of replicas
+replicaCount: 1
+
+# OAuth2 Provider configuration (Kubarr dashboard)
+provider:
+  # OIDC issuer URL - should point to your Kubarr dashboard
+  issuerUrl: "http://kubarr-dashboard.kubarr-system.svc.cluster.local:8000/auth"
+
+# OAuth2 Proxy configuration
+config:
+  # OAuth2 client credentials
+  clientId: "oauth2-proxy"
+  clientSecret: ""  # Must be set during deployment
+  cookieSecret: ""   # Must be set during deployment
+
+  # Cookie settings
+  cookieExpire: "168h"  # 7 days
+
+  # Email domain restrictions (use ["*"] to allow all domains)
+  emailDomains: ["*"]
+
+  # Redirect URL after authentication
+  redirectUrl: "http://localhost:8080/oauth2/callback"
+
+  # Upstream services to proxy (can be overridden)
+  upstreams:
+    - "http://kubarr-dashboard:80"
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 4180
+
+# Resource limits (optional)
+resources: {}
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+# Node selector (optional)
+nodeSelector: {}
+
+# Tolerations (optional)
+tolerations: []
+
+# Affinity (optional)
+affinity: {}

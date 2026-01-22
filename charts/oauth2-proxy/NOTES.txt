@@ -1,0 +1,46 @@
+Thank you for installing {{ .Chart.Name }}!
+
+Your release is named {{ .Release.Name }}.
+
+OAuth2 Proxy has been deployed to namespace: {{ .Values.namespace }}
+
+To get the status of your deployment:
+  kubectl get pods -n {{ .Values.namespace }} -l app.kubernetes.io/name={{ include "oauth2-proxy.name" . }}
+
+To view logs:
+  kubectl logs -n {{ .Values.namespace }} -l app.kubernetes.io/name={{ include "oauth2-proxy.name" . }}
+
+{{- if not .Values.config.clientSecret }}
+
+WARNING: clientSecret is not set!
+Please update the secret with your OAuth2 client credentials:
+
+  kubectl patch secret {{ include "oauth2-proxy.fullname" . }}-secret \
+    -n {{ .Values.namespace }} \
+    --type='json' \
+    -p='[{"op": "replace", "path": "/data/client-secret", "value":"'$(echo -n "your-secret" | base64)'"}]'
+
+{{- end }}
+
+{{- if not .Values.config.cookieSecret }}
+
+WARNING: cookieSecret is not set!
+Generate a secure cookie secret:
+
+  python3 -c 'import secrets; print(secrets.token_hex(16))'
+
+Then update the secret:
+
+  kubectl patch secret {{ include "oauth2-proxy.fullname" . }}-secret \
+    -n {{ .Values.namespace }} \
+    --type='json' \
+    -p='[{"op": "replace", "path": "/data/cookie-secret", "value":"'$(echo -n "your-cookie-secret" | base64)'"}]'
+
+{{- end }}
+
+Access the OAuth2 proxy:
+  kubectl port-forward -n {{ .Values.namespace }} svc/{{ include "oauth2-proxy.fullname" . }} 4180:4180
+
+Then navigate to http://localhost:4180
+
+For more information, see the README.md file.

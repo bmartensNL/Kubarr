@@ -1,0 +1,266 @@
+"""Login and registration endpoints with HTML templates."""
+
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from pydantic import EmailStr
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from kubarr.api.config import settings
+from kubarr.api.dependencies import get_db
+from kubarr.core.models_auth import User
+from kubarr.core.oauth2_service import OAuth2Service
+from kubarr.core.security import hash_password, verify_password
+
+router = APIRouter()
+
+# Jinja2 templates
+templates = Jinja2Templates(directory="kubarr/api/templates")
+
+
+@router.get("/login", response_class=HTMLResponse)
+async def login_page(
+    request: Request,
+    client_id: Optional[str] = None,
+    redirect_uri: Optional[str] = None,
+    scope: Optional[str] = None,
+    state: Optional[str] = None,
+    code_challenge: Optional[str] = None,
+    code_challenge_method: Optional[str] = "S256",
+    error: Optional[str] = None,
+):
+    """Render login page.
+
+    Args:
+        request: FastAPI request
+        client_id: OAuth2 client ID
+        redirect_uri: Redirect URI after login
+        scope: Requested scope
+        state: State parameter
+        code_challenge: PKCE code challenge
+        code_challenge_method: PKCE method
+        error: Error message to display
+
+    Returns:
+        HTML login page
+    """
+    return templates.TemplateResponse(
+        "login.html",
+        {
+            "request": request,
+            "client_id": client_id or "",
+            "redirect_uri": redirect_uri or "",
+            "scope": scope or "",
+            "state": state or "",
+            "code_challenge": code_challenge or "",
+            "code_challenge_method": code_challenge_method,
+            "error": error,
+        },
+    )
+
+
+@router.post("/login")
+async def login_submit(
+    username: str = Form(...),
+    password: str = Form(...),
+    client_id: str = Form(...),
+    redirect_uri: str = Form(...),
+    scope: Optional[str] = Form(None),
+    state: Optional[str] = Form(None),
+    code_challenge: Optional[str] = Form(None),
+    code_challenge_method: Optional[str] = Form("S256"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Handle login form submission.
+
+    Args:
+        username: Username
+        password: Password
+        client_id: OAuth2 client ID
+        redirect_uri: Redirect URI
+        scope: Requested scope
+        state: State parameter
+        code_challenge: PKCE code challenge
+        code_challenge_method: PKCE method
+        db: Database session
+
+    Returns:
+        Redirect to callback with authorization code or error
+    """
+    # Validate user credentials
+    result = await db.execute(select(User).where(User.username == username))
+    user = result.scalar_one_or_none()
+
+    if not user or not verify_password(password, user.hashed_password):
+        # Redirect back to login with error
+        return RedirectResponse(
+            url=f"/auth/login?client_id={client_id}&redirect_uri={redirect_uri}"
+            f"&scope={scope or ''}&state={state or ''}"
+            f"&code_challenge={code_challenge or ''}"
+            f"&code_challenge_method={code_challenge_method}"
+            f"&error=Invalid credentials",
+            status_code=status.HTTP_302_FOUND,
+        )
+
+    # Check if user is active
+    if not user.is_active:
+        return RedirectResponse(
+            url=f"/auth/login?client_id={client_id}&redirect_uri={redirect_uri}"
+            f"&error=Account is inactive",
+            status_code=status.HTTP_302_FOUND,
+        )
+
+    # Check if user is approved
+    if not user.is_approved:
+        return RedirectResponse(
+            url=f"/auth/login?client_id={client_id}&redirect_uri={redirect_uri}"
+            f"&error=Account pending approval",
+            status_code=status.HTTP_302_FOUND,
+        )
+
+    # Create authorization code
+    oauth2_service = OAuth2Service(db)
+    auth_code = await oauth2_service.create_authorization_code(
+        client_id=client_id,
+        user_id=user.id,
+        redirect_uri=redirect_uri,
+        scope=scope,
+        code_challenge=code_challenge,
+        code_challenge_method=code_challenge_method,
+    )
+
+    # Build callback URL
+    callback_url = f"{redirect_uri}?code={auth_code}"
+    if state:
+        callback_url += f"&state={state}"
+
+    return RedirectResponse(url=callback_url, status_code=status.HTTP_302_FOUND)
+
+
+@router.get("/register", response_class=HTMLResponse)
+async def register_page(
+    request: Request, error: Optional[str] = None, success: Optional[bool] = None
+):
+    """Render registration page.
+
+    Args:
+        request: FastAPI request
+        error: Error message to display
+        success: Success flag
+
+    Returns:
+        HTML registration page
+    """
+    if not settings.registration_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Registration is disabled",
+        )
+
+    return templates.TemplateResponse(
+        "register.html",
+        {
+            "request": request,
+            "error": error,
+            "success": success,
+            "require_approval": settings.registration_require_approval,
+        },
+    )
+
+
+@router.post("/register")
+async def register_submit(
+    username: str = Form(...),
+    email: EmailStr = Form(...),
+    password: str = Form(...),
+    confirm_password: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Handle registration form submission.
+
+    Args:
+        username: Username
+        email: Email address
+        password: Password
+        confirm_password: Password confirmation
+        db: Database session
+
+    Returns:
+        Redirect to registration page with success/error
+    """
+    if not settings.registration_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Registration is disabled",
+        )
+
+    # Validate password match
+    if password != confirm_password:
+        return RedirectResponse(
+            url="/auth/register?error=Passwords do not match",
+            status_code=status.HTTP_302_FOUND,
+        )
+
+    # Validate password length
+    if len(password) < 8:
+        return RedirectResponse(
+            url="/auth/register?error=Password must be at least 8 characters",
+            status_code=status.HTTP_302_FOUND,
+        )
+
+    # Check if username exists
+    result = await db.execute(select(User).where(User.username == username))
+    if result.scalar_one_or_none():
+        return RedirectResponse(
+            url="/auth/register?error=Username already exists",
+            status_code=status.HTTP_302_FOUND,
+        )
+
+    # Check if email exists
+    result = await db.execute(select(User).where(User.email == email))
+    if result.scalar_one_or_none():
+        return RedirectResponse(
+            url="/auth/register?error=Email already exists",
+            status_code=status.HTTP_302_FOUND,
+        )
+
+    # Create user
+    new_user = User(
+        username=username,
+        email=email,
+        hashed_password=hash_password(password),
+        is_admin=False,
+        is_active=True,
+        is_approved=not settings.registration_require_approval,
+    )
+
+    db.add(new_user)
+    await db.commit()
+
+    # Redirect with success message
+    return RedirectResponse(
+        url="/auth/register?success=true", status_code=status.HTTP_302_FOUND
+    )
+
+
+@router.post("/logout")
+async def logout(
+    token: Optional[str] = Form(None), db: AsyncSession = Depends(get_db)
+):
+    """Handle logout.
+
+    Args:
+        token: Access token to revoke
+        db: Database session
+
+    Returns:
+        Success message
+    """
+    if token:
+        oauth2_service = OAuth2Service(db)
+        await oauth2_service.revoke_token(token)
+
+    return {"message": "Logged out successfully"}
