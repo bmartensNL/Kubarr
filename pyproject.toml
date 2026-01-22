@@ -1,0 +1,55 @@
+[tool.poetry]
+name = "kubarr"
+version = "0.1.0"
+description = "Kubernetes-based automated media management stack deployment tool"
+authors = ["Your Name <your.email@example.com>"]
+readme = "README.md"
+license = "MIT"
+homepage = "https://github.com/yourusername/kubarr"
+repository = "https://github.com/yourusername/kubarr"
+keywords = ["kubernetes", "media", "automation", "deployment"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+kubernetes = "^29.0.0"
+pyyaml = "^6.0.1"
+click = "^8.1.7"
+rich = "^13.7.0"
+pydantic = "^2.5.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.3"
+black = "^23.12.1"
+ruff = "^0.1.9"
+mypy = "^1.8.0"
+
+[tool.poetry.scripts]
+kubarr = "kubarr.cli:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 100
+target-version = ["py39", "py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
