@@ -1,19 +1,21 @@
 """User management API endpoints."""
 
-from datetime import datetime
+import secrets
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from kubarr.api.dependencies import (
     get_current_active_user,
     get_current_admin_user,
     get_db,
 )
-from kubarr.core.models_auth import User
+from kubarr.core.models_auth import Invite, User
 from kubarr.core.security import hash_password
 
 router = APIRouter()
@@ -166,6 +168,149 @@ async def create_user(
     return new_user
 
 
+# Invite schemas (must be defined before invite endpoints)
+class InviteCreate(BaseModel):
+    expires_in_days: Optional[int] = 7
+
+
+class InviteResponse(BaseModel):
+    id: int
+    code: str
+    created_by_username: str
+    used_by_username: Optional[str] = None
+    is_used: bool
+    expires_at: Optional[datetime] = None
+    created_at: datetime
+    used_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# Invite endpoints - MUST be before /{user_id} routes
+@router.get("/invites", response_model=List[InviteResponse])
+async def list_invites(
+    current_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """List all invites (admin only).
+
+    Args:
+        current_user: Current admin user
+        db: Database session
+
+    Returns:
+        List of invites
+    """
+    result = await db.execute(
+        select(Invite)
+        .options(selectinload(Invite.created_by), selectinload(Invite.used_by))
+        .order_by(Invite.created_at.desc())
+    )
+    invites = result.scalars().all()
+
+    return [
+        InviteResponse(
+            id=invite.id,
+            code=invite.code,
+            created_by_username=invite.created_by.username if invite.created_by else "Unknown",
+            used_by_username=invite.used_by.username if invite.used_by else None,
+            is_used=invite.is_used,
+            expires_at=invite.expires_at,
+            created_at=invite.created_at,
+            used_at=invite.used_at,
+        )
+        for invite in invites
+    ]
+
+
+@router.post("/invites", response_model=InviteResponse, status_code=status.HTTP_201_CREATED)
+async def create_invite(
+    invite_data: InviteCreate = None,
+    current_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Create a new invite link (admin only).
+
+    Args:
+        invite_data: Invite creation data with optional expiry
+        current_user: Current admin user
+        db: Database session
+
+    Returns:
+        Created invite with code
+    """
+    if invite_data is None:
+        invite_data = InviteCreate()
+
+    # Generate a secure random code
+    code = secrets.token_urlsafe(32)
+
+    # Calculate expiration
+    expires_at = None
+    if invite_data.expires_in_days:
+        expires_at = datetime.utcnow() + timedelta(days=invite_data.expires_in_days)
+
+    # Create invite
+    new_invite = Invite(
+        code=code,
+        created_by_id=current_user.id,
+        expires_at=expires_at,
+    )
+
+    db.add(new_invite)
+    await db.commit()
+    await db.refresh(new_invite)
+
+    return InviteResponse(
+        id=new_invite.id,
+        code=new_invite.code,
+        created_by_username=current_user.username,
+        used_by_username=None,
+        is_used=new_invite.is_used,
+        expires_at=new_invite.expires_at,
+        created_at=new_invite.created_at,
+        used_at=new_invite.used_at,
+    )
+
+
+@router.delete("/invites/{invite_id}")
+async def delete_invite(
+    invite_id: int,
+    current_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete an invite (admin only).
+
+    Args:
+        invite_id: Invite ID
+        current_user: Current admin user
+        db: Database session
+
+    Returns:
+        Success message
+
+    Raises:
+        HTTPException: If invite not found
+    """
+    result = await db.execute(
+        select(Invite).where(Invite.id == invite_id)
+    )
+    invite = result.scalar_one_or_none()
+
+    if not invite:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invite not found"
+        )
+
+    await db.delete(invite)
+    await db.commit()
+
+    return {"message": "Invite deleted"}
+
+
+# User ID routes - these must come AFTER /invites routes
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(
     user_id: int,

@@ -1,6 +1,7 @@
 import { useQuery, useQueries } from '@tanstack/react-query'
 import { appsApi } from '../api/apps'
 import { monitoringApi } from '../api/monitoring'
+import { AppIcon } from '../components/AppIcon'
 import type { PodStatus } from '../types'
 
 export default function Dashboard() {
@@ -70,17 +71,20 @@ export default function Dashboard() {
 
               return (
                 <div key={app.name} className="bg-gray-800 rounded-lg p-6">
-                  <div className="flex items-start justify-between mb-4">
-                    <div>
-                      <h3 className="text-lg font-semibold">{app.display_name}</h3>
+                  <div className="flex items-start gap-4 mb-4">
+                    <AppIcon appName={app.name} size={48} />
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-lg font-semibold">{app.display_name}</h3>
+                        <div
+                          className={`w-3 h-3 rounded-full ${
+                            isHealthy ? 'bg-green-400' : 'bg-red-400'
+                          }`}
+                          title={isHealthy ? 'Healthy' : 'Unhealthy'}
+                        />
+                      </div>
                       <p className="text-sm text-gray-400">{app.category}</p>
                     </div>
-                    <div
-                      className={`w-3 h-3 rounded-full ${
-                        isHealthy ? 'bg-green-400' : 'bg-red-400'
-                      }`}
-                      title={isHealthy ? 'Healthy' : 'Unhealthy'}
-                    />
                   </div>
                   <p className="text-sm text-gray-300 mb-4">{app.description}</p>
                   <a

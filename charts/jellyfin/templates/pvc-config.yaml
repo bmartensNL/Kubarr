@@ -1,0 +1,19 @@
+{{- if .Values.persistence.config.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "jellyfin.fullname" . }}-config
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "jellyfin.labels" . | nindent 4 }}
+    volume: config
+spec:
+  accessModes:
+    - {{ .Values.persistence.config.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.config.size }}
+  {{- if .Values.persistence.config.storageClass }}
+  storageClassName: {{ .Values.persistence.config.storageClass }}
+  {{- end }}
+{{- end }}

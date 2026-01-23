@@ -97,3 +97,25 @@ class OAuth2Token(Base):
 
     def __repr__(self) -> str:
         return f"<OAuth2Token(id={self.id}, client_id='{self.client_id}', user_id={self.user_id})>"
+
+
+class Invite(Base):
+    """Invite model for one-time use registration links."""
+
+    __tablename__ = "invites"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(64), unique=True, nullable=False, index=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    used_by_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    is_used = Column(Boolean, default=False, nullable=False)
+    expires_at = Column(DateTime, nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    created_by = relationship("User", foreign_keys=[created_by_id], backref="created_invites")
+    used_by = relationship("User", foreign_keys=[used_by_id], backref="used_invite")
+
+    def __repr__(self) -> str:
+        return f"<Invite(id={self.id}, code='{self.code[:8]}...', is_used={self.is_used})>"

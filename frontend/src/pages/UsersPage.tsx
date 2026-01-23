@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import UserList from '../components/users/UserList';
 import UserForm from '../components/users/UserForm';
+import InviteLinkModal from '../components/users/InviteLinkModal';
 import {
   User,
+  Invite,
   getUsers,
   getPendingUsers,
   createUser,
@@ -11,26 +13,35 @@ import {
   deleteUser,
   approveUser,
   rejectUser,
+  getInvites,
+  createInvite,
+  deleteInvite,
   CreateUserRequest,
   UpdateUserRequest,
 } from '../api/users';
 
 type ViewMode = 'list' | 'create' | 'edit';
+type ActiveTab = 'all' | 'pending' | 'invites';
 
 const UsersPage: React.FC = () => {
   const { isAdmin } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [pendingUsers, setPendingUsers] = useState<User[]>([]);
+  const [invites, setInvites] = useState<Invite[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  const [activeTab, setActiveTab] = useState<'all' | 'pending'>('all');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('all');
+  const [creatingInvite, setCreatingInvite] = useState(false);
+  const [copiedInviteId, setCopiedInviteId] = useState<number | null>(null);
+  const [newInvite, setNewInvite] = useState<Invite | null>(null);
 
   useEffect(() => {
     if (isAdmin) {
       loadUsers();
       loadPendingUsers();
+      loadInvites();
     }
   }, [isAdmin]);
 
@@ -53,6 +64,15 @@ const UsersPage: React.FC = () => {
       setPendingUsers(data);
     } catch (err: any) {
       console.error('Failed to load pending users:', err);
+    }
+  };
+
+  const loadInvites = async () => {
+    try {
+      const data = await getInvites();
+      setInvites(data);
+    } catch (err: any) {
+      console.error('Failed to load invites:', err);
     }
   };
 
@@ -112,6 +132,61 @@ const UsersPage: React.FC = () => {
   const handleCancel = () => {
     setViewMode('list');
     setSelectedUser(null);
+  };
+
+  const handleCreateInvite = async () => {
+    try {
+      setCreatingInvite(true);
+      console.log('Creating invite...');
+      const invite = await createInvite({ expires_in_days: 7 });
+      console.log('Invite created:', invite);
+      setNewInvite(invite);
+      console.log('newInvite state set');
+      await loadInvites();
+    } catch (err: any) {
+      console.error('Failed to create invite:', err);
+      setError(err.response?.data?.detail || 'Failed to create invite');
+    } finally {
+      setCreatingInvite(false);
+    }
+  };
+
+  const handleCloseInviteModal = () => {
+    setNewInvite(null);
+  };
+
+  const handleDeleteInvite = async (invite: Invite) => {
+    if (window.confirm('Are you sure you want to delete this invite?')) {
+      try {
+        await deleteInvite(invite.id);
+        await loadInvites();
+      } catch (err: any) {
+        setError(err.response?.data?.detail || 'Failed to delete invite');
+      }
+    }
+  };
+
+  const copyInviteLink = (invite: Invite) => {
+    const baseUrl = window.location.origin;
+    const inviteUrl = `${baseUrl}/auth/register?invite=${invite.code}`;
+    navigator.clipboard.writeText(inviteUrl);
+    setCopiedInviteId(invite.id);
+    setTimeout(() => setCopiedInviteId(null), 2000);
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const isExpired = (expiresAt: string | null) => {
+    if (!expiresAt) return false;
+    return new Date(expiresAt) < new Date();
   };
 
   if (!isAdmin) {
@@ -177,6 +252,16 @@ const UsersPage: React.FC = () => {
               >
                 Pending Approval ({pendingUsers.length})
               </button>
+              <button
+                className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                  activeTab === 'invites'
+                    ? 'border-blue-500 text-blue-500'
+                    : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
+                }`}
+                onClick={() => setActiveTab('invites')}
+              >
+                Invite Links ({invites.filter(i => !i.is_used && !isExpired(i.expires_at)).length})
+              </button>
             </nav>
           </div>
 
@@ -204,6 +289,98 @@ const UsersPage: React.FC = () => {
                   showActions={true}
                 />
               )}
+              {activeTab === 'invites' && (
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <p className="text-gray-400 text-sm">
+                      Create invite links to share with users. Each link can only be used once.
+                    </p>
+                    <button
+                      onClick={handleCreateInvite}
+                      disabled={creatingInvite}
+                      className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-md font-medium transition-colors"
+                    >
+                      {creatingInvite ? 'Creating...' : 'Create Invite'}
+                    </button>
+                  </div>
+
+                  {invites.length === 0 ? (
+                    <div className="bg-gray-800 rounded-lg border border-gray-700 p-8 text-center">
+                      <p className="text-gray-400">No invites created yet. Create one to get started.</p>
+                    </div>
+                  ) : (
+                    <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+                      <table className="min-w-full divide-y divide-gray-700">
+                        <thead className="bg-gray-750">
+                          <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                              Status
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                              Created By
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                              Created At
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                              Expires At
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                              Used By
+                            </th>
+                            <th className="px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">
+                              Actions
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-700">
+                          {invites.map((invite) => (
+                            <tr key={invite.id} className={invite.is_used || isExpired(invite.expires_at) ? 'opacity-50' : ''}>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                {invite.is_used ? (
+                                  <span className="px-2 py-1 text-xs bg-gray-600 text-gray-300 rounded">Used</span>
+                                ) : isExpired(invite.expires_at) ? (
+                                  <span className="px-2 py-1 text-xs bg-red-600 text-white rounded">Expired</span>
+                                ) : (
+                                  <span className="px-2 py-1 text-xs bg-green-600 text-white rounded">Active</span>
+                                )}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                                {invite.created_by_username}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                                {formatDate(invite.created_at)}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                                {invite.expires_at ? formatDate(invite.expires_at) : 'Never'}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                                {invite.used_by_username || '-'}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-right text-sm space-x-2">
+                                {!invite.is_used && !isExpired(invite.expires_at) && (
+                                  <button
+                                    onClick={() => copyInviteLink(invite)}
+                                    className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-white transition-colors"
+                                  >
+                                    {copiedInviteId === invite.id ? 'Copied!' : 'Copy Link'}
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => handleDeleteInvite(invite)}
+                                  className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-white transition-colors"
+                                >
+                                  Delete
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
         </>
@@ -224,6 +401,10 @@ const UsersPage: React.FC = () => {
             isEdit={true}
           />
         </div>
+      )}
+
+      {newInvite && (
+        <InviteLinkModal invite={newInvite} onClose={handleCloseInviteModal} />
       )}
     </div>
   );

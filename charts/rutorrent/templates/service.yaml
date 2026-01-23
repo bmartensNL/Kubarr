@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rutorrent.fullname" . }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "rutorrent.labels" . | nindent 4 }}
+  {{- with .Values.rutorrent.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.rutorrent.service.type }}
+  ports:
+    - port: {{ .Values.rutorrent.service.port }}
+      targetPort: {{ .Values.rutorrent.service.targetPort }}
+      protocol: TCP
+      name: http
+    - port: {{ .Values.rutorrent.service.xmlrpcPort }}
+      targetPort: {{ .Values.rutorrent.service.xmlrpcPort }}
+      protocol: TCP
+      name: xmlrpc
+  selector:
+    {{- include "rutorrent.selectorLabels" . | nindent 4 }}

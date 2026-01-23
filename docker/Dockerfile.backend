@@ -18,6 +18,10 @@ RUN npm run build
 # Stage 2: Backend with frontend static files
 FROM python:3.11-slim
 
+# Build args for version info
+ARG COMMIT_HASH=unknown
+ARG BUILD_TIME=unknown
+
 WORKDIR /app
 
 # Install system dependencies and Helm
@@ -52,8 +56,10 @@ RUN useradd -m -u 1000 kubarr && \
 
 USER kubarr
 
-# Set environment variable for static files
+# Set environment variables
 ENV STATIC_FILES_DIR=/app/static
+ENV COMMIT_HASH=${COMMIT_HASH}
+ENV BUILD_TIME=${BUILD_TIME}
 
 # Expose API port
 EXPOSE 8000

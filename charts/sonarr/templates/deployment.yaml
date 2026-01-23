@@ -1,0 +1,142 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sonarr.fullname" . }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "sonarr.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.sonarr.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "sonarr.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "sonarr.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "sonarr.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: init-config
+          image: busybox:latest
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /config
+              CONFIG_FILE="/config/config.xml"
+              if [ ! -f "$CONFIG_FILE" ]; then
+                # Create initial config
+                cat > "$CONFIG_FILE" << 'EOF'
+              <Config>
+                <UrlBase>{{ .Values.sonarr.basePath }}</UrlBase>
+                <BindAddress>*</BindAddress>
+                <Port>8989</Port>
+                <EnableSsl>False</EnableSsl>
+                <AuthenticationMethod>External</AuthenticationMethod>
+                <AuthenticationRequired>DisabledForLocalAddresses</AuthenticationRequired>
+              </Config>
+              EOF
+              else
+                # Update existing config to disable authentication (protected by oauth2-proxy)
+                echo "Updating authentication settings in existing config..."
+                # Update AuthenticationMethod to External
+                if grep -q "<AuthenticationMethod>" "$CONFIG_FILE"; then
+                  sed -i 's|<AuthenticationMethod>[^<]*</AuthenticationMethod>|<AuthenticationMethod>External</AuthenticationMethod>|g' "$CONFIG_FILE"
+                else
+                  sed -i 's|</Config>|  <AuthenticationMethod>External</AuthenticationMethod>\n</Config>|' "$CONFIG_FILE"
+                fi
+                # Update AuthenticationRequired
+                if grep -q "<AuthenticationRequired>" "$CONFIG_FILE"; then
+                  sed -i 's|<AuthenticationRequired>[^<]*</AuthenticationRequired>|<AuthenticationRequired>DisabledForLocalAddresses</AuthenticationRequired>|g' "$CONFIG_FILE"
+                else
+                  sed -i 's|</Config>|  <AuthenticationRequired>DisabledForLocalAddresses</AuthenticationRequired>\n</Config>|' "$CONFIG_FILE"
+                fi
+                {{- if .Values.sonarr.basePath }}
+                # Ensure UrlBase is set
+                if grep -q "<UrlBase>" "$CONFIG_FILE"; then
+                  sed -i 's|<UrlBase>[^<]*</UrlBase>|<UrlBase>{{ .Values.sonarr.basePath }}</UrlBase>|g' "$CONFIG_FILE"
+                else
+                  sed -i 's|</Config>|  <UrlBase>{{ .Values.sonarr.basePath }}</UrlBase>\n</Config>|' "$CONFIG_FILE"
+                fi
+                {{- end }}
+              fi
+              echo "Config file contents:"
+              cat "$CONFIG_FILE"
+          volumeMounts:
+            - name: config
+              mountPath: /config
+      containers:
+        - name: sonarr
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.sonarr.image.repository }}:{{ .Values.sonarr.image.tag }}"
+          imagePullPolicy: {{ .Values.sonarr.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.sonarr.service.targetPort }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "sonarr.fullname" . }}-config
+          {{- if .Values.sonarr.livenessProbe.enabled }}
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.sonarr.livenessProbe.tcpSocket.port }}
+            initialDelaySeconds: {{ .Values.sonarr.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.sonarr.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.sonarr.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.sonarr.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.sonarr.readinessProbe.enabled }}
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.sonarr.readinessProbe.tcpSocket.port }}
+            initialDelaySeconds: {{ .Values.sonarr.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.sonarr.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.sonarr.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.sonarr.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.sonarr.resources | nindent 12 }}
+          volumeMounts:
+            {{- if .Values.persistence.config.enabled }}
+            - name: config
+              mountPath: {{ .Values.persistence.config.mountPath }}
+            {{- end }}
+            - name: setup-scripts
+              mountPath: /custom-services.d/setup-downloadclients
+              subPath: setup-downloadclients.sh
+      volumes:
+        {{- if .Values.persistence.config.enabled }}
+        - name: config
+          persistentVolumeClaim:
+            claimName: {{ include "sonarr.fullname" . }}-config
+        {{- end }}
+        - name: setup-scripts
+          configMap:
+            name: {{ include "sonarr.fullname" . }}-setup
+            defaultMode: 0755
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

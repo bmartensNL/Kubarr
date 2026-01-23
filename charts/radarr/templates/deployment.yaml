@@ -1,0 +1,142 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "radarr.fullname" . }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "radarr.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.radarr.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "radarr.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "radarr.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "radarr.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: init-config
+          image: busybox:latest
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /config
+              CONFIG_FILE="/config/config.xml"
+              if [ ! -f "$CONFIG_FILE" ]; then
+                # Create initial config
+                cat > "$CONFIG_FILE" << 'EOF'
+              <Config>
+                <UrlBase>{{ .Values.radarr.basePath }}</UrlBase>
+                <BindAddress>*</BindAddress>
+                <Port>7878</Port>
+                <EnableSsl>False</EnableSsl>
+                <AuthenticationMethod>External</AuthenticationMethod>
+                <AuthenticationRequired>DisabledForLocalAddresses</AuthenticationRequired>
+              </Config>
+              EOF
+              else
+                # Update existing config to disable authentication (protected by oauth2-proxy)
+                echo "Updating authentication settings in existing config..."
+                # Update AuthenticationMethod to External
+                if grep -q "<AuthenticationMethod>" "$CONFIG_FILE"; then
+                  sed -i 's|<AuthenticationMethod>[^<]*</AuthenticationMethod>|<AuthenticationMethod>External</AuthenticationMethod>|g' "$CONFIG_FILE"
+                else
+                  sed -i 's|</Config>|  <AuthenticationMethod>External</AuthenticationMethod>\n</Config>|' "$CONFIG_FILE"
+                fi
+                # Update AuthenticationRequired
+                if grep -q "<AuthenticationRequired>" "$CONFIG_FILE"; then
+                  sed -i 's|<AuthenticationRequired>[^<]*</AuthenticationRequired>|<AuthenticationRequired>DisabledForLocalAddresses</AuthenticationRequired>|g' "$CONFIG_FILE"
+                else
+                  sed -i 's|</Config>|  <AuthenticationRequired>DisabledForLocalAddresses</AuthenticationRequired>\n</Config>|' "$CONFIG_FILE"
+                fi
+                {{- if .Values.radarr.basePath }}
+                # Ensure UrlBase is set
+                if grep -q "<UrlBase>" "$CONFIG_FILE"; then
+                  sed -i 's|<UrlBase>[^<]*</UrlBase>|<UrlBase>{{ .Values.radarr.basePath }}</UrlBase>|g' "$CONFIG_FILE"
+                else
+                  sed -i 's|</Config>|  <UrlBase>{{ .Values.radarr.basePath }}</UrlBase>\n</Config>|' "$CONFIG_FILE"
+                fi
+                {{- end }}
+              fi
+              echo "Config file contents:"
+              cat "$CONFIG_FILE"
+          volumeMounts:
+            - name: config
+              mountPath: /config
+      containers:
+        - name: radarr
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.radarr.image.repository }}:{{ .Values.radarr.image.tag }}"
+          imagePullPolicy: {{ .Values.radarr.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.radarr.service.targetPort }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "radarr.fullname" . }}-config
+          {{- if .Values.radarr.livenessProbe.enabled }}
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.radarr.livenessProbe.tcpSocket.port }}
+            initialDelaySeconds: {{ .Values.radarr.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.radarr.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.radarr.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.radarr.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.radarr.readinessProbe.enabled }}
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.radarr.readinessProbe.tcpSocket.port }}
+            initialDelaySeconds: {{ .Values.radarr.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.radarr.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.radarr.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.radarr.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.radarr.resources | nindent 12 }}
+          volumeMounts:
+            {{- if .Values.persistence.config.enabled }}
+            - name: config
+              mountPath: {{ .Values.persistence.config.mountPath }}
+            {{- end }}
+            - name: setup-scripts
+              mountPath: /custom-services.d/setup-downloadclients
+              subPath: setup-downloadclients.sh
+      volumes:
+        {{- if .Values.persistence.config.enabled }}
+        - name: config
+          persistentVolumeClaim:
+            claimName: {{ include "radarr.fullname" . }}-config
+        {{- end }}
+        - name: setup-scripts
+          configMap:
+            name: {{ include "radarr.fullname" . }}-setup
+            defaultMode: 0755
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

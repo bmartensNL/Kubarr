@@ -202,6 +202,84 @@ class AppCatalog:
                 },
                 category="download-client"
             ),
+
+            # Transmission - BitTorrent client
+            AppConfig(
+                name="transmission",
+                display_name="Transmission",
+                description="Fast, easy, and free BitTorrent client with web interface",
+                icon="\U0001F4E5",  # 📥
+                container_image="linuxserver/transmission:latest",
+                default_port=9091,
+                resource_requirements=ResourceRequirements(
+                    cpu_request="100m",
+                    cpu_limit="1000m",
+                    memory_request="256Mi",
+                    memory_limit="1Gi"
+                ),
+                volumes=[
+                    VolumeConfig(name="config", mount_path="/config", size="1Gi"),
+                    VolumeConfig(name="downloads", mount_path="/downloads", size="200Gi"),
+                ],
+                environment_variables={
+                    "PUID": "1000",
+                    "PGID": "1000",
+                    "TZ": "Etc/UTC",
+                },
+                category="download-client"
+            ),
+
+            # Deluge - BitTorrent client
+            AppConfig(
+                name="deluge",
+                display_name="Deluge",
+                description="Lightweight, cross-platform BitTorrent client with web interface",
+                icon="\U0001F4E5",  # 📥
+                container_image="linuxserver/deluge:latest",
+                default_port=8112,
+                resource_requirements=ResourceRequirements(
+                    cpu_request="100m",
+                    cpu_limit="1000m",
+                    memory_request="256Mi",
+                    memory_limit="1Gi"
+                ),
+                volumes=[
+                    VolumeConfig(name="config", mount_path="/config", size="1Gi"),
+                    VolumeConfig(name="downloads", mount_path="/downloads", size="200Gi"),
+                ],
+                environment_variables={
+                    "PUID": "1000",
+                    "PGID": "1000",
+                    "TZ": "Etc/UTC",
+                },
+                category="download-client"
+            ),
+
+            # ruTorrent - BitTorrent client with web UI
+            AppConfig(
+                name="rutorrent",
+                display_name="ruTorrent",
+                description="Feature-rich BitTorrent client with powerful web interface",
+                icon="\U0001F4E5",  # 📥
+                container_image="crazymax/rtorrent-rutorrent:latest",
+                default_port=8080,
+                resource_requirements=ResourceRequirements(
+                    cpu_request="100m",
+                    cpu_limit="1000m",
+                    memory_request="256Mi",
+                    memory_limit="1Gi"
+                ),
+                volumes=[
+                    VolumeConfig(name="config", mount_path="/config", size="1Gi"),
+                    VolumeConfig(name="downloads", mount_path="/downloads", size="200Gi"),
+                ],
+                environment_variables={
+                    "PUID": "1000",
+                    "PGID": "1000",
+                    "TZ": "Etc/UTC",
+                },
+                category="download-client"
+            ),
         ]
 
         return {app.name: app for app in apps}

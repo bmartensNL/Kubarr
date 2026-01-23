@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "radarr.fullname" . }}-config
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "radarr.labels" . | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.radarr.env }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}

@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "transmission.fullname" . }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "transmission.labels" . | nindent 4 }}
+  {{- with .Values.transmission.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.transmission.service.type }}
+  ports:
+    - port: {{ .Values.transmission.service.port }}
+      targetPort: {{ .Values.transmission.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "transmission.selectorLabels" . | nindent 4 }}

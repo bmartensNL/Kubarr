@@ -239,26 +239,28 @@ class DeploymentManager:
         try:
             core_api = self._k8s.get_core_v1_api()
 
-            # If no namespace specified, find all namespaces with kubarr apps
+            # If no namespace specified, find all namespaces matching catalog apps
             if namespace is None:
+                # Get all app names from catalog
+                catalog_apps = {app.name for app in self._catalog.get_all_apps()}
+
                 namespaces = core_api.list_namespace()
                 app_names = []
 
                 for ns in namespaces.items:
-                    # Check if namespace has kubarr-managed deployments
-                    if self.check_namespace_exists(ns.metadata.name):
-                        health = self.check_namespace_health(ns.metadata.name)
+                    ns_name = ns.metadata.name
+                    # Only check namespaces that match catalog app names
+                    if ns_name in catalog_apps:
+                        health = self.check_namespace_health(ns_name)
                         if health.get("deployments"):
-                            # Use namespace name as app name
-                            app_names.append(ns.metadata.name)
+                            app_names.append(ns_name)
 
                 return app_names
             else:
                 # Check specific namespace
                 apps_api = self._k8s.get_apps_v1_api()
                 deployments = apps_api.list_namespaced_deployment(
-                    namespace=namespace,
-                    label_selector="managed-by=kubarr"
+                    namespace=namespace
                 )
                 return [d.metadata.name for d in deployments.items]
         except ApiException:
@@ -688,10 +690,9 @@ WebUI\\HostHeaderValidation=false
                     }
                 raise
 
-            # Get all deployments in namespace
+            # Get all deployments in namespace (no label filter - namespace name identifies the app)
             deployments = apps_api.list_namespaced_deployment(
-                namespace=namespace,
-                label_selector="managed-by=kubarr"
+                namespace=namespace
             )
 
             if not deployments.items:

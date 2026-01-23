@@ -95,3 +95,43 @@ export const deleteUser = async (userId: number): Promise<{ message: string }> =
   const response = await apiClient.delete<{ message: string }>(`/users/${userId}`);
   return response.data;
 };
+
+// Invite types and API functions
+export interface Invite {
+  id: number;
+  code: string;
+  created_by_username: string;
+  used_by_username: string | null;
+  is_used: boolean;
+  expires_at: string | null;
+  created_at: string;
+  used_at: string | null;
+}
+
+export interface CreateInviteRequest {
+  expires_in_days?: number;
+}
+
+/**
+ * Get all invites (admin only)
+ */
+export const getInvites = async (): Promise<Invite[]> => {
+  const response = await apiClient.get<Invite[]>('/users/invites');
+  return response.data;
+};
+
+/**
+ * Create a new invite (admin only)
+ */
+export const createInvite = async (data?: CreateInviteRequest): Promise<Invite> => {
+  const response = await apiClient.post<Invite>('/users/invites', data || {});
+  return response.data;
+};
+
+/**
+ * Delete an invite (admin only)
+ */
+export const deleteInvite = async (inviteId: number): Promise<{ message: string }> => {
+  const response = await apiClient.delete<{ message: string }>(`/users/invites/${inviteId}`);
+  return response.data;
+};

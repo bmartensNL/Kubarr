@@ -1,0 +1,97 @@
+# Default values for sonarr
+# This is a YAML-formatted file.
+
+# Namespace configuration
+namespace:
+  name: sonarr
+
+# Sonarr application configuration
+sonarr:
+  replicaCount: 1
+
+  image:
+    repository: linuxserver/sonarr
+    pullPolicy: IfNotPresent
+    tag: "latest"
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8989
+    targetPort: 8989
+    annotations: {}
+
+  # Resource limits and requests
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  # Environment variables
+  env:
+    PUID: "1000"
+    PGID: "1000"
+    TZ: "Etc/UTC"
+
+  # Base path for reverse proxy (e.g., /sonarr)
+  basePath: "/sonarr"
+
+  # Probes configuration
+  livenessProbe:
+    enabled: true
+    tcpSocket:
+      port: 8989
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    tcpSocket:
+      port: 8989
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+# Persistent volumes configuration
+persistence:
+  config:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    mountPath: /config
+
+# Security context
+securityContext:
+  runAsNonRoot: false
+
+# Pod security context
+podSecurityContext:
+  fsGroup: 1000
+
+# Service Account
+serviceAccount:
+  create: true
+  name: sonarr
+  annotations: {}
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Pod annotations
+podAnnotations: {}
+
+# Image pull secrets
+imagePullSecrets: []

@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "deluge.fullname" . }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "deluge.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.deluge.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "deluge.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/setup: {{ include (print $.Template.BasePath "/setup-configmap.yaml") . | sha256sum }}
+      {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "deluge.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "deluge.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: deluge
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.deluge.image.repository }}:{{ .Values.deluge.image.tag }}"
+          imagePullPolicy: {{ .Values.deluge.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.deluge.service.targetPort }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "deluge.fullname" . }}-config
+          {{- if .Values.deluge.livenessProbe.enabled }}
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.deluge.livenessProbe.tcpSocket.port }}
+            initialDelaySeconds: {{ .Values.deluge.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.deluge.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.deluge.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.deluge.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.deluge.readinessProbe.enabled }}
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.deluge.readinessProbe.tcpSocket.port }}
+            initialDelaySeconds: {{ .Values.deluge.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.deluge.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.deluge.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.deluge.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.deluge.resources | nindent 12 }}
+          volumeMounts:
+            {{- if .Values.persistence.config.enabled }}
+            - name: config
+              mountPath: {{ .Values.persistence.config.mountPath }}
+            {{- end }}
+            {{- if .Values.persistence.downloads.enabled }}
+            - name: downloads
+              mountPath: {{ .Values.persistence.downloads.mountPath }}
+            {{- end }}
+            - name: setup-scripts
+              mountPath: /custom-cont-init.d/enable-label-plugin.sh
+              subPath: enable-label-plugin.sh
+      volumes:
+        {{- if .Values.persistence.config.enabled }}
+        - name: config
+          persistentVolumeClaim:
+            claimName: {{ include "deluge.fullname" . }}-config
+        {{- end }}
+        {{- if .Values.persistence.downloads.enabled }}
+        - name: downloads
+          persistentVolumeClaim:
+            claimName: {{ include "deluge.fullname" . }}-downloads
+        {{- end }}
+        - name: setup-scripts
+          configMap:
+            name: {{ include "deluge.fullname" . }}-setup
+            defaultMode: 0755
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

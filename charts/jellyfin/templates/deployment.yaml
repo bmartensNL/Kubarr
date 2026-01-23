@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "jellyfin.fullname" . }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "jellyfin.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.jellyfin.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "jellyfin.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "jellyfin.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "jellyfin.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: jellyfin
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.jellyfin.image.repository }}:{{ .Values.jellyfin.image.tag }}"
+          imagePullPolicy: {{ .Values.jellyfin.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.jellyfin.service.targetPort }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "jellyfin.fullname" . }}-config
+          {{- if .Values.jellyfin.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.jellyfin.livenessProbe.httpGet.path }}
+              port: {{ .Values.jellyfin.livenessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.jellyfin.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.jellyfin.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.jellyfin.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.jellyfin.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.jellyfin.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.jellyfin.readinessProbe.httpGet.path }}
+              port: {{ .Values.jellyfin.readinessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.jellyfin.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.jellyfin.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.jellyfin.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.jellyfin.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.jellyfin.resources | nindent 12 }}
+          volumeMounts:
+            {{- if .Values.persistence.config.enabled }}
+            - name: config
+              mountPath: {{ .Values.persistence.config.mountPath }}
+            {{- end }}
+            {{- if .Values.persistence.cache.enabled }}
+            - name: cache
+              mountPath: {{ .Values.persistence.cache.mountPath }}
+            {{- end }}
+      volumes:
+        {{- if .Values.persistence.config.enabled }}
+        - name: config
+          persistentVolumeClaim:
+            claimName: {{ include "jellyfin.fullname" . }}-config
+        {{- end }}
+        {{- if .Values.persistence.cache.enabled }}
+        - name: cache
+          persistentVolumeClaim:
+            claimName: {{ include "jellyfin.fullname" . }}-cache
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

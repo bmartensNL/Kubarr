@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { appsApi } from '../api/apps'
+import { AppIcon } from '../components/AppIcon'
+import type { AppConfig } from '../types'
 
 type AppState = 'idle' | 'installing' | 'installed' | 'deleting' | 'error'
 
@@ -8,6 +10,69 @@ interface AppStatus {
   state: AppState
   message?: string
 }
+
+// Category metadata for display
+const categoryInfo: Record<string, { label: string; icon: JSX.Element; description: string }> = {
+  'media-manager': {
+    label: 'Media Managers',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
+      </svg>
+    ),
+    description: 'Organize and manage your movie and TV show collections'
+  },
+  'download-client': {
+    label: 'Download Clients',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+      </svg>
+    ),
+    description: 'BitTorrent and Usenet clients for downloading content'
+  },
+  'media-server': {
+    label: 'Media Servers',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+      </svg>
+    ),
+    description: 'Stream your media library to any device'
+  },
+  'request-manager': {
+    label: 'Request Managers',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    ),
+    description: 'Allow users to request new content'
+  },
+  'indexer': {
+    label: 'Indexers',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      </svg>
+    ),
+    description: 'Search and index content from various sources'
+  }
+}
+
+// Default category info for unknown categories
+const defaultCategoryInfo = {
+  label: 'Other Apps',
+  icon: (
+    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+    </svg>
+  ),
+  description: 'Additional applications'
+}
+
+// Category display order
+const categoryOrder = ['media-manager', 'download-client', 'media-server', 'request-manager', 'indexer']
 
 export default function AppsPage() {
   const queryClient = useQueryClient()
@@ -22,8 +87,38 @@ export default function AppsPage() {
   const { data: installed } = useQuery({
     queryKey: ['apps', 'installed'],
     queryFn: () => appsApi.getInstalled(),
-    refetchInterval: 3000, // Refresh installed apps every 3 seconds
+    refetchInterval: 3000,
   })
+
+  // Group apps by category
+  const appsByCategory = useMemo(() => {
+    if (!catalog) return {}
+
+    const grouped: Record<string, AppConfig[]> = {}
+
+    catalog.forEach(app => {
+      const category = app.category || 'other'
+      if (!grouped[category]) {
+        grouped[category] = []
+      }
+      grouped[category].push(app)
+    })
+
+    return grouped
+  }, [catalog])
+
+  // Get sorted categories
+  const sortedCategories = useMemo(() => {
+    const categories = Object.keys(appsByCategory)
+    return categories.sort((a, b) => {
+      const aIndex = categoryOrder.indexOf(a)
+      const bIndex = categoryOrder.indexOf(b)
+      if (aIndex === -1 && bIndex === -1) return a.localeCompare(b)
+      if (aIndex === -1) return 1
+      if (bIndex === -1) return -1
+      return aIndex - bIndex
+    })
+  }, [appsByCategory])
 
   // Fetch status for each app when catalog loads
   useEffect(() => {
@@ -53,7 +148,7 @@ export default function AppsPage() {
 
   // Poll for health after installation
   const pollHealth = async (appName: string) => {
-    const maxAttempts = 60 // 60 attempts * 2 seconds = 2 minutes
+    const maxAttempts = 60
     let attempts = 0
 
     const checkHealth = async (): Promise<boolean> => {
@@ -74,7 +169,6 @@ export default function AppsPage() {
           return true
         }
 
-        // Continue polling
         setTimeout(() => checkHealth(), 2000)
         return false
       } catch (error) {
@@ -94,7 +188,7 @@ export default function AppsPage() {
 
   // Poll for namespace deletion
   const pollDeletion = async (appName: string) => {
-    const maxAttempts = 60 // 60 attempts * 2 seconds = 2 minutes
+    const maxAttempts = 60
     let attempts = 0
 
     const checkDeletion = async (): Promise<boolean> => {
@@ -115,7 +209,6 @@ export default function AppsPage() {
           return true
         }
 
-        // Continue polling
         setTimeout(() => checkDeletion(), 2000)
         return false
       } catch (error) {
@@ -139,7 +232,6 @@ export default function AppsPage() {
       return appsApi.install({ app_name: appName, namespace: appName })
     },
     onSuccess: (_data, appName) => {
-      // Start polling for health
       pollHealth(appName)
     },
     onError: (error: any, appName) => {
@@ -154,7 +246,6 @@ export default function AppsPage() {
       return appsApi.delete(appName)
     },
     onSuccess: (_data, appName) => {
-      // Start polling for namespace deletion
       pollDeletion(appName)
     },
     onError: (error: any, appName) => {
@@ -171,8 +262,98 @@ export default function AppsPage() {
     )
   }
 
+  const renderAppCard = (app: AppConfig) => {
+    const isInstalled = installed?.includes(app.name)
+    const appStatus = appStatuses[app.name] || { state: isInstalled ? 'installed' : 'idle' }
+
+    return (
+      <div
+        key={app.name}
+        className="bg-gray-800 rounded-xl border border-gray-700 hover:border-gray-600 transition-all duration-200 overflow-hidden"
+      >
+
+        <div className="p-5">
+          <div className="flex items-start gap-4">
+            <div className="flex-shrink-0">
+              <AppIcon appName={app.name} size={48} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-lg font-semibold text-white truncate">{app.display_name}</h3>
+                {appStatus.state === 'installed' && (
+                  <span className="flex-shrink-0 inline-flex items-center gap-1 bg-green-500/20 text-green-400 text-xs px-2 py-0.5 rounded-full">
+                    <span className="w-1.5 h-1.5 bg-green-400 rounded-full"></span>
+                    Installed
+                  </span>
+                )}
+                {appStatus.state === 'installing' && (
+                  <span className="flex-shrink-0 inline-flex items-center gap-1 bg-blue-500/20 text-blue-400 text-xs px-2 py-0.5 rounded-full animate-pulse">
+                    <span className="w-1.5 h-1.5 bg-blue-400 rounded-full"></span>
+                    Installing
+                  </span>
+                )}
+                {appStatus.state === 'deleting' && (
+                  <span className="flex-shrink-0 inline-flex items-center gap-1 bg-red-500/20 text-red-400 text-xs px-2 py-0.5 rounded-full animate-pulse">
+                    <span className="w-1.5 h-1.5 bg-red-400 rounded-full"></span>
+                    Removing
+                  </span>
+                )}
+                {appStatus.state === 'error' && (
+                  <span className="flex-shrink-0 inline-flex items-center gap-1 bg-red-500/20 text-red-400 text-xs px-2 py-0.5 rounded-full">
+                    <span className="w-1.5 h-1.5 bg-red-400 rounded-full"></span>
+                    Error
+                  </span>
+                )}
+              </div>
+              <p className="text-sm text-gray-400 mt-1 line-clamp-2">{app.description}</p>
+            </div>
+          </div>
+
+          <div className="flex gap-2 mt-4">
+            {appStatus.state === 'installed' ? (
+              <>
+                <a
+                  href={`/${app.name}/`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors text-center"
+                >
+                  Open
+                </a>
+                <button
+                  onClick={() => deleteMutation.mutate(app.name)}
+                  disabled={deleteMutation.isPending}
+                  className="bg-gray-700 hover:bg-red-600 disabled:bg-gray-800 disabled:cursor-not-allowed text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors"
+                  title="Uninstall"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </>
+            ) : appStatus.state === 'idle' || appStatus.state === 'error' ? (
+              <button
+                onClick={() => installMutation.mutate(app.name)}
+                className="w-full bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors"
+              >
+                {appStatus.state === 'error' ? 'Retry Install' : 'Install'}
+              </button>
+            ) : (
+              <button
+                disabled
+                className="w-full bg-gray-700 cursor-not-allowed text-gray-400 text-sm font-medium py-2 px-4 rounded-lg"
+              >
+                {appStatus.state === 'installing' ? 'Installing...' : 'Removing...'}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 pb-8">
       {/* Toast Notification */}
       {toast && (
         <div className={`fixed top-4 right-4 z-50 px-6 py-4 rounded-lg shadow-lg border ${
@@ -205,105 +386,40 @@ export default function AppsPage() {
         </div>
       )}
 
-      <div>
-        <h2 className="text-2xl font-bold mb-2">App Catalog</h2>
-        <p className="text-gray-400">Browse and manage applications</p>
+      {/* Header */}
+      <div className="border-b border-gray-800 pb-6">
+        <h1 className="text-3xl font-bold text-white">App Marketplace</h1>
+        <p className="text-gray-400 mt-2">Browse and install applications for your media server</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {catalog?.map((app) => {
-          const isInstalled = installed?.includes(app.name)
-          const appStatus = appStatuses[app.name] || { state: isInstalled ? 'installed' : 'idle' }
-          const isOperating = appStatus.state === 'installing' || appStatus.state === 'deleting'
+      {/* Category Sections */}
+      {sortedCategories.map(category => {
+        const info = categoryInfo[category] || { ...defaultCategoryInfo, label: category.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) }
+        const apps = appsByCategory[category]
 
-          return (
-            <div
-              key={app.name}
-              className={`bg-gray-800 rounded-lg p-6 flex flex-col relative ${
-                isOperating ? 'opacity-75' : ''
-              }`}
-            >
-              {/* Loading Overlay */}
-              {isOperating && (
-                <div className="absolute inset-0 bg-gray-900 bg-opacity-50 rounded-lg flex items-center justify-center z-10">
-                  <div className="flex flex-col items-center gap-3">
-                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500"></div>
-                    <span className="text-sm text-gray-300 font-medium">
-                      {appStatus.state === 'installing' ? 'Installing...' : 'Uninstalling...'}
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex-1">
-                  <h3 className="text-xl font-semibold mb-1">{app.display_name}</h3>
-                  <p className="text-sm text-gray-400 capitalize">{app.category}</p>
-                </div>
-                {appStatus.state === 'installed' && (
-                  <span className="bg-green-600 text-white text-xs px-2 py-1 rounded">
-                    Installed
-                  </span>
-                )}
-                {appStatus.state === 'installing' && (
-                  <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded animate-pulse">
-                    Installing
-                  </span>
-                )}
-                {appStatus.state === 'deleting' && (
-                  <span className="bg-red-600 text-white text-xs px-2 py-1 rounded animate-pulse">
-                    Deleting
-                  </span>
-                )}
-                {appStatus.state === 'error' && (
-                  <span className="bg-red-900 text-white text-xs px-2 py-1 rounded">
-                    Error
-                  </span>
-                )}
+        return (
+          <section key={category} className="space-y-4">
+            {/* Category Header */}
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-gray-800 rounded-lg text-blue-400">
+                {info.icon}
               </div>
-
-              <p className="text-sm text-gray-300 mb-4 flex-1">{app.description}</p>
-
-              <div className="flex gap-2">
-                {appStatus.state === 'installed' ? (
-                  <>
-                    <button
-                      onClick={() => deleteMutation.mutate(app.name)}
-                      disabled={isOperating}
-                      className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-red-800 disabled:cursor-not-allowed text-white font-medium py-2 px-4 rounded transition-colors"
-                    >
-                      Delete
-                    </button>
-                    <a
-                      href={`/${app.name}/`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:cursor-not-allowed text-white font-medium py-2 px-4 rounded transition-colors text-center"
-                    >
-                      View
-                    </a>
-                  </>
-                ) : appStatus.state === 'idle' || appStatus.state === 'error' ? (
-                  <button
-                    onClick={() => installMutation.mutate(app.name)}
-                    disabled={isOperating}
-                    className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-medium py-2 px-4 rounded transition-colors"
-                  >
-                    {appStatus.state === 'error' ? 'Retry Install' : 'Install'}
-                  </button>
-                ) : (
-                  <button
-                    disabled
-                    className="w-full bg-gray-700 cursor-not-allowed text-white font-medium py-2 px-4 rounded"
-                  >
-                    {appStatus.state === 'installing' ? 'Installing...' : 'Deleting...'}
-                  </button>
-                )}
+              <div>
+                <h2 className="text-xl font-semibold text-white">{info.label}</h2>
+                <p className="text-sm text-gray-500">{info.description}</p>
+              </div>
+              <div className="ml-auto">
+                <span className="text-sm text-gray-500">{apps.length} app{apps.length !== 1 ? 's' : ''}</span>
               </div>
             </div>
-          )
-        })}
-      </div>
+
+            {/* Apps Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 3xl:grid-cols-6 gap-4">
+              {apps.map(app => renderAppCard(app))}
+            </div>
+          </section>
+        )
+      })}
     </div>
   )
 }

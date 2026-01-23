@@ -1,0 +1,17 @@
+apiVersion: v2
+name: rutorrent
+description: A Helm chart for ruTorrent - feature-rich BitTorrent client with web interface
+type: application
+version: 0.1.0
+appVersion: "4.3"
+keywords:
+  - rutorrent
+  - bittorrent
+  - download
+  - torrent
+  - media
+home: https://github.com/Novik/ruTorrent
+sources:
+  - https://github.com/Novik/ruTorrent
+maintainers:
+  - name: Kubarr Team

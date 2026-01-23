@@ -1,0 +1,117 @@
+# Default values for transmission
+# This is a YAML-formatted file.
+
+# Namespace configuration
+namespace:
+  create: true
+  name: transmission
+
+# Transmission application configuration
+transmission:
+  replicaCount: 1
+
+  image:
+    repository: linuxserver/transmission
+    pullPolicy: IfNotPresent
+    tag: "latest"
+
+  # Base path for URL routing (leave empty for root)
+  basePath: "/transmission"
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 9091
+    targetPort: 9091
+    annotations: {}
+
+  # Resource limits and requests
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  # Environment variables
+  env:
+    PUID: "1000"
+    PGID: "1000"
+    TZ: "Etc/UTC"
+
+  # Probes configuration
+  livenessProbe:
+    enabled: true
+    tcpSocket:
+      port: 9091
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    tcpSocket:
+      port: 9091
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+# Persistent volumes configuration
+persistence:
+  config:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    mountPath: /config
+
+  downloads:
+    enabled: true
+    size: 200Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    mountPath: /downloads
+
+# Security context
+securityContext:
+  runAsNonRoot: false
+
+# Pod security context
+podSecurityContext:
+  fsGroup: 1000
+
+# Service Account
+serviceAccount:
+  create: true
+  name: transmission
+  annotations: {}
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+  hosts:
+    - host: transmission.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Pod annotations
+podAnnotations: {}
+
+# Image pull secrets
+imagePullSecrets: []

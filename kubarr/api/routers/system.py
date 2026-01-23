@@ -116,3 +116,18 @@ async def health_check() -> dict:
         Health status
     """
     return {"status": "healthy", "service": "kubarr-api"}
+
+
+@router.get("/version", response_model=dict)
+async def get_version() -> dict:
+    """Get backend version information.
+
+    Returns:
+        Version info including commit hash and build time
+    """
+    import os
+    return {
+        "commit_hash": os.getenv("COMMIT_HASH", "unknown"),
+        "build_time": os.getenv("BUILD_TIME", "unknown"),
+        "version": __version__
+    }

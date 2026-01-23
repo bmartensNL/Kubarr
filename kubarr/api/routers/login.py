@@ -1,5 +1,6 @@
 """Login and registration endpoints with HTML templates."""
 
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
@@ -11,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from kubarr.api.config import settings
 from kubarr.api.dependencies import get_db
-from kubarr.core.models_auth import User
+from kubarr.core.models_auth import Invite, User
 from kubarr.core.oauth2_service import OAuth2Service
 from kubarr.core.security import hash_password, verify_password
 
@@ -142,7 +143,11 @@ async def login_submit(
 
 @router.get("/register", response_class=HTMLResponse)
 async def register_page(
-    request: Request, error: Optional[str] = None, success: Optional[bool] = None
+    request: Request,
+    error: Optional[str] = None,
+    success: Optional[bool] = None,
+    invite: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
 ):
     """Render registration page.
 
@@ -150,14 +155,40 @@ async def register_page(
         request: FastAPI request
         error: Error message to display
         success: Success flag
+        invite: Invite code from URL
+        db: Database session
 
     Returns:
         HTML registration page
     """
-    if not settings.registration_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Registration is disabled",
+    # Check if registration is disabled (no open registration)
+    # If invite code is provided, allow registration even if open registration is disabled
+    invite_valid = False
+    invite_required = not settings.registration_enabled
+
+    if invite:
+        # Validate invite code
+        result = await db.execute(
+            select(Invite).where(Invite.code == invite, Invite.is_used == False)
+        )
+        invite_obj = result.scalar_one_or_none()
+        if invite_obj:
+            # Check expiration
+            if invite_obj.expires_at is None or invite_obj.expires_at > datetime.utcnow():
+                invite_valid = True
+
+    # If registration is disabled and no valid invite, show error
+    if not settings.registration_enabled and not invite_valid:
+        return templates.TemplateResponse(
+            "register.html",
+            {
+                "request": request,
+                "error": "Registration requires a valid invite link" if invite else "Registration is disabled. Please request an invite link from an administrator.",
+                "success": False,
+                "require_approval": False,
+                "invite_code": invite or "",
+                "invite_required": True,
+            },
         )
 
     return templates.TemplateResponse(
@@ -166,7 +197,9 @@ async def register_page(
             "request": request,
             "error": error,
             "success": success,
-            "require_approval": settings.registration_require_approval,
+            "require_approval": settings.registration_require_approval and not invite_valid,
+            "invite_code": invite or "",
+            "invite_required": invite_required,
         },
     )
 
@@ -177,6 +210,7 @@ async def register_submit(
     email: EmailStr = Form(...),
     password: str = Form(...),
     confirm_password: str = Form(...),
+    invite_code: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
 ):
     """Handle registration form submission.
@@ -186,28 +220,45 @@ async def register_submit(
         email: Email address
         password: Password
         confirm_password: Password confirmation
+        invite_code: Optional invite code
         db: Database session
 
     Returns:
         Redirect to registration page with success/error
     """
-    if not settings.registration_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Registration is disabled",
+    # Validate invite code if provided or required
+    invite_obj = None
+    invite_valid = False
+    invite_url_param = f"&invite={invite_code}" if invite_code else ""
+
+    if invite_code:
+        result = await db.execute(
+            select(Invite).where(Invite.code == invite_code, Invite.is_used == False)
+        )
+        invite_obj = result.scalar_one_or_none()
+        if invite_obj:
+            # Check expiration
+            if invite_obj.expires_at is None or invite_obj.expires_at > datetime.utcnow():
+                invite_valid = True
+
+    # If registration is disabled and no valid invite, reject
+    if not settings.registration_enabled and not invite_valid:
+        return RedirectResponse(
+            url=f"/auth/register?error=Registration requires a valid invite link{invite_url_param}",
+            status_code=status.HTTP_302_FOUND,
         )
 
     # Validate password match
     if password != confirm_password:
         return RedirectResponse(
-            url="/auth/register?error=Passwords do not match",
+            url=f"/auth/register?error=Passwords do not match{invite_url_param}",
             status_code=status.HTTP_302_FOUND,
         )
 
     # Validate password length
     if len(password) < 8:
         return RedirectResponse(
-            url="/auth/register?error=Password must be at least 8 characters",
+            url=f"/auth/register?error=Password must be at least 8 characters{invite_url_param}",
             status_code=status.HTTP_302_FOUND,
         )
 
@@ -215,7 +266,7 @@ async def register_submit(
     result = await db.execute(select(User).where(User.username == username))
     if result.scalar_one_or_none():
         return RedirectResponse(
-            url="/auth/register?error=Username already exists",
+            url=f"/auth/register?error=Username already exists{invite_url_param}",
             status_code=status.HTTP_302_FOUND,
         )
 
@@ -223,21 +274,29 @@ async def register_submit(
     result = await db.execute(select(User).where(User.email == email))
     if result.scalar_one_or_none():
         return RedirectResponse(
-            url="/auth/register?error=Email already exists",
+            url=f"/auth/register?error=Email already exists{invite_url_param}",
             status_code=status.HTTP_302_FOUND,
         )
 
-    # Create user
+    # Create user (auto-approve if using valid invite)
     new_user = User(
         username=username,
         email=email,
         hashed_password=hash_password(password),
         is_admin=False,
         is_active=True,
-        is_approved=not settings.registration_require_approval,
+        is_approved=invite_valid or not settings.registration_require_approval,
     )
 
     db.add(new_user)
+    await db.flush()  # Get the user ID
+
+    # Mark invite as used if valid
+    if invite_valid and invite_obj:
+        invite_obj.is_used = True
+        invite_obj.used_by_id = new_user.id
+        invite_obj.used_at = datetime.utcnow()
+
     await db.commit()
 
     # Redirect with success message

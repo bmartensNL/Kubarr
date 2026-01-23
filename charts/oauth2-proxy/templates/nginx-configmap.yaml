@@ -53,6 +53,106 @@ data:
                 sub_filter 'id="jackett-security"' 'id="jackett-security" style="display:none"';
             }
 
+            # Proxy sonarr - use variable to force dynamic DNS resolution
+            location /sonarr {
+                set $sonarr_upstream sonarr.sonarr.svc.cluster.local:8989;
+                proxy_pass http://$sonarr_upstream;
+                proxy_set_header Host $http_host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto http;
+                proxy_set_header X-Forwarded-Host $http_host;
+                proxy_redirect https:// http://;
+            }
+
+            # Proxy radarr - use variable to force dynamic DNS resolution
+            location /radarr {
+                set $radarr_upstream radarr.radarr.svc.cluster.local:7878;
+                proxy_pass http://$radarr_upstream;
+                proxy_set_header Host $http_host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto http;
+                proxy_set_header X-Forwarded-Host $http_host;
+                proxy_redirect https:// http://;
+            }
+
+            # Proxy transmission - use variable to force dynamic DNS resolution
+            location /transmission/ {
+                set $transmission_upstream transmission.transmission.svc.cluster.local:9091;
+                proxy_pass http://$transmission_upstream;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+            }
+
+            # Proxy deluge - use variable to force dynamic DNS resolution
+            location /deluge/ {
+                set $deluge_upstream deluge.deluge.svc.cluster.local:8112;
+                rewrite ^/deluge/(.*) /$1 break;
+                proxy_pass http://$deluge_upstream;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+
+                # Rewrite paths in HTML/JS responses to include /deluge/ prefix
+                sub_filter_once off;
+                sub_filter_types text/html text/css application/javascript;
+                sub_filter 'src="/' 'src="/deluge/';
+                sub_filter "src='/" "src='/deluge/";
+                sub_filter 'href="/' 'href="/deluge/';
+                sub_filter "href='/" "href='/deluge/";
+                sub_filter 'url(/' 'url(/deluge/';
+                sub_filter '"/json"' '"/deluge/json"';
+                sub_filter "'/json'" "'/deluge/json'";
+            }
+
+            # Proxy ruTorrent - use variable to force dynamic DNS resolution
+            location /rutorrent/ {
+                set $rutorrent_upstream rutorrent.rutorrent.svc.cluster.local:8080;
+                rewrite ^/rutorrent/(.*) /$1 break;
+                proxy_pass http://$rutorrent_upstream;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+            }
+
+            # Proxy jellyfin - use variable to force dynamic DNS resolution
+            location /jellyfin/ {
+                set $jellyfin_upstream jellyfin.jellyfin.svc.cluster.local:8096;
+                rewrite ^/jellyfin/(.*) /$1 break;
+                proxy_pass http://$jellyfin_upstream;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+            }
+
+            # Proxy jellyseerr - use variable to force dynamic DNS resolution
+            location /jellyseerr/ {
+                set $jellyseerr_upstream jellyseerr.jellyseerr.svc.cluster.local:5055;
+                rewrite ^/jellyseerr/(.*) /$1 break;
+                proxy_pass http://$jellyseerr_upstream;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+            }
+
+            # Proxy sabnzbd - use variable to force dynamic DNS resolution
+            location /sabnzbd/ {
+                set $sabnzbd_upstream sabnzbd.sabnzbd.svc.cluster.local:8080;
+                rewrite ^/sabnzbd/(.*) /$1 break;
+                proxy_pass http://$sabnzbd_upstream;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+            }
+
             # Default to kubarr dashboard - use variable to force dynamic DNS resolution
             location / {
                 set $kubarr_upstream kubarr-dashboard.kubarr-system.svc.cluster.local:8000;

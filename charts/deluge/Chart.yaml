@@ -1,0 +1,17 @@
+apiVersion: v2
+name: deluge
+description: A Helm chart for Deluge - Lightweight BitTorrent client
+type: application
+version: 0.1.0
+appVersion: "2.1"
+keywords:
+  - deluge
+  - bittorrent
+  - download
+  - torrent
+  - media
+home: https://deluge-torrent.org/
+sources:
+  - https://github.com/deluge-torrent/deluge
+maintainers:
+  - name: Kubarr Team

@@ -70,7 +70,7 @@ def init_db() -> None:
 
     # Import models to register them with Base
     from kubarr.core.models_auth import (
-        User, OAuth2Client, OAuth2AuthorizationCode, OAuth2Token
+        User, OAuth2Client, OAuth2AuthorizationCode, OAuth2Token, Invite
     )
 
     # Create all tables

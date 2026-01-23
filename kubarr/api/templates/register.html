@@ -47,7 +47,19 @@
             </div>
             {% endif %}
 
+            {% if invite_code %}
+            <div class="rounded-md bg-blue-900 p-4">
+                <div class="text-sm text-blue-200">
+                    <strong>Invite Code:</strong> You're registering with an invite link. Your account will be automatically approved.
+                </div>
+            </div>
+            {% endif %}
+
             <form method="POST" action="/auth/register" class="space-y-4">
+                {% if invite_code %}
+                <input type="hidden" name="invite_code" value="{{ invite_code }}" />
+                {% endif %}
+
                 <div>
                     <label for="username" class="block text-sm font-medium text-gray-300 mb-1">
                         Username

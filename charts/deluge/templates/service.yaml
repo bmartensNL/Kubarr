@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "deluge.fullname" . }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "deluge.labels" . | nindent 4 }}
+  {{- with .Values.deluge.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.deluge.service.type }}
+  ports:
+    - port: {{ .Values.deluge.service.port }}
+      targetPort: {{ .Values.deluge.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "deluge.selectorLabels" . | nindent 4 }}
