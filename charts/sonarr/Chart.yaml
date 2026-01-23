@@ -1,0 +1,6 @@
+apiVersion: v2
+name: sonarr
+description: A Helm chart for Sonarr - TV series management
+type: application
+version: 0.1.0
+appVersion: "4.0.0"
