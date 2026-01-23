@@ -429,6 +429,78 @@ async def openid_configuration(request: Request):
     }
 
 
+@router.post("/admin/regenerate-client-secret")
+async def regenerate_client_secret(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Regenerate oauth2-proxy client secret (admin only).
+
+    Args:
+        request: FastAPI request
+        db: Database session
+
+    Returns:
+        New client secret
+
+    Raises:
+        HTTPException: If not admin or client not found
+    """
+    from kubarr.core.models_auth import OAuth2Client
+    from kubarr.core.security import generate_random_string, hash_client_secret
+
+    # Get token from Authorization header
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
+
+    token = auth_header.replace("Bearer ", "")
+    try:
+        payload = decode_token(token)
+        user_id = int(payload.get("sub"))
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        )
+
+    # Get user by ID
+    result = await db.execute(select(User).where(User.id == user_id))
+    current_user = result.scalar_one_or_none()
+
+    if not current_user or not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+
+    # Find oauth2-proxy client
+    result = await db.execute(
+        select(OAuth2Client).where(OAuth2Client.client_id == "oauth2-proxy")
+    )
+    client = result.scalar_one_or_none()
+
+    if not client:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="oauth2-proxy client not found",
+        )
+
+    # Generate new secret
+    new_secret = generate_random_string(32)
+    client.client_secret_hash = hash_client_secret(new_secret)
+    await db.commit()
+
+    return {
+        "client_id": "oauth2-proxy",
+        "client_secret": new_secret,
+        "message": "Client secret regenerated. Update your oauth2-proxy deployment with this new secret.",
+    }
+
+
 @router.get("/jwks")
 async def jwks():
     """JSON Web Key Set endpoint.

@@ -200,8 +200,10 @@ class OAuth2Service:
         if not user:
             raise ValueError("User not found")
 
-        # Create access token
+        # Create access token with OIDC-required claims
+        # iss must match what oauth2-proxy expects
         access_token_data = {
+            "iss": "http://localhost:8080/auth",
             "sub": str(user.id),
             "username": user.username,
             "email": user.email,

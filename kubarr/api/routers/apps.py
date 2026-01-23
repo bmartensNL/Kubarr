@@ -16,6 +16,7 @@ from kubarr.core.k8s_client import K8sClientManager
 from kubarr.core.models import AppConfig, AppInfo, DeploymentRequest, DeploymentStatus
 from kubarr.core.models_auth import User
 
+# Authentication via oauth2-proxy headers (X-Auth-Request-User)
 router = APIRouter(dependencies=[Depends(get_current_active_user)])
 
 
@@ -53,20 +54,16 @@ async def get_app_from_catalog(
 
 @router.get("/installed", response_model=List[str])
 async def list_installed_apps(
-    namespace: str = Query(default="media", description="Namespace to check"),
     k8s_client: K8sClientManager = Depends(get_k8s_client),
     catalog: AppCatalog = Depends(get_app_catalog)
 ) -> List[str]:
-    """Get list of installed apps in a namespace.
-
-    Args:
-        namespace: Namespace to check
+    """Get list of installed apps (all namespaces).
 
     Returns:
         List of installed app names
     """
     manager = DeploymentManager(k8s_client=k8s_client, catalog=catalog)
-    return manager.get_deployed_apps(namespace)
+    return manager.get_deployed_apps()
 
 
 @router.post("/install", response_model=DeploymentStatus)
@@ -98,15 +95,13 @@ async def install_app(
 @router.delete("/{app_name}")
 async def delete_app(
     app_name: str,
-    namespace: str = Query(default="media", description="Namespace"),
     k8s_client: K8sClientManager = Depends(get_k8s_client),
     catalog: AppCatalog = Depends(get_app_catalog)
 ) -> dict:
-    """Delete an installed app.
+    """Delete an installed app (deletes entire namespace).
 
     Args:
         app_name: Name of the app to delete
-        namespace: Namespace
 
     Returns:
         Success status
@@ -116,8 +111,8 @@ async def delete_app(
     """
     try:
         manager = DeploymentManager(k8s_client=k8s_client, catalog=catalog)
-        success = manager.remove_app(app_name, namespace)
-        return {"success": success, "message": f"App '{app_name}' deleted"}
+        success = manager.remove_app(app_name)
+        return {"success": success, "message": f"App '{app_name}' deletion initiated", "status": "deleting"}
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -189,3 +184,88 @@ async def get_apps_by_category(
         List of apps in the category
     """
     return catalog.get_apps_by_category(category)
+
+
+@router.get("/{app_name}/health")
+async def check_app_health(
+    app_name: str,
+    k8s_client: K8sClientManager = Depends(get_k8s_client),
+    catalog: AppCatalog = Depends(get_app_catalog)
+) -> dict:
+    """Check health of an installed app.
+
+    Args:
+        app_name: Name of the app
+
+    Returns:
+        Health status
+
+    Raises:
+        HTTPException: If health check fails
+    """
+    try:
+        manager = DeploymentManager(k8s_client=k8s_client, catalog=catalog)
+        health = manager.check_namespace_health(app_name)
+        return health
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{app_name}/exists")
+async def check_app_exists(
+    app_name: str,
+    k8s_client: K8sClientManager = Depends(get_k8s_client),
+    catalog: AppCatalog = Depends(get_app_catalog)
+) -> dict:
+    """Check if an app namespace exists.
+
+    Args:
+        app_name: Name of the app
+
+    Returns:
+        Exists status
+    """
+    try:
+        manager = DeploymentManager(k8s_client=k8s_client, catalog=catalog)
+        exists = manager.check_namespace_exists(app_name)
+        return {"exists": exists}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{app_name}/status")
+async def get_app_status(
+    app_name: str,
+    k8s_client: K8sClientManager = Depends(get_k8s_client),
+    catalog: AppCatalog = Depends(get_app_catalog)
+) -> dict:
+    """Get the current status of an app.
+
+    Args:
+        app_name: Name of the app
+
+    Returns:
+        Status: idle, installing, installed, or error
+    """
+    try:
+        manager = DeploymentManager(k8s_client=k8s_client, catalog=catalog)
+
+        # Check if namespace exists
+        exists = manager.check_namespace_exists(app_name)
+
+        if not exists:
+            return {"state": "idle", "message": "Not installed"}
+
+        # Namespace exists, check health
+        health = manager.check_namespace_health(app_name)
+
+        if health["status"] == "healthy":
+            return {"state": "installed", "message": "Running"}
+        elif health["status"] == "no_deployments":
+            return {"state": "idle", "message": "No deployments found"}
+        else:
+            # Deployments exist but not healthy yet - could be installing
+            return {"state": "installing", "message": health.get("message", "Waiting for deployments to be ready")}
+
+    except Exception as e:
+        return {"state": "error", "message": str(e)}

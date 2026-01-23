@@ -1,0 +1,140 @@
+# Default values for qbittorrent
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Namespace configuration
+namespace:
+  create: true
+  name: qbittorrent
+
+# qBittorrent application configuration
+qbittorrent:
+  replicaCount: 1
+
+  image:
+    repository: linuxserver/qbittorrent
+    pullPolicy: IfNotPresent
+    tag: "latest"
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+    annotations: {}
+
+  # Resource limits and requests
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+  # Environment variables
+  env:
+    # User ID to run qBittorrent as
+    PUID: "1000"
+    # Group ID to run qBittorrent as
+    PGID: "1000"
+    # Timezone
+    TZ: "Etc/UTC"
+    # Web UI port
+    WEBUI_PORT: "8080"
+
+  # qBittorrent.conf settings to inject on startup
+  # Disable authentication for cluster-internal requests (oauth2-proxy handles auth)
+  qbittorrentConf:
+    WebUI:
+      # Disable local host authentication - allows requests from localhost/127.0.0.1
+      LocalHostAuth: "false"
+      # Enable subnet whitelist
+      AuthSubnetWhitelistEnabled: "true"
+      # Whitelist all private networks (pod network will be in this range)
+      AuthSubnetWhitelist: "10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16"
+
+  # Probes configuration
+  livenessProbe:
+    enabled: true
+    httpGet:
+      path: /
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    httpGet:
+      path: /
+      port: 8080
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+# Persistent volumes configuration
+persistence:
+  # Config volume
+  config:
+    enabled: true
+    size: 1Gi
+    storageClass: ""  # Use default storage class
+    accessMode: ReadWriteOnce
+    mountPath: /config
+
+  # Downloads volume
+  downloads:
+    enabled: true
+    size: 200Gi
+    storageClass: ""  # Use default storage class
+    accessMode: ReadWriteOnce
+    mountPath: /downloads
+
+# Security context
+securityContext:
+  runAsNonRoot: false  # linuxserver images run as root but switch to PUID/PGID
+
+# Pod security context
+podSecurityContext:
+  fsGroup: 1000
+
+# Service Account
+serviceAccount:
+  create: true
+  name: qbittorrent
+  annotations: {}
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: qbittorrent.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: qbittorrent-tls
+  #    hosts:
+  #      - qbittorrent.local
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Pod annotations
+podAnnotations: {}
+
+# Image pull secrets
+imagePullSecrets: []

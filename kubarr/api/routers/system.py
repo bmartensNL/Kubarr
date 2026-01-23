@@ -10,6 +10,7 @@ from kubarr.core.models import ClusterInfo, SystemInfo
 from kubarr.core.models_auth import User
 from kubarr import __version__
 
+# Authentication via oauth2-proxy headers (X-Auth-Request-User)
 router = APIRouter()
 
 

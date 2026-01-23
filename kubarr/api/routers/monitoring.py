@@ -16,6 +16,7 @@ from kubarr.core.models import AppHealth, PodMetrics, PodStatus, ServiceEndpoint
 from kubarr.core.models_auth import User
 from kubarr.core.monitoring_service import MonitoringService
 
+# Authentication via oauth2-proxy headers (X-Auth-Request-User)
 router = APIRouter(dependencies=[Depends(get_current_active_user)])
 
 

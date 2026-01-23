@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "oauth2-proxy.fullname" . }}-nginx-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "oauth2-proxy.labels" . | nindent 4 }}
+data:
+  nginx.conf: |
+    events {
+        worker_connections 1024;
+    }
+
+    http {
+        # MIME types
+        include /etc/nginx/mime.types;
+        default_type application/octet-stream;
+
+        # Use Kubernetes DNS resolver with short TTL to prevent IP caching
+        resolver kube-dns.kube-system.svc.cluster.local valid=5s;
+
+        server {
+            listen 8080;
+            server_name _;
+
+            # Proxy qbittorrent - use variable to force dynamic DNS resolution
+            location /qbittorrent/ {
+                set $qbittorrent_upstream qbittorrent.qbittorrent.svc.cluster.local:8080;
+                rewrite ^/qbittorrent/(.*) /$1 break;
+                proxy_pass http://$qbittorrent_upstream;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_hide_header X-Content-Type-Options;
+            }
+
+            # Proxy jackett - use variable to force dynamic DNS resolution
+            # Note: Don't strip /jackett prefix - Jackett handles it with BasePathOverride
+            location /jackett {
+                set $jackett_upstream jackett.jackett.svc.cluster.local:9117;
+                proxy_pass http://$jackett_upstream;
+                proxy_set_header Host $http_host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto http;
+                proxy_set_header X-Forwarded-Host $http_host;
+                proxy_redirect https:// http://;
+
+                # Hide Jackett's security warning (oauth2-proxy handles auth)
+                sub_filter_once off;
+                sub_filter_types text/html;
+                sub_filter 'id="jackett-security"' 'id="jackett-security" style="display:none"';
+            }
+
+            # Default to kubarr dashboard - use variable to force dynamic DNS resolution
+            location / {
+                set $kubarr_upstream kubarr-dashboard.kubarr-system.svc.cluster.local:8000;
+                proxy_pass http://$kubarr_upstream;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_set_header Authorization $http_authorization;
+            }
+        }
+    }

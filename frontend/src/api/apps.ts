@@ -15,10 +15,8 @@ export const appsApi = {
   },
 
   // Get installed apps
-  getInstalled: async (namespace: string = 'media'): Promise<string[]> => {
-    const response = await apiClient.get<string[]>('/apps/installed', {
-      params: { namespace },
-    });
+  getInstalled: async (): Promise<string[]> => {
+    const response = await apiClient.get<string[]>('/apps/installed');
     return response.data;
   },
 
@@ -29,10 +27,27 @@ export const appsApi = {
   },
 
   // Delete app
-  delete: async (appName: string, namespace: string = 'media'): Promise<void> => {
-    await apiClient.delete(`/apps/${appName}`, {
-      params: { namespace },
-    });
+  delete: async (appName: string): Promise<{success: boolean, message: string, status: string}> => {
+    const response = await apiClient.delete(`/apps/${appName}`);
+    return response.data;
+  },
+
+  // Check app health
+  checkHealth: async (appName: string): Promise<{status: string, healthy: boolean, message: string, deployments?: any[]}> => {
+    const response = await apiClient.get(`/apps/${appName}/health`);
+    return response.data;
+  },
+
+  // Check if app exists
+  checkExists: async (appName: string): Promise<{exists: boolean}> => {
+    const response = await apiClient.get(`/apps/${appName}/exists`);
+    return response.data;
+  },
+
+  // Get app status
+  getStatus: async (appName: string): Promise<{state: string, message: string}> => {
+    const response = await apiClient.get(`/apps/${appName}/status`);
+    return response.data;
   },
 
   // Restart app

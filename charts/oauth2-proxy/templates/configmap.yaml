@@ -12,11 +12,15 @@ data:
     oidc_issuer_url = "{{ .Values.provider.issuerUrl }}"
     skip_oidc_discovery = true
 
-    # Manual endpoint configuration for internal service communication
-    login_url = "http://kubarr-dashboard.kubarr-system.svc.cluster.local:8000/auth/authorize"
+    # Manual endpoint configuration
+    # login_url must be browser-accessible, others can use internal service URLs
+    login_url = "http://localhost:8080/auth/authorize"
     redeem_url = "http://kubarr-dashboard.kubarr-system.svc.cluster.local:8000/auth/token"
     validate_url = "http://kubarr-dashboard.kubarr-system.svc.cluster.local:8000/auth/userinfo"
     oidc_jwks_url = "http://kubarr-dashboard.kubarr-system.svc.cluster.local:8000/auth/jwks"
+
+    # Skip the "Sign in with..." button and redirect directly to provider
+    skip_provider_button = true
 
     # Client configuration
     client_id = "{{ .Values.config.clientId }}"
@@ -28,6 +32,9 @@ data:
     cookie_samesite = "lax"
     cookie_expire = "{{ .Values.config.cookieExpire }}"
     cookie_secure = false
+    cookie_domains = ["localhost"]
+    cookie_csrf_per_request = true
+    cookie_csrf_expire = "5m"
 
     # Email domain restrictions
     {{- if .Values.config.emailDomains }}
@@ -43,11 +50,9 @@ data:
     # Skip provider verification for internal services
     ssl_insecure_skip_verify = true
 
-    # Upstream configuration (proxying to media apps)
+    # Upstream configuration (proxying to nginx sidecar for path-based routing)
     upstreams = [
-      {{- range .Values.config.upstreams }}
-      "{{ . }}",
-      {{- end }}
+      "http://localhost:8080",
     ]
 
     # Logging
@@ -68,8 +73,12 @@ data:
     set_authorization_header = true
     set_xauthrequest = true
 
-    # Skip authentication for these paths
+    # Use email claim for X-Auth-Request-User header instead of sub
+    user_id_claim = "email"
+
+    # Skip authentication for these paths (auth endpoints to prevent redirect loop)
     skip_auth_routes = [
       "^/ping$",
-      "^/ready$"
+      "^/ready$",
+      "^/auth/.*"
     ]

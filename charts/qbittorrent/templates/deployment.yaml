@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "qbittorrent.fullname" . }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "qbittorrent.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.qbittorrent.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "qbittorrent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/init: {{ include (print $.Template.BasePath "/configmap-init.yaml") . | sha256sum }}
+        checksum/qbittorrent-conf: {{ include (print $.Template.BasePath "/configmap-qbittorrent.yaml") . | sha256sum }}
+      {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "qbittorrent.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "qbittorrent.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: qbittorrent
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.qbittorrent.image.repository }}:{{ .Values.qbittorrent.image.tag }}"
+          imagePullPolicy: {{ .Values.qbittorrent.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.qbittorrent.service.targetPort }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "qbittorrent.fullname" . }}-config
+          {{- if .Values.qbittorrent.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.qbittorrent.livenessProbe.httpGet.path }}
+              port: {{ .Values.qbittorrent.livenessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.qbittorrent.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.qbittorrent.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.qbittorrent.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.qbittorrent.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.qbittorrent.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.qbittorrent.readinessProbe.httpGet.path }}
+              port: {{ .Values.qbittorrent.readinessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.qbittorrent.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.qbittorrent.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.qbittorrent.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.qbittorrent.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.qbittorrent.resources | nindent 12 }}
+          volumeMounts:
+            {{- if .Values.persistence.config.enabled }}
+            - name: config
+              mountPath: {{ .Values.persistence.config.mountPath }}
+            {{- end }}
+            {{- if .Values.persistence.downloads.enabled }}
+            - name: downloads
+              mountPath: {{ .Values.persistence.downloads.mountPath }}
+            {{- end }}
+            - name: init-scripts
+              mountPath: /custom-cont-init.d
+            - name: qbittorrent-conf
+              mountPath: /config-immutable
+              readOnly: true
+      volumes:
+        {{- if .Values.persistence.config.enabled }}
+        - name: config
+          persistentVolumeClaim:
+            claimName: {{ include "qbittorrent.fullname" . }}-config
+        {{- end }}
+        {{- if .Values.persistence.downloads.enabled }}
+        - name: downloads
+          persistentVolumeClaim:
+            claimName: {{ include "qbittorrent.fullname" . }}-downloads
+        {{- end }}
+        - name: init-scripts
+          configMap:
+            name: {{ include "qbittorrent.fullname" . }}-init
+            defaultMode: 0755
+        - name: qbittorrent-conf
+          configMap:
+            name: {{ include "qbittorrent.fullname" . }}-qbittorrent-conf
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

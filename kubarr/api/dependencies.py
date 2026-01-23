@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Generator, Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 from sqlalchemy import select
@@ -104,39 +104,68 @@ def get_logs_service(k8s_client: K8sClientManager) -> LogsService:
 
 
 async def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    request: "Request",
     db: AsyncSession = Depends(get_db)
 ) -> Optional[User]:
-    """Get current authenticated user from JWT token.
+    """Get current authenticated user from oauth2-proxy.
+
+    OAuth2-proxy can pass user information via:
+    1. Headers: X-Auth-Request-User or X-Forwarded-User
+    2. JWT token in Authorization header
 
     Args:
-        credentials: HTTP bearer credentials
+        request: FastAPI request object
         db: Database session
 
     Returns:
         User or None if not authenticated
-
-    Raises:
-        HTTPException: If token is invalid
     """
-    if not credentials:
+    from fastapi import Request
+
+    # Debug: Print all headers (will show in uvicorn logs)
+    print(f"[AUTH DEBUG] All request headers: {dict(request.headers)}")
+
+    username = None
+
+    # Try to get username from oauth2-proxy headers first
+    # Check X-Auth-Request-User, X-Forwarded-User, or X-Forwarded-Email
+    username = (
+        request.headers.get("X-Auth-Request-User") or
+        request.headers.get("X-Forwarded-Email") or
+        request.headers.get("X-Forwarded-User")
+    )
+    print(f"[AUTH DEBUG] Username from headers: {username}")
+
+    # If no header, try to decode JWT token from Authorization header
+    if not username:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.replace("Bearer ", "")
+            print(f"[AUTH DEBUG] Found Bearer token, attempting to decode")
+            try:
+                payload = decode_token(token)
+                print(f"[AUTH DEBUG] Decoded token payload: {payload}")
+                # Get username from token payload (try 'username' then 'email' then 'sub')
+                username = payload.get("username") or payload.get("email") or payload.get("sub")
+                print(f"[AUTH DEBUG] Username from token: {username}")
+            except JWTError as e:
+                print(f"[AUTH DEBUG] Failed to decode token: {e}")
+                return None
+
+    if not username:
+        print("[AUTH DEBUG] No username found in headers or token")
         return None
 
-    token = credentials.credentials
-
-    try:
-        payload = decode_token(token)
-        user_id: int = payload.get("sub")
-        if user_id is None:
-            return None
-    except JWTError:
-        return None
-
-    # Get user from database
+    # Get user from database by username or email
     result = await db.execute(
-        select(User).where(User.id == int(user_id))
+        select(User).where((User.username == username) | (User.email == username))
     )
     user = result.scalar_one_or_none()
+
+    if user:
+        print(f"[AUTH DEBUG] Found user: {user.username} (ID: {user.id})")
+    else:
+        print(f"[AUTH DEBUG] User not found in database: {username}")
 
     return user
 

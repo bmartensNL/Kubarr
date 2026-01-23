@@ -1,11 +1,15 @@
 """FastAPI application for Kubarr dashboard."""
 
+import os
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from kubarr.api.config import settings
-from kubarr.api.routers import apps, auth, login, logs, monitoring, setup, system, users
+from kubarr.api.routers import apps, auth, login, logs, monitoring, proxy, setup, system, users
 from kubarr.core.database import init_db, close_db
 
 # Create FastAPI app
@@ -105,7 +109,14 @@ app.include_router(
     tags=["users"]
 )
 
-# OAuth2 and authentication routers
+# Setup router
+app.include_router(
+    setup.router,
+    prefix="/api/setup",
+    tags=["setup"]
+)
+
+# OAuth2 and authentication routers (must be before proxy to avoid catching auth paths)
 app.include_router(
     auth.router,
     prefix="/auth",
@@ -118,28 +129,41 @@ app.include_router(
     tags=["login"]
 )
 
-# Setup router
-app.include_router(
-    setup.router,
-    prefix="/api/setup",
-    tags=["setup"]
-)
-
-
-# Root endpoint
-@app.get("/")
-async def root():
-    """Root endpoint."""
-    return {
-        "name": settings.api_title,
-        "version": settings.api_version,
-        "docs": "/docs",
-        "health": "/api/system/health"
-    }
-
 
 # Health check (alternative path)
 @app.get("/health")
 async def health():
     """Health check endpoint."""
     return {"status": "healthy", "service": "kubarr-api"}
+
+
+# Test endpoint with no dependencies
+@app.get("/api/test")
+async def test_endpoint():
+    """Test endpoint with no dependencies."""
+    print("[TEST] Test endpoint called!")
+    return {"status": "ok", "message": "Test endpoint works"}
+
+
+# Serve static assets
+static_dir = os.getenv("STATIC_FILES_DIR", "/app/static")
+if os.path.exists(static_dir):
+    assets_dir = os.path.join(static_dir, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+# Proxy router for deployed apps (must be AFTER api routes, BEFORE SPA catch-all)
+app.include_router(proxy.router, tags=["proxy"])
+
+
+# Serve SPA (must be LAST - catch-all for SPA routing)
+if os.path.exists(static_dir):
+    from fastapi.responses import FileResponse
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """Serve SPA index.html for all unmatched routes."""
+        index_path = Path(static_dir) / "index.html"
+        if index_path.is_file():
+            return FileResponse(index_path, media_type="text/html")
+        return JSONResponse({"detail": "Not found"}, status_code=404)

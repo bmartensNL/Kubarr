@@ -4,99 +4,75 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kubarr - Login</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .login-card {
-            max-width: 400px;
-            width: 100%;
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-        }
-        .login-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 30px;
-            border-radius: 15px 15px 0 0;
-            text-align: center;
-        }
-        .login-body {
-            padding: 30px;
-        }
-        .btn-login {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border: none;
-            color: white;
-            padding: 12px;
-            font-weight: 600;
-            width: 100%;
-        }
-        .btn-login:hover {
-            opacity: 0.9;
-            color: white;
-        }
-        .register-link {
-            text-align: center;
-            margin-top: 20px;
-            color: #666;
-        }
-        .register-link a {
-            color: #667eea;
-            text-decoration: none;
-            font-weight: 600;
-        }
-        .register-link a:hover {
-            text-decoration: underline;
-        }
-    </style>
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body>
-    <div class="login-card">
-        <div class="login-header">
-            <h2 class="mb-0">Kubarr</h2>
-            <p class="mb-0 mt-2" style="opacity: 0.9;">Sign in to continue</p>
+<body class="min-h-screen bg-gray-900 flex items-center justify-center px-4">
+    <div class="max-w-md w-full space-y-8">
+        <div>
+            <h2 class="mt-6 text-center text-3xl font-extrabold text-white">
+                Kubarr Dashboard
+            </h2>
+            <p class="mt-2 text-center text-sm text-gray-400">
+                Sign in to your account
+            </p>
         </div>
-        <div class="login-body">
+        <form class="mt-8 space-y-6" method="POST" action="/auth/login">
             {% if error %}
-            <div class="alert alert-danger" role="alert">
-                {{ error }}
+            <div class="rounded-md bg-red-900 p-4">
+                <div class="text-sm text-red-200">{{ error }}</div>
             </div>
             {% endif %}
-
-            <form method="POST" action="/auth/login">
-                <div class="mb-3">
-                    <label for="username" class="form-label">Username</label>
-                    <input type="text" class="form-control" id="username" name="username" required autofocus>
+            <div class="rounded-md shadow-sm -space-y-px">
+                <div>
+                    <label for="username" class="sr-only">
+                        Username
+                    </label>
+                    <input
+                        id="username"
+                        name="username"
+                        type="text"
+                        required
+                        autofocus
+                        class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-700 placeholder-gray-500 text-white bg-gray-800 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                        placeholder="Username"
+                    />
                 </div>
-                <div class="mb-3">
-                    <label for="password" class="form-label">Password</label>
-                    <input type="password" class="form-control" id="password" name="password" required>
+                <div>
+                    <label for="password" class="sr-only">
+                        Password
+                    </label>
+                    <input
+                        id="password"
+                        name="password"
+                        type="password"
+                        required
+                        class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-700 placeholder-gray-500 text-white bg-gray-800 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                        placeholder="Password"
+                    />
                 </div>
-
-                <!-- Hidden OAuth2 parameters -->
-                <input type="hidden" name="client_id" value="{{ client_id }}">
-                <input type="hidden" name="redirect_uri" value="{{ redirect_uri }}">
-                <input type="hidden" name="scope" value="{{ scope }}">
-                <input type="hidden" name="state" value="{{ state }}">
-                <input type="hidden" name="code_challenge" value="{{ code_challenge }}">
-                <input type="hidden" name="code_challenge_method" value="{{ code_challenge_method }}">
-
-                <button type="submit" class="btn btn-login">Sign In</button>
-            </form>
-
-            <div class="register-link">
-                Don't have an account? <a href="/auth/register">Register here</a>
             </div>
-        </div>
-    </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+            <!-- Hidden OAuth2 parameters -->
+            <input type="hidden" name="client_id" value="{{ client_id }}">
+            <input type="hidden" name="redirect_uri" value="{{ redirect_uri }}">
+            <input type="hidden" name="scope" value="{{ scope }}">
+            <input type="hidden" name="state" value="{{ state }}">
+            <input type="hidden" name="code_challenge" value="{{ code_challenge }}">
+            <input type="hidden" name="code_challenge_method" value="{{ code_challenge_method }}">
+
+            <div>
+                <button
+                    type="submit"
+                    class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                >
+                    Sign in
+                </button>
+            </div>
+
+            <div class="text-center text-sm text-gray-400">
+                Don't have an account? <a href="/auth/register" class="text-blue-500 hover:text-blue-400">Register here</a>
+            </div>
+        </form>
+    </div>
 </body>
 </html>

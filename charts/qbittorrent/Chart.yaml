@@ -1,0 +1,17 @@
+apiVersion: v2
+name: qbittorrent
+description: A Helm chart for qBittorrent - Free and open-source BitTorrent client
+type: application
+version: 0.1.0
+appVersion: "4.6.2"
+keywords:
+  - qbittorrent
+  - bittorrent
+  - download
+  - torrent
+  - media
+home: https://www.qbittorrent.org/
+sources:
+  - https://github.com/qbittorrent/qBittorrent
+maintainers:
+  - name: Kubarr Team

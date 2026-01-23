@@ -1,0 +1,19 @@
+{{- if .Values.persistence.downloads.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "qbittorrent.fullname" . }}-downloads
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "qbittorrent.labels" . | nindent 4 }}
+    volume: downloads
+spec:
+  accessModes:
+    - {{ .Values.persistence.downloads.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.downloads.size }}
+  {{- if .Values.persistence.downloads.storageClass }}
+  storageClassName: {{ .Values.persistence.downloads.storageClass }}
+  {{- end }}
+{{- end }}

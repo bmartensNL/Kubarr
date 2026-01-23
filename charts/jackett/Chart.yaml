@@ -1,0 +1,17 @@
+apiVersion: v2
+name: jackett
+description: A Helm chart for Jackett - API support for torrent trackers
+type: application
+version: 0.1.0
+appVersion: "0.21.0"
+keywords:
+  - jackett
+  - indexer
+  - torrent
+  - sonarr
+  - radarr
+home: https://github.com/Jackett/Jackett
+sources:
+  - https://github.com/Jackett/Jackett
+maintainers:
+  - name: Kubarr Team

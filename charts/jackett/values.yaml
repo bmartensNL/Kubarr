@@ -1,0 +1,117 @@
+# Default values for jackett
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Namespace configuration
+namespace:
+  create: true
+  name: jackett
+
+# Jackett application configuration
+jackett:
+  replicaCount: 1
+
+  image:
+    repository: linuxserver/jackett
+    pullPolicy: IfNotPresent
+    tag: "latest"
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 9117
+    targetPort: 9117
+    annotations: {}
+
+  # Resource limits and requests
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Environment variables
+  env:
+    # User ID to run Jackett as
+    PUID: "1000"
+    # Group ID to run Jackett as
+    PGID: "1000"
+    # Timezone
+    TZ: "Etc/UTC"
+    # Auto-update (disable for production)
+    AUTO_UPDATE: "false"
+
+  # Base path for reverse proxy (e.g., /jackett)
+  basePath: "/jackett"
+
+  # Probes configuration
+  livenessProbe:
+    enabled: true
+    tcpSocket:
+      port: 9117
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    tcpSocket:
+      port: 9117
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+# Persistent volumes configuration
+persistence:
+  # Config volume
+  config:
+    enabled: true
+    size: 1Gi
+    storageClass: ""  # Use default storage class
+    accessMode: ReadWriteOnce
+    mountPath: /config
+
+# Security context
+securityContext:
+  runAsNonRoot: false  # linuxserver images run as root but switch to PUID/PGID
+
+# Pod security context
+podSecurityContext:
+  fsGroup: 1000
+
+# Service Account
+serviceAccount:
+  create: true
+  name: jackett
+  annotations: {}
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+  hosts:
+    - host: jackett.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Pod annotations
+podAnnotations: {}
+
+# Image pull secrets
+imagePullSecrets: []

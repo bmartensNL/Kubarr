@@ -10,6 +10,7 @@ from kubarr.core.logs_service import LogsService
 from kubarr.core.models import LogEntry, LogFilter
 from kubarr.core.models_auth import User
 
+# Authentication via oauth2-proxy headers (X-Auth-Request-User)
 router = APIRouter(dependencies=[Depends(get_current_active_user)])
 
 

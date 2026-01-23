@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "qbittorrent.fullname" . }}-init
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "qbittorrent.labels" . | nindent 4 }}
+data:
+  99-apply-config.sh: |
+    #!/bin/bash
+    # Apply immutable qBittorrent configuration
+    # This overwrites the config on every startup to ensure settings are immutable
+
+    CONFIG_DIR="/config/qBittorrent"
+    CONFIG_FILE="${CONFIG_DIR}/qBittorrent.conf"
+    IMMUTABLE_CONFIG="/config-immutable/qBittorrent.conf"
+
+    mkdir -p "$CONFIG_DIR"
+
+    echo "Applying immutable qBittorrent configuration..."
+    cp "$IMMUTABLE_CONFIG" "$CONFIG_FILE"
+
+    echo "Configuration applied:"
+    cat "$CONFIG_FILE"

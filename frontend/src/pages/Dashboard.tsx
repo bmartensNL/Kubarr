@@ -1,6 +1,7 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueries } from '@tanstack/react-query'
 import { appsApi } from '../api/apps'
 import { monitoringApi } from '../api/monitoring'
+import type { PodStatus } from '../types'
 
 export default function Dashboard() {
   const { data: catalog, isLoading: catalogLoading } = useQuery({
@@ -13,10 +14,21 @@ export default function Dashboard() {
     queryFn: () => appsApi.getInstalled(),
   })
 
-  const { data: podStatus } = useQuery({
-    queryKey: ['monitoring', 'pods'],
-    queryFn: () => monitoringApi.getPodStatus(),
-    refetchInterval: 5000, // Refresh every 5 seconds
+  const installedApps = catalog?.filter((app) => installed?.includes(app.name)) || []
+
+  // Query pod status for each installed app's namespace
+  const podQueries = useQueries({
+    queries: installedApps.map((app) => ({
+      queryKey: ['monitoring', 'pods', app.name],
+      queryFn: () => monitoringApi.getPodStatus(app.name),
+      refetchInterval: 5000,
+    })),
+  })
+
+  // Build a map of app name to pod status
+  const podStatusByApp: Record<string, PodStatus[]> = {}
+  installedApps.forEach((app, index) => {
+    podStatusByApp[app.name] = podQueries[index]?.data || []
   })
 
   if (catalogLoading || installedLoading) {
@@ -27,27 +39,23 @@ export default function Dashboard() {
     )
   }
 
-  const installedApps = catalog?.filter((app) => installed?.includes(app.name)) || []
-  const availableApps = catalog?.filter((app) => !installed?.includes(app.name)) || []
+  const healthyApps = installedApps.filter((app) => {
+    const appPods = podStatusByApp[app.name] || []
+    return appPods.length > 0 && appPods.every((p) => p.ready && p.status === 'Running')
+  })
 
   return (
     <div className="space-y-8">
       <div>
         <h2 className="text-2xl font-bold mb-4">Overview</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-gray-800 rounded-lg p-6">
-            <div className="text-gray-400 text-sm">Total Apps</div>
-            <div className="text-3xl font-bold">{catalog?.length || 0}</div>
+            <div className="text-gray-400 text-sm">Installed Apps</div>
+            <div className="text-3xl font-bold">{installedApps.length}</div>
           </div>
           <div className="bg-gray-800 rounded-lg p-6">
-            <div className="text-gray-400 text-sm">Installed</div>
-            <div className="text-3xl font-bold text-green-400">{installed?.length || 0}</div>
-          </div>
-          <div className="bg-gray-800 rounded-lg p-6">
-            <div className="text-gray-400 text-sm">Running Pods</div>
-            <div className="text-3xl font-bold text-blue-400">
-              {podStatus?.filter((p) => p.status === 'Running').length || 0}
-            </div>
+            <div className="text-gray-400 text-sm">Healthy</div>
+            <div className="text-3xl font-bold text-green-400">{healthyApps.length}</div>
           </div>
         </div>
       </div>
@@ -57,9 +65,8 @@ export default function Dashboard() {
           <h2 className="text-2xl font-bold mb-4">Installed Apps</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {installedApps.map((app) => {
-              const appPods = podStatus?.filter((p) => p.app === app.name) || []
-              const runningPods = appPods.filter((p) => p.status === 'Running').length
-              const isHealthy = appPods.length > 0 && runningPods === appPods.length
+              const appPods = podStatusByApp[app.name] || []
+              const isHealthy = appPods.length > 0 && appPods.every((p) => p.ready && p.status === 'Running')
 
               return (
                 <div key={app.name} className="bg-gray-800 rounded-lg p-6">
@@ -72,15 +79,18 @@ export default function Dashboard() {
                       className={`w-3 h-3 rounded-full ${
                         isHealthy ? 'bg-green-400' : 'bg-red-400'
                       }`}
+                      title={isHealthy ? 'Healthy' : 'Unhealthy'}
                     />
                   </div>
                   <p className="text-sm text-gray-300 mb-4">{app.description}</p>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-400">
-                      {runningPods}/{appPods.length} pods running
-                    </span>
-                    <span className="text-gray-400">Port {app.default_port}</span>
-                  </div>
+                  <a
+                    href={`/${app.name}/`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-block w-full text-center bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded"
+                  >
+                    View
+                  </a>
                 </div>
               )
             })}
@@ -88,23 +98,9 @@ export default function Dashboard() {
         </div>
       )}
 
-      {availableApps.length > 0 && (
-        <div>
-          <h2 className="text-2xl font-bold mb-4">Available Apps</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {availableApps.slice(0, 6).map((app) => (
-              <div key={app.name} className="bg-gray-800 rounded-lg p-6">
-                <div className="mb-4">
-                  <h3 className="text-lg font-semibold">{app.display_name}</h3>
-                  <p className="text-sm text-gray-400">{app.category}</p>
-                </div>
-                <p className="text-sm text-gray-300 mb-4">{app.description}</p>
-                <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded">
-                  Install
-                </button>
-              </div>
-            ))}
-          </div>
+      {installedApps.length === 0 && (
+        <div className="text-center py-12">
+          <p className="text-gray-400">No apps installed yet. Go to the Apps page to install some.</p>
         </div>
       )}
     </div>
