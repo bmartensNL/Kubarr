@@ -83,10 +83,8 @@ spec:
               mountPath: /etc/grafana/provisioning/datasources
             - name: dashboards-provider
               mountPath: /etc/grafana/provisioning/dashboards
-            {{- if .Values.dashboards.kubarrOverview.enabled }}
             - name: dashboards
               mountPath: /var/lib/grafana/dashboards
-            {{- end }}
             - name: data
               mountPath: /var/lib/grafana
       volumes:
@@ -99,11 +97,17 @@ spec:
         - name: dashboards-provider
           configMap:
             name: {{ include "grafana.fullname" . }}-dashboards-provider
-        {{- if .Values.dashboards.kubarrOverview.enabled }}
         - name: dashboards
-          configMap:
-            name: {{ include "grafana.fullname" . }}-dashboards
-        {{- end }}
+          projected:
+            sources:
+              {{- if .Values.dashboards.kubarrOverview.enabled }}
+              - configMap:
+                  name: {{ include "grafana.fullname" . }}-dashboards
+              {{- end }}
+              {{- if .Values.dashboards.kubernetesCluster.enabled }}
+              - configMap:
+                  name: {{ include "grafana.fullname" . }}-dashboards-k8s
+              {{- end }}
         - name: data
           {{- if .Values.persistence.enabled }}
           persistentVolumeClaim:

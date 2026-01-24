@@ -113,3 +113,11 @@ storage:
     rootPath: ""  # e.g., /mnt/data/kubarr - set by Kubarr
   mountPath: /data
   readOnly: true  # Jellyfin only reads media
+
+# Network policy configuration
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    - kubarr-system
+    - jellyseerr
+  egressTo: []

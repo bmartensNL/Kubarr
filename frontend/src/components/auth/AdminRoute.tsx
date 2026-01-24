@@ -1,5 +1,4 @@
 import React from 'react';
-import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface AdminRouteProps {
@@ -24,8 +23,9 @@ const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
   }
 
   if (!isAuthenticated) {
-    // Redirect to login page
-    return <Navigate to="/login" replace />;
+    // Trigger oauth2-proxy authentication
+    window.location.href = '/oauth2/sign_in';
+    return null;
   }
 
   if (!isAdmin) {

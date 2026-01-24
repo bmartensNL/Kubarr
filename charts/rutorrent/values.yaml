@@ -117,3 +117,13 @@ podAnnotations: {}
 
 # Image pull secrets
 imagePullSecrets: []
+
+# Network policy configuration
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    - kubarr-system
+    - sonarr
+    - radarr
+    - prometheus
+  egressTo: []

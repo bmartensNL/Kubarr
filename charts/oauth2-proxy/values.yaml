@@ -59,3 +59,23 @@ tolerations: []
 
 # Affinity (optional)
 affinity: {}
+
+# Network policy configuration
+networkPolicy:
+  # Enable network policies to restrict traffic
+  enabled: true
+  # Namespaces that oauth2-proxy is allowed to reach (for proxying to apps)
+  allowedNamespaces:
+    - sonarr
+    - radarr
+    - qbittorrent
+    - transmission
+    - deluge
+    - rutorrent
+    - jackett
+    - jellyfin
+    - jellyseerr
+    - sabnzbd
+    - grafana
+    - prometheus
+    - loki

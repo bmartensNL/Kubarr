@@ -104,6 +104,20 @@ storage:
     rootPath: ""  # e.g., /mnt/data/kubarr - set by Kubarr
   mountPath: /data
 
+# Network policy configuration
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    - kubarr-system  # nginx reverse proxy
+    - prometheus     # metrics scraping
+  egressTo:
+    - qbittorrent
+    - transmission
+    - deluge
+    - rutorrent
+    - sabnzbd
+    - jackett
+
 # Prometheus exporter (exportarr) - auto-scraped by Prometheus
 # Note: Requires API key from Radarr (Settings > General > API Key)
 exporter:

@@ -1,10 +1,6 @@
 # Build stage
 FROM node:20-alpine AS builder
 
-# Build args for version info
-ARG COMMIT_HASH=unknown
-ARG BUILD_TIME=unknown
-
 WORKDIR /app
 
 # Copy package files
@@ -16,39 +12,19 @@ RUN npm ci
 # Copy source code
 COPY frontend/ ./
 
-# Set environment variables for vite build
-ENV VITE_COMMIT_HASH=${COMMIT_HASH}
-ENV VITE_BUILD_TIME=${BUILD_TIME}
-
-# Build application
+# Build the app
 RUN npm run build
 
-# Production stage
+# Production stage - nginx to serve static files
 FROM nginx:alpine
 
-# Copy built assets from builder
+# Copy built files
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Copy nginx configuration
-COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+# Copy nginx config
+COPY docker/nginx-frontend.conf /etc/nginx/conf.d/default.conf
 
-# Create non-root user
-RUN addgroup -g 1000 kubarr && \
-    adduser -D -u 1000 -G kubarr kubarr && \
-    chown -R kubarr:kubarr /usr/share/nginx/html && \
-    chown -R kubarr:kubarr /var/cache/nginx && \
-    chown -R kubarr:kubarr /var/log/nginx && \
-    touch /var/run/nginx.pid && \
-    chown kubarr:kubarr /var/run/nginx.pid
-
-USER kubarr
-
-# Expose HTTP port
+# Expose port
 EXPOSE 80
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --quiet --tries=1 --spider http://localhost/ || exit 1
-
-# Start nginx
 CMD ["nginx", "-g", "daemon off;"]

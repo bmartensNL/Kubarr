@@ -36,18 +36,6 @@ spec:
               done
               echo "Secret found!"
       containers:
-        - name: nginx
-          image: nginx:alpine
-          imagePullPolicy: IfNotPresent
-          ports:
-            - name: http-nginx
-              containerPort: 8080
-              protocol: TCP
-          volumeMounts:
-            - name: nginx-config
-              mountPath: /etc/nginx/nginx.conf
-              subPath: nginx.conf
-              readOnly: true
         - name: oauth2-proxy
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -92,9 +80,6 @@ spec:
         - name: config
           configMap:
             name: {{ include "oauth2-proxy.fullname" . }}-config
-        - name: nginx-config
-          configMap:
-            name: {{ include "oauth2-proxy.fullname" . }}-nginx-config
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

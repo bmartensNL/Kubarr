@@ -130,3 +130,13 @@ storage:
     enabled: false
     rootPath: ""  # e.g., /mnt/data/kubarr - set by Kubarr
   mountPath: /data
+
+# Network policy configuration
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    - kubarr-system
+  egressTo:
+    - jellyfin
+    - sonarr
+    - radarr

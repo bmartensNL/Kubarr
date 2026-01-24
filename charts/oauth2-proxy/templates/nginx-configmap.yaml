@@ -19,9 +19,24 @@ data:
         # Use Kubernetes DNS resolver with short TTL to prevent IP caching
         resolver kube-dns.kube-system.svc.cluster.local valid=5s;
 
+        # Strip auth headers from responses (these are internal only)
+        proxy_hide_header X-Auth-Request-Access-Token;
+        proxy_hide_header X-Auth-Request-User;
+        proxy_hide_header X-Auth-Request-Email;
+        proxy_hide_header X-Auth-Request-Preferred-Username;
+        proxy_hide_header X-Auth-Request-Groups;
+        proxy_hide_header Gap-Auth;
+
         server {
             listen 8080;
             server_name _;
+
+            # Health check endpoint for Kubernetes probes
+            location /healthz {
+                access_log off;
+                return 200 'ok';
+                add_header Content-Type text/plain;
+            }
 
             # Proxy qbittorrent - use variable to force dynamic DNS resolution
             location /qbittorrent/ {
@@ -227,15 +242,43 @@ data:
                 proxy_set_header X-Forwarded-Proto $scheme;
             }
 
-            # Default to kubarr dashboard - use variable to force dynamic DNS resolution
-            location / {
-                set $kubarr_upstream kubarr-dashboard.kubarr-system.svc.cluster.local:80;
-                proxy_pass http://$kubarr_upstream;
+            # Kubarr API - route to backend
+            location /api/ {
+                set $kubarr_backend kubarr-dashboard.kubarr-system.svc.cluster.local:8000;
+                proxy_pass http://$kubarr_backend;
                 proxy_set_header Host $host;
                 proxy_set_header X-Real-IP $remote_addr;
                 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
                 proxy_set_header X-Forwarded-Proto $scheme;
                 proxy_set_header Authorization $http_authorization;
+                # Forward auth headers from oauth2-proxy
+                # oauth2-proxy sends X-Forwarded-* headers with pass_user_headers=true
+                # Map them to X-Auth-Request-* headers that the backend expects
+                proxy_set_header X-Auth-Request-User $http_x_forwarded_user;
+                proxy_set_header X-Auth-Request-Email $http_x_forwarded_email;
+                proxy_set_header X-Auth-Request-Preferred-Username $http_x_forwarded_preferred_username;
+                proxy_set_header X-Auth-Request-Groups $http_x_forwarded_groups;
+            }
+
+            # Kubarr Auth endpoints - route to backend
+            location /auth/ {
+                set $kubarr_backend kubarr-dashboard.kubarr-system.svc.cluster.local:8000;
+                proxy_pass http://$kubarr_backend;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_set_header Authorization $http_authorization;
+            }
+
+            # Default to kubarr frontend - use variable to force dynamic DNS resolution
+            location / {
+                set $kubarr_frontend kubarr-dashboard-frontend.kubarr-system.svc.cluster.local:80;
+                proxy_pass http://$kubarr_frontend;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
             }
         }
     }

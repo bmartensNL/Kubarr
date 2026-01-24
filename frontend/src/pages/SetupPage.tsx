@@ -26,7 +26,7 @@ const SetupPage: React.FC = () => {
       try {
         const { setup_required } = await setupApi.checkRequired();
         if (!setup_required) {
-          navigate('/login');
+          navigate('/');
         }
       } catch (err) {
         // If we can't check, let the user try setup
@@ -110,8 +110,8 @@ const SetupPage: React.FC = () => {
       const result = await setupApi.initialize(setupData);
 
       if (result.success) {
-        // Force full page reload to re-check setup status
-        window.location.href = '/login';
+        // Force full page reload to trigger oauth2-proxy auth flow
+        window.location.href = '/';
       } else {
         setError(result.message || 'Setup failed');
       }

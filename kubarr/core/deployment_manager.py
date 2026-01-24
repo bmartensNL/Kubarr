@@ -119,17 +119,22 @@ class DeploymentManager:
         namespace = request.app_name
 
         try:
-            # Build helm install command
-            helm_args = [
-                "install" if not dry_run else "template",
-                request.app_name,
-                str(chart_path),
-                "-n", namespace,
-            ]
-
-            # Only add --create-namespace for actual install
-            if not dry_run:
-                helm_args.append("--create-namespace")
+            # Build helm upgrade --install command (handles both new installs and upgrades)
+            if dry_run:
+                helm_args = [
+                    "template",
+                    request.app_name,
+                    str(chart_path),
+                    "-n", namespace,
+                ]
+            else:
+                helm_args = [
+                    "upgrade", "--install",
+                    request.app_name,
+                    str(chart_path),
+                    "-n", namespace,
+                    "--create-namespace",
+                ]
 
             # Inject storage configuration if provided
             if storage_path:

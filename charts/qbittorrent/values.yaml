@@ -164,6 +164,16 @@ storage:
     rootPath: ""  # e.g., /mnt/data/kubarr - set by Kubarr
   mountPath: /data
 
+# Network policy configuration
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    - kubarr-system  # nginx reverse proxy
+    - sonarr         # arr apps connecting to download client
+    - radarr
+    - prometheus     # metrics scraping
+  egressTo: []       # download clients mainly need outbound internet
+
 # Prometheus exporter sidecar (auto-scraped by Prometheus when enabled)
 exporter:
   enabled: true

@@ -13,11 +13,11 @@ data:
     skip_oidc_discovery = true
 
     # Manual endpoint configuration
-    # login_url must be browser-accessible, others can use internal service URLs
+    # login_url must be browser-accessible, others go through nginx which routes to backend
     login_url = "http://localhost:8080/auth/authorize"
-    redeem_url = "http://kubarr-dashboard.kubarr-system.svc.cluster.local:80/auth/token"
-    validate_url = "http://kubarr-dashboard.kubarr-system.svc.cluster.local:80/auth/userinfo"
-    oidc_jwks_url = "http://kubarr-dashboard.kubarr-system.svc.cluster.local:80/auth/jwks"
+    redeem_url = "http://{{ include "oauth2-proxy.fullname" . }}-nginx.{{ .Values.namespace }}.svc.cluster.local:8080/auth/token"
+    validate_url = "http://{{ include "oauth2-proxy.fullname" . }}-nginx.{{ .Values.namespace }}.svc.cluster.local:8080/auth/userinfo"
+    oidc_jwks_url = "http://{{ include "oauth2-proxy.fullname" . }}-nginx.{{ .Values.namespace }}.svc.cluster.local:8080/auth/jwks"
 
     # Skip the "Sign in with..." button and redirect directly to provider
     skip_provider_button = true
@@ -27,12 +27,12 @@ data:
     redirect_url = "{{ .Values.config.redirectUrl }}"
 
     # Cookie configuration
-    cookie_name = "_oauth2_proxy"
+    cookie_name = "kubarr_auth"
     cookie_httponly = true
     cookie_samesite = "lax"
     cookie_expire = "{{ .Values.config.cookieExpire }}"
     cookie_secure = false
-    cookie_domains = ["localhost"]
+    # cookie_domains not set - use request host for cookies
     cookie_csrf_per_request = true
     cookie_csrf_expire = "5m"
 
@@ -50,9 +50,9 @@ data:
     # Skip provider verification for internal services
     ssl_insecure_skip_verify = true
 
-    # Upstream configuration (proxying to nginx sidecar for path-based routing)
+    # Upstream configuration (proxying to nginx service for path-based routing)
     upstreams = [
-      "http://localhost:8080",
+      "http://{{ include "oauth2-proxy.fullname" . }}-nginx.{{ .Values.namespace }}.svc.cluster.local:8080",
     ]
 
     # Logging
@@ -66,11 +66,11 @@ data:
     # HTTP configuration
     http_address = "0.0.0.0:4180"
 
-    # Pass headers to upstream
-    pass_access_token = true
-    pass_authorization_header = true
+    # Pass user info headers to upstream (nginx strips them from responses)
+    pass_access_token = false
+    pass_authorization_header = false
     pass_user_headers = true
-    set_authorization_header = true
+    set_authorization_header = false
     set_xauthrequest = true
 
     # Use email claim for X-Auth-Request-User header instead of sub
@@ -81,5 +81,6 @@ data:
       "^/ping$",
       "^/ready$",
       "^/auth/.*",
-      "^/api/apps/catalog/[^/]+/icon$"
+      "^/api/apps/catalog/[^/]+/icon$",
+      "^/api/setup/required$"
     ]

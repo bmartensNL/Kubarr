@@ -76,8 +76,19 @@ serviceAccount:
 dashboards:
   kubarrOverview:
     enabled: true
+  kubernetesCluster:
+    enabled: true
 
 nodeSelector: {}
 tolerations: []
 affinity: {}
 podAnnotations: {}
+
+# Network policy configuration
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    - kubarr-system  # nginx reverse proxy
+  egressTo:
+    - prometheus
+    - loki

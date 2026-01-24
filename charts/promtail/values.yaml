@@ -16,8 +16,8 @@ promtail:
       cpu: 200m
       memory: 256Mi
 
-  # Loki push endpoint (includes Loki's path prefix)
-  lokiUrl: "http://loki.loki.svc.cluster.local:3100/loki/loki/api/v1/push"
+  # Loki push endpoint
+  lokiUrl: "http://loki.loki.svc.cluster.local:3100/loki/api/v1/push"
 
   # Container log paths on host
   containerLogPath: /var/log/containers
@@ -40,3 +40,10 @@ tolerations:
     operator: Exists
 
 podAnnotations: {}
+
+# Network policy configuration
+networkPolicy:
+  enabled: true
+  # Promtail needs to send logs to Loki
+  egressTo:
+    - loki

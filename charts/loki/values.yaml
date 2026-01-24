@@ -15,8 +15,8 @@ loki:
     port: 3100
     targetPort: 3100
 
-  # Path prefix for reverse proxy
-  pathPrefix: "/loki"
+  # Path prefix for reverse proxy (empty - Loki API already includes /loki/ prefix)
+  pathPrefix: ""
 
   resources:
     requests:
@@ -56,3 +56,11 @@ nodeSelector: {}
 tolerations: []
 affinity: {}
 podAnnotations: {}
+
+# Network policy configuration
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    - kubarr-system  # nginx reverse proxy and kubarr-dashboard
+    - grafana        # for log queries
+    - promtail       # for log ingestion

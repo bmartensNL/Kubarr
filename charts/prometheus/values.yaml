@@ -64,3 +64,24 @@ nodeSelector: {}
 tolerations: []
 affinity: {}
 podAnnotations: {}
+
+# Network policy configuration
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    - kubarr-system  # nginx reverse proxy and grafana
+    - grafana
+  # Prometheus needs to scrape all app namespaces
+  scrapeNamespaces:
+    - sonarr
+    - radarr
+    - qbittorrent
+    - transmission
+    - deluge
+    - rutorrent
+    - jackett
+    - jellyfin
+    - jellyseerr
+    - sabnzbd
+    - loki
+    - promtail

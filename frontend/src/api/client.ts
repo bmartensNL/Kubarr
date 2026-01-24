@@ -28,13 +28,10 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     console.error('API Error:', error.response?.data || error.message);
-    // If we get a 401, clear the token and redirect to login
+    // If we get a 401, just clear the token
+    // Let oauth2-proxy handle authentication naturally - don't force redirects
     if (error.response?.status === 401) {
       localStorage.removeItem('access_token');
-      // Only redirect if not already on login page
-      if (!window.location.pathname.includes('/login')) {
-        window.location.href = '/login';
-      }
     }
     return Promise.reject(error);
   }

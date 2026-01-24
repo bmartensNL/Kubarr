@@ -3,12 +3,14 @@ import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react
 import Dashboard from './pages/Dashboard'
 import AppsPage from './pages/AppsPage'
 import StoragePage from './pages/StoragePage'
+import LogsPage from './pages/LogsPage'
+import MonitoringPage from './pages/MonitoringPage'
 import SettingsPage from './pages/SettingsPage'
 import SetupPage from './pages/SetupPage'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { VersionFooter } from './components/VersionFooter'
 import { setupApi } from './api/setup'
-import { LayoutDashboard, Grid3X3, HardDrive, Settings, User, LogOut, Ship } from 'lucide-react'
+import { LayoutDashboard, Grid3X3, HardDrive, FileText, Activity, Settings, User, LogOut, Ship } from 'lucide-react'
 
 function Navigation() {
   const { user, loading, isAdmin, logout } = useAuth()
@@ -65,6 +67,28 @@ function Navigation() {
               <HardDrive size={18} strokeWidth={2} />
               <span>Storage</span>
             </Link>
+            <Link
+              to="/logs"
+              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                isActive('/logs')
+                  ? 'bg-gray-700 text-white'
+                  : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+              }`}
+            >
+              <FileText size={18} strokeWidth={2} />
+              <span>Logs</span>
+            </Link>
+            <Link
+              to="/monitoring"
+              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                isActive('/monitoring')
+                  ? 'bg-gray-700 text-white'
+                  : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+              }`}
+            >
+              <Activity size={18} strokeWidth={2} />
+              <span>Monitoring</span>
+            </Link>
             {isAdmin && (
               <Link
                 to="/settings"
@@ -116,10 +140,9 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     )
   }
 
-  // If not authenticated, oauth2-proxy should have already redirected to login
-  // This is a fallback - redirect to oauth2-proxy sign_out to trigger re-auth
+  // If not authenticated, redirect to oauth2-proxy sign_in to start auth flow
   if (!isAuthenticated) {
-    window.location.href = '/oauth2/sign_out'
+    window.location.href = '/oauth2/sign_in'
     return null
   }
 
@@ -132,6 +155,7 @@ function AppContent() {
   const [setupCheckLoading, setSetupCheckLoading] = useState(true)
 
   const isSettingsPage = location.pathname === '/settings'
+  const isLogsPage = location.pathname === '/logs'
   const isSetupPage = location.pathname === '/setup'
 
   // Check if setup is required on mount
@@ -180,10 +204,11 @@ function AppContent() {
     <ProtectedRoute>
       <div className="h-screen bg-gray-900 text-white flex flex-col overflow-hidden">
         <Navigation />
-        {isSettingsPage ? (
-          <main className="flex-1 overflow-hidden">
+        {isSettingsPage || isLogsPage ? (
+          <main className="flex-1 overflow-hidden p-6">
             <Routes>
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/logs" element={<LogsPage />} />
             </Routes>
           </main>
         ) : (
@@ -193,6 +218,7 @@ function AppContent() {
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/apps" element={<AppsPage />} />
                 <Route path="/storage" element={<StoragePage />} />
+                <Route path="/monitoring" element={<MonitoringPage />} />
               </Routes>
             </div>
             <VersionFooter />

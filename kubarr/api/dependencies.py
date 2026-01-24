@@ -4,8 +4,6 @@ from functools import lru_cache
 from typing import Generator, Optional
 
 from fastapi import Depends, HTTPException, status, Request
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,10 +15,6 @@ from kubarr.core.k8s_client import K8sClientManager
 from kubarr.core.logs_service import LogsService
 from kubarr.core.models_auth import User
 from kubarr.core.monitoring_service import MonitoringService
-from kubarr.core.security import decode_token
-
-# HTTP Bearer token security scheme
-security = HTTPBearer(auto_error=False)
 
 
 @lru_cache()
@@ -104,14 +98,14 @@ def get_logs_service(k8s_client: K8sClientManager) -> LogsService:
 
 
 async def get_current_user(
-    request: "Request",
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ) -> Optional[User]:
-    """Get current authenticated user from oauth2-proxy.
+    """Get current authenticated user from internal headers.
 
-    OAuth2-proxy can pass user information via:
-    1. Headers: X-Auth-Request-User or X-Forwarded-User
-    2. JWT token in Authorization header
+    oauth2-proxy sets X-Auth-Request-User/Email headers for authenticated
+    requests. These headers are stripped from responses by nginx so the
+    browser never sees them.
 
     Args:
         request: FastAPI request object
@@ -120,65 +114,21 @@ async def get_current_user(
     Returns:
         User or None if not authenticated
     """
-    from fastapi import Request
+    # Get user identity from oauth2-proxy headers (internal only)
+    user_email = request.headers.get("X-Auth-Request-Email")
+    user_name = request.headers.get("X-Auth-Request-User")
 
-    # Debug: Print all headers (will show in uvicorn logs)
-    print(f"[AUTH DEBUG] All request headers: {dict(request.headers)}")
+    # Try email first, then username
+    identifier = user_email or user_name
 
-    username = None
-
-    # Try to get username from oauth2-proxy headers first
-    # Check X-Auth-Request-User, X-Forwarded-User, or X-Forwarded-Email
-    username = (
-        request.headers.get("X-Auth-Request-User") or
-        request.headers.get("X-Forwarded-Email") or
-        request.headers.get("X-Forwarded-User")
-    )
-    print(f"[AUTH DEBUG] Username from headers: {username}")
-
-    # If no header, try to decode JWT token from Authorization header
-    user_id = None
-    if not username:
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            token = auth_header.replace("Bearer ", "")
-            print(f"[AUTH DEBUG] Found Bearer token, attempting to decode")
-            try:
-                payload = decode_token(token)
-                print(f"[AUTH DEBUG] Decoded token payload: {payload}")
-                # Get username from token payload (try 'username' then 'email')
-                username = payload.get("username") or payload.get("email")
-                # If sub is numeric, it's a user ID
-                sub = payload.get("sub")
-                if sub and sub.isdigit():
-                    user_id = int(sub)
-                    print(f"[AUTH DEBUG] User ID from token sub: {user_id}")
-                elif sub and not username:
-                    username = sub
-                print(f"[AUTH DEBUG] Username from token: {username}")
-            except JWTError as e:
-                print(f"[AUTH DEBUG] Failed to decode token: {e}")
-                return None
-
-    if not username and not user_id:
-        print("[AUTH DEBUG] No username or user_id found in headers or token")
+    if not identifier:
         return None
 
-    # Get user from database by ID, username, or email
-    if user_id:
-        result = await db.execute(
-            select(User).where(User.id == user_id)
-        )
-    else:
-        result = await db.execute(
-            select(User).where((User.username == username) | (User.email == username))
-        )
+    # Get user from database by email or username
+    result = await db.execute(
+        select(User).where((User.email == identifier) | (User.username == identifier))
+    )
     user = result.scalar_one_or_none()
-
-    if user:
-        print(f"[AUTH DEBUG] Found user: {user.username} (ID: {user.id})")
-    else:
-        print(f"[AUTH DEBUG] User not found in database: {username}")
 
     return user
 

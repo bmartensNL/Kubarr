@@ -53,7 +53,7 @@ backend:
     - name: KUBARR_OAUTH2_ISSUER_URL
       value: "http://localhost:8080"
 
-# Frontend configuration
+# Frontend configuration (separate nginx pod serving static files)
 frontend:
   replicaCount: 1
 
@@ -65,15 +65,14 @@ frontend:
   service:
     type: ClusterIP
     port: 80
-    targetPort: 80
 
   resources:
     limits:
-      cpu: 200m
-      memory: 256Mi
+      cpu: 100m
+      memory: 128Mi
     requests:
       cpu: 50m
-      memory: 128Mi
+      memory: 64Mi
 
 # Service Account configuration
 serviceAccount:
@@ -101,6 +100,12 @@ rbac:
     - apiGroups: ["metrics.k8s.io"]
       resources: ["pods"]
       verbs: ["get", "list"]
+    - apiGroups: ["networking.k8s.io"]
+      resources: ["networkpolicies"]
+      verbs: ["get", "list", "watch", "create", "update", "delete", "patch"]
+    - apiGroups: ["rbac.authorization.k8s.io"]
+      resources: ["roles", "rolebindings"]
+      verbs: ["get", "list", "watch", "create", "update", "delete", "patch"]
 
 # Ingress configuration
 ingress:
@@ -196,3 +201,20 @@ storage:
     enabled: false
     rootPath: ""  # e.g., /mnt/data/kubarr - set during setup wizard
   mountPath: /data/storage
+
+# Network policy configuration
+networkPolicy:
+  # Enable network policies to restrict traffic
+  enabled: true
+  # Namespaces that kubarr-dashboard is allowed to reach
+  allowedNamespaces:
+    - sonarr
+    - radarr
+    - qbittorrent
+    - transmission
+    - deluge
+    - rutorrent
+    - jackett
+    - jellyfin
+    - jellyseerr
+    - sabnzbd
