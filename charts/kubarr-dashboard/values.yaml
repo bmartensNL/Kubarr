@@ -188,3 +188,11 @@ auth:
   registration:
     enabled: true
     requireApproval: true
+
+# Storage configuration (hostPath for file browser feature)
+storage:
+  # HostPath configuration (set by user during setup)
+  hostPath:
+    enabled: false
+    rootPath: ""  # e.g., /mnt/data/kubarr - set during setup wizard
+  mountPath: /data/storage

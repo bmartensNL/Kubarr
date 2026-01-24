@@ -137,6 +137,7 @@ async def get_current_user(
     print(f"[AUTH DEBUG] Username from headers: {username}")
 
     # If no header, try to decode JWT token from Authorization header
+    user_id = None
     if not username:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
@@ -145,21 +146,33 @@ async def get_current_user(
             try:
                 payload = decode_token(token)
                 print(f"[AUTH DEBUG] Decoded token payload: {payload}")
-                # Get username from token payload (try 'username' then 'email' then 'sub')
-                username = payload.get("username") or payload.get("email") or payload.get("sub")
+                # Get username from token payload (try 'username' then 'email')
+                username = payload.get("username") or payload.get("email")
+                # If sub is numeric, it's a user ID
+                sub = payload.get("sub")
+                if sub and sub.isdigit():
+                    user_id = int(sub)
+                    print(f"[AUTH DEBUG] User ID from token sub: {user_id}")
+                elif sub and not username:
+                    username = sub
                 print(f"[AUTH DEBUG] Username from token: {username}")
             except JWTError as e:
                 print(f"[AUTH DEBUG] Failed to decode token: {e}")
                 return None
 
-    if not username:
-        print("[AUTH DEBUG] No username found in headers or token")
+    if not username and not user_id:
+        print("[AUTH DEBUG] No username or user_id found in headers or token")
         return None
 
-    # Get user from database by username or email
-    result = await db.execute(
-        select(User).where((User.username == username) | (User.email == username))
-    )
+    # Get user from database by ID, username, or email
+    if user_id:
+        result = await db.execute(
+            select(User).where(User.id == user_id)
+        )
+    else:
+        result = await db.execute(
+            select(User).where((User.username == username) | (User.email == username))
+        )
     user = result.scalar_one_or_none()
 
     if user:
@@ -220,13 +233,33 @@ async def get_current_admin_user(
     Raises:
         HTTPException: If user is not an admin
     """
-    if not current_user.is_admin:
+    # Check both legacy is_admin flag and admin role
+    if not current_user.has_admin_role():
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions"
         )
 
     return current_user
+
+
+def require_app_access(app_name: str):
+    """Dependency factory to check if user can access a specific app.
+
+    Args:
+        app_name: Name of the app to check access for
+
+    Returns:
+        Dependency function that validates access
+    """
+    async def check_access(current_user: User = Depends(get_current_active_user)) -> User:
+        if not current_user.can_access_app(app_name):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"You don't have permission to access {app_name}"
+            )
+        return current_user
+    return check_access
 
 
 def get_optional_current_user(

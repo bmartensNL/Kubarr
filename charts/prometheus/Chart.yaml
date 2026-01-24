@@ -1,0 +1,11 @@
+apiVersion: v2
+name: prometheus
+description: Prometheus metrics collection and alerting system
+type: application
+version: 0.1.0
+appVersion: "2.48.0"
+annotations:
+  kubarr.io/display-name: "Prometheus"
+  kubarr.io/icon: "🔥"
+  kubarr.io/category: "monitoring"
+  kubarr.io/system: "true"

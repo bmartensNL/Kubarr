@@ -12,9 +12,31 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from kubarr.api.config import settings
 from kubarr.api.dependencies import get_db
-from kubarr.core.models_auth import Invite, User
+from kubarr.core.models_auth import Invite, SystemSettings, User
 from kubarr.core.oauth2_service import OAuth2Service
 from kubarr.core.security import hash_password, verify_password
+
+
+async def get_registration_enabled(db: AsyncSession) -> bool:
+    """Check if registration is enabled (from DB or config fallback)."""
+    result = await db.execute(
+        select(SystemSettings).where(SystemSettings.key == "registration_enabled")
+    )
+    setting = result.scalar_one_or_none()
+    if setting:
+        return setting.value.lower() in ("true", "1", "yes")
+    return settings.registration_enabled
+
+
+async def get_registration_require_approval(db: AsyncSession) -> bool:
+    """Check if registration requires approval (from DB or config fallback)."""
+    result = await db.execute(
+        select(SystemSettings).where(SystemSettings.key == "registration_require_approval")
+    )
+    setting = result.scalar_one_or_none()
+    if setting:
+        return setting.value.lower() in ("true", "1", "yes")
+    return settings.registration_require_approval
 
 router = APIRouter()
 
@@ -164,7 +186,8 @@ async def register_page(
     # Check if registration is disabled (no open registration)
     # If invite code is provided, allow registration even if open registration is disabled
     invite_valid = False
-    invite_required = not settings.registration_enabled
+    registration_enabled = await get_registration_enabled(db)
+    invite_required = not registration_enabled
 
     if invite:
         # Validate invite code
@@ -178,7 +201,7 @@ async def register_page(
                 invite_valid = True
 
     # If registration is disabled and no valid invite, show error
-    if not settings.registration_enabled and not invite_valid:
+    if not registration_enabled and not invite_valid:
         return templates.TemplateResponse(
             "register.html",
             {
@@ -191,13 +214,14 @@ async def register_page(
             },
         )
 
+    require_approval = await get_registration_require_approval(db)
     return templates.TemplateResponse(
         "register.html",
         {
             "request": request,
             "error": error,
             "success": success,
-            "require_approval": settings.registration_require_approval and not invite_valid,
+            "require_approval": require_approval and not invite_valid,
             "invite_code": invite or "",
             "invite_required": invite_required,
         },
@@ -242,7 +266,8 @@ async def register_submit(
                 invite_valid = True
 
     # If registration is disabled and no valid invite, reject
-    if not settings.registration_enabled and not invite_valid:
+    registration_enabled = await get_registration_enabled(db)
+    if not registration_enabled and not invite_valid:
         return RedirectResponse(
             url=f"/auth/register?error=Registration requires a valid invite link{invite_url_param}",
             status_code=status.HTTP_302_FOUND,
@@ -279,13 +304,14 @@ async def register_submit(
         )
 
     # Create user (auto-approve if using valid invite)
+    require_approval = await get_registration_require_approval(db)
     new_user = User(
         username=username,
         email=email,
         hashed_password=hash_password(password),
         is_admin=False,
         is_active=True,
-        is_approved=invite_valid or not settings.registration_require_approval,
+        is_approved=invite_valid or not require_approval,
     )
 
     db.add(new_user)

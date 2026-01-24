@@ -16,9 +16,5 @@ spec:
       targetPort: {{ .Values.rutorrent.service.targetPort }}
       protocol: TCP
       name: http
-    - port: {{ .Values.rutorrent.service.xmlrpcPort }}
-      targetPort: {{ .Values.rutorrent.service.xmlrpcPort }}
-      protocol: TCP
-      name: xmlrpc
   selector:
     {{- include "rutorrent.selectorLabels" . | nindent 4 }}

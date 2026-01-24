@@ -11,19 +11,18 @@ rutorrent:
   replicaCount: 1
 
   image:
-    repository: crazymax/rutorrent-rutorrent
+    repository: linuxserver/rutorrent
     pullPolicy: IfNotPresent
     tag: "latest"
 
   # Base path for URL routing (leave empty for root)
   basePath: "/rutorrent"
 
-  # Service configuration
+  # Service configuration (linuxserver/rutorrent uses port 80)
   service:
     type: ClusterIP
-    port: 8080
-    targetPort: 8080
-    xmlrpcPort: 8000
+    port: 80
+    targetPort: 80
     annotations: {}
 
   # Resource limits and requests
@@ -35,18 +34,17 @@ rutorrent:
       cpu: 1000m
       memory: 1Gi
 
-  # Environment variables
+  # Environment variables (linuxserver/rutorrent)
   env:
     PUID: "1000"
     PGID: "1000"
     TZ: "Etc/UTC"
-    XMLRPC_PORT: "8000"
 
   # Probes configuration
   livenessProbe:
     enabled: true
     tcpSocket:
-      port: 8080
+      port: 80
     initialDelaySeconds: 30
     periodSeconds: 30
     timeoutSeconds: 10
@@ -55,7 +53,7 @@ rutorrent:
   readinessProbe:
     enabled: true
     tcpSocket:
-      port: 8080
+      port: 80
     initialDelaySeconds: 15
     periodSeconds: 10
     timeoutSeconds: 5
@@ -63,6 +61,7 @@ rutorrent:
 
 # Persistent volumes configuration
 persistence:
+  # Config volume (keeps using PVC)
   config:
     enabled: true
     size: 1Gi
@@ -70,12 +69,13 @@ persistence:
     accessMode: ReadWriteOnce
     mountPath: /config
 
-  downloads:
-    enabled: true
-    size: 200Gi
-    storageClass: ""
-    accessMode: ReadWriteOnce
-    mountPath: /downloads
+# Storage configuration (hostPath for shared data with media apps)
+storage:
+  # HostPath configuration (set by Kubarr during deployment)
+  hostPath:
+    enabled: false
+    rootPath: ""  # e.g., /mnt/data/kubarr - set by Kubarr
+  mountPath: /data
 
 # Security context
 securityContext:

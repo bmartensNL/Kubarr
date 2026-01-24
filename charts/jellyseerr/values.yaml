@@ -1,0 +1,132 @@
+# Default values for jellyseerr
+# This is a YAML-formatted file.
+
+# Namespace configuration
+namespace:
+  create: true
+  name: jellyseerr
+
+# Jellyseerr application configuration
+jellyseerr:
+  replicaCount: 1
+
+  image:
+    repository: fallenbagel/jellyseerr
+    pullPolicy: IfNotPresent
+    tag: "latest"
+
+  # Base path for URL routing (leave empty for root)
+  basePath: "/jellyseerr"
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 5055
+    targetPort: 5055
+    annotations: {}
+
+  # Resource limits and requests
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  # Environment variables
+  env:
+    # Timezone
+    TZ: "Etc/UTC"
+    # Log level
+    LOG_LEVEL: "info"
+
+  # OAuth2/OIDC Configuration (integrated with Kubarr)
+  oauth:
+    enabled: false
+    # These are set by Kubarr during deployment
+    clientId: ""
+    # clientSecret is stored in a Kubernetes secret
+    secretName: "jellyseerr-oauth"
+    # Kubarr OAuth2 provider URL (internal cluster URL)
+    issuerUrl: "http://kubarr-dashboard.kubarr.svc.cluster.local:8080"
+
+  # Probes configuration
+  livenessProbe:
+    enabled: true
+    httpGet:
+      path: /api/v1/status
+      port: 5055
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    httpGet:
+      path: /api/v1/status
+      port: 5055
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+# Persistent volumes configuration
+persistence:
+  # Config volume
+  config:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    mountPath: /app/config
+
+# Security context
+securityContext:
+  runAsNonRoot: false
+
+# Pod security context
+podSecurityContext:
+  fsGroup: 1000
+
+# Service Account
+serviceAccount:
+  create: true
+  name: jellyseerr
+  annotations: {}
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+  hosts:
+    - host: jellyseerr.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Pod annotations
+podAnnotations: {}
+
+# Image pull secrets
+imagePullSecrets: []
+
+# Storage configuration (hostPath for shared data with media apps)
+storage:
+  # HostPath configuration (set by Kubarr during deployment)
+  hostPath:
+    enabled: false
+    rootPath: ""  # e.g., /mnt/data/kubarr - set by Kubarr
+  mountPath: /data

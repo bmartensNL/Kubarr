@@ -1,0 +1,83 @@
+namespace:
+  create: false  # kubarr deployment manager creates the namespace
+  name: grafana
+
+grafana:
+  replicaCount: 1
+
+  image:
+    repository: grafana/grafana
+    tag: "10.2.3"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 3000
+    targetPort: 3000
+
+  # Root URL for reverse proxy
+  rootUrl: "%(protocol)s://%(domain)s/grafana/"
+  serveFromSubPath: true
+
+  # Admin credentials
+  adminUser: admin
+  # Leave empty to auto-generate, or set a specific password
+  adminPassword: ""
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Pre-configured data sources
+  datasources:
+    prometheus:
+      enabled: true
+      url: "http://prometheus.prometheus.svc.cluster.local:9090/prometheus"
+    loki:
+      enabled: true
+      url: "http://loki.loki.svc.cluster.local:3100"
+
+  # Enable anonymous access (protected by oauth2-proxy)
+  auth:
+    disableLoginForm: true
+    anonymous:
+      enabled: true
+      orgRole: Admin
+
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+persistence:
+  enabled: true
+  size: 5Gi
+  storageClass: ""
+  accessMode: ReadWriteOnce
+
+serviceAccount:
+  create: true
+  name: grafana
+
+# Pre-configured dashboards
+dashboards:
+  kubarrOverview:
+    enabled: true
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}

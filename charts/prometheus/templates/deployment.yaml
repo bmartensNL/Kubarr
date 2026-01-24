@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "prometheus.fullname" . }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "prometheus.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.prometheus.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "prometheus.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "prometheus.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "prometheus.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: prometheus
+          image: "{{ .Values.prometheus.image.repository }}:{{ .Values.prometheus.image.tag }}"
+          imagePullPolicy: {{ .Values.prometheus.image.pullPolicy }}
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            - "--storage.tsdb.retention.time={{ .Values.prometheus.retention }}"
+            - "--storage.tsdb.retention.size={{ .Values.prometheus.retentionSize }}"
+            - "--web.external-url={{ .Values.prometheus.externalUrl }}"
+            - "--web.route-prefix={{ .Values.prometheus.routePrefix }}"
+            - "--web.enable-lifecycle"
+            - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+            - "--web.console.templates=/usr/share/prometheus/consoles"
+          ports:
+            - name: http
+              containerPort: {{ .Values.prometheus.service.targetPort }}
+              protocol: TCP
+          {{- if .Values.prometheus.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.prometheus.routePrefix }}/-/healthy
+              port: http
+            initialDelaySeconds: {{ .Values.prometheus.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.prometheus.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.prometheus.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.prometheus.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.prometheus.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.prometheus.routePrefix }}/-/ready
+              port: http
+            initialDelaySeconds: {{ .Values.prometheus.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.prometheus.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.prometheus.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.prometheus.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.prometheus.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+              readOnly: true
+            - name: data
+              mountPath: /prometheus
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "prometheus.fullname" . }}-config
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "prometheus.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

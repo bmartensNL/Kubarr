@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "jellyseerr.fullname" . }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "jellyseerr.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.jellyseerr.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "jellyseerr.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "jellyseerr.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "jellyseerr.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: jellyseerr
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.jellyseerr.image.repository }}:{{ .Values.jellyseerr.image.tag }}"
+          imagePullPolicy: {{ .Values.jellyseerr.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.jellyseerr.service.targetPort }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "jellyseerr.fullname" . }}-config
+          {{- if .Values.jellyseerr.oauth.enabled }}
+          env:
+            - name: OIDC_CLIENT_ID
+              value: {{ .Values.jellyseerr.oauth.clientId | quote }}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.jellyseerr.oauth.secretName }}
+                  key: client-secret
+            - name: OIDC_DOMAIN
+              value: {{ .Values.jellyseerr.oauth.issuerUrl | quote }}
+          {{- end }}
+          {{- if .Values.jellyseerr.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.jellyseerr.livenessProbe.httpGet.path }}
+              port: {{ .Values.jellyseerr.livenessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.jellyseerr.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.jellyseerr.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.jellyseerr.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.jellyseerr.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.jellyseerr.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.jellyseerr.readinessProbe.httpGet.path }}
+              port: {{ .Values.jellyseerr.readinessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.jellyseerr.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.jellyseerr.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.jellyseerr.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.jellyseerr.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.jellyseerr.resources | nindent 12 }}
+          volumeMounts:
+            {{- if .Values.persistence.config.enabled }}
+            - name: config
+              mountPath: {{ .Values.persistence.config.mountPath }}
+            {{- end }}
+            {{- if .Values.storage.hostPath.enabled }}
+            - name: data
+              mountPath: {{ .Values.storage.mountPath }}
+            {{- end }}
+      volumes:
+        {{- if .Values.persistence.config.enabled }}
+        - name: config
+          persistentVolumeClaim:
+            claimName: {{ include "jellyseerr.fullname" . }}-config
+        {{- end }}
+        {{- if .Values.storage.hostPath.enabled }}
+        - name: data
+          hostPath:
+            path: {{ .Values.storage.hostPath.rootPath }}/media
+            type: DirectoryOrCreate
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

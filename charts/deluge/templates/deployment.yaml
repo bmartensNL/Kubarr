@@ -66,9 +66,9 @@ spec:
             - name: config
               mountPath: {{ .Values.persistence.config.mountPath }}
             {{- end }}
-            {{- if .Values.persistence.downloads.enabled }}
+            {{- if .Values.storage.hostPath.enabled }}
             - name: downloads
-              mountPath: {{ .Values.persistence.downloads.mountPath }}
+              mountPath: /downloads
             {{- end }}
             - name: setup-scripts
               mountPath: /custom-cont-init.d/enable-label-plugin.sh
@@ -79,10 +79,11 @@ spec:
           persistentVolumeClaim:
             claimName: {{ include "deluge.fullname" . }}-config
         {{- end }}
-        {{- if .Values.persistence.downloads.enabled }}
+        {{- if .Values.storage.hostPath.enabled }}
         - name: downloads
-          persistentVolumeClaim:
-            claimName: {{ include "deluge.fullname" . }}-downloads
+          hostPath:
+            path: {{ .Values.storage.hostPath.rootPath }}/downloads/deluge
+            type: DirectoryOrCreate
         {{- end }}
         - name: setup-scripts
           configMap:

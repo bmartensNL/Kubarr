@@ -71,6 +71,13 @@ spec:
             - name: cache
               mountPath: {{ .Values.persistence.cache.mountPath }}
             {{- end }}
+            {{- if .Values.storage.hostPath.enabled }}
+            - name: data
+              mountPath: {{ .Values.storage.mountPath }}
+              {{- if .Values.storage.readOnly }}
+              readOnly: true
+              {{- end }}
+            {{- end }}
       volumes:
         {{- if .Values.persistence.config.enabled }}
         - name: config
@@ -81,6 +88,12 @@ spec:
         - name: cache
           persistentVolumeClaim:
             claimName: {{ include "jellyfin.fullname" . }}-cache
+        {{- end }}
+        {{- if .Values.storage.hostPath.enabled }}
+        - name: data
+          hostPath:
+            path: {{ .Values.storage.hostPath.rootPath }}
+            type: Directory
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

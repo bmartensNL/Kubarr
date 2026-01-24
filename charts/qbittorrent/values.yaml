@@ -30,7 +30,7 @@ qbittorrent:
       memory: 512Mi
     limits:
       cpu: 2000m
-      memory: 2Gi
+      memory: 4Gi
 
   # Environment variables
   env:
@@ -77,21 +77,13 @@ qbittorrent:
 
 # Persistent volumes configuration
 persistence:
-  # Config volume
+  # Config volume (keeps using PVC)
   config:
     enabled: true
     size: 1Gi
     storageClass: ""  # Use default storage class
     accessMode: ReadWriteOnce
     mountPath: /config
-
-  # Downloads volume
-  downloads:
-    enabled: true
-    size: 200Gi
-    storageClass: ""  # Use default storage class
-    accessMode: ReadWriteOnce
-    mountPath: /downloads
 
 # Security context
 securityContext:
@@ -138,3 +130,52 @@ podAnnotations: {}
 
 # Image pull secrets
 imagePullSecrets: []
+
+# VPN Configuration
+# When enabled, a Gluetun sidecar container is added to route all traffic through VPN
+vpn:
+  enabled: false
+  # Name of the Kubernetes secret containing VPN credentials
+  # Created by Kubarr when you configure VPN in Settings > Networking
+  secretName: ""
+  # Gluetun container image
+  image:
+    repository: qmcgaw/gluetun
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  # Resource limits for Gluetun container
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  # Kill switch - block all traffic if VPN disconnects
+  killSwitch: true
+  # Subnets to allow even when VPN is active (for cluster internal communication)
+  firewallOutboundSubnets: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+
+# Storage configuration (hostPath for shared data with media apps)
+storage:
+  # HostPath configuration (set by Kubarr during deployment)
+  hostPath:
+    enabled: false
+    rootPath: ""  # e.g., /mnt/data/kubarr - set by Kubarr
+  mountPath: /data
+
+# Prometheus exporter sidecar (auto-scraped by Prometheus when enabled)
+exporter:
+  enabled: true
+  image:
+    repository: esanchezm/prometheus-qbittorrent-exporter
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  port: 8000
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi

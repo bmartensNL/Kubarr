@@ -436,18 +436,23 @@ async def regenerate_client_secret(
 ):
     """Regenerate oauth2-proxy client secret (admin only).
 
+    This endpoint regenerates the oauth2-proxy client secret, stores it in
+    the database, and syncs it to the Kubernetes secret that oauth2-proxy
+    reads from.
+
     Args:
         request: FastAPI request
         db: Database session
 
     Returns:
-        New client secret
+        New client secret and sync status
 
     Raises:
         HTTPException: If not admin or client not found
     """
-    from kubarr.core.models_auth import OAuth2Client
+    from kubarr.core.models_auth import OAuth2Client, SystemSettings
     from kubarr.core.security import generate_random_string, hash_client_secret
+    from kubarr.core.setup import sync_oauth2_credentials_to_k8s
 
     # Get token from Authorization header
     auth_header = request.headers.get("Authorization")
@@ -492,12 +497,36 @@ async def regenerate_client_secret(
     # Generate new secret
     new_secret = generate_random_string(32)
     client.client_secret_hash = hash_client_secret(new_secret)
+
+    # Store the plain secret in SystemSettings
+    result = await db.execute(
+        select(SystemSettings).where(SystemSettings.key == "oauth2_client_secret")
+    )
+    secret_setting = result.scalar_one_or_none()
+
+    if secret_setting:
+        secret_setting.value = new_secret
+    else:
+        secret_setting = SystemSettings(
+            key="oauth2_client_secret",
+            value=new_secret,
+            description="OAuth2-proxy client secret (for syncing to Kubernetes)"
+        )
+        db.add(secret_setting)
+
     await db.commit()
+
+    # Sync to Kubernetes
+    sync_success = sync_oauth2_credentials_to_k8s(
+        client_id="oauth2-proxy",
+        client_secret=new_secret
+    )
 
     return {
         "client_id": "oauth2-proxy",
         "client_secret": new_secret,
-        "message": "Client secret regenerated. Update your oauth2-proxy deployment with this new secret.",
+        "synced_to_kubernetes": sync_success,
+        "message": "Client secret regenerated and synced to Kubernetes. Restart oauth2-proxy pod to apply." if sync_success else "Client secret regenerated but failed to sync to Kubernetes.",
     }
 
 

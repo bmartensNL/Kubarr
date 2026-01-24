@@ -40,6 +40,11 @@ transmission:
     PGID: "1000"
     TZ: "Etc/UTC"
 
+  # Download paths - set dynamically based on storage.mountPath
+  # These are injected via the configmap template
+  downloadDir: "/data/downloads/transmission"
+  incompleteDir: "/data/downloads/transmission/incomplete"
+
   # Probes configuration
   livenessProbe:
     enabled: true
@@ -61,19 +66,13 @@ transmission:
 
 # Persistent volumes configuration
 persistence:
+  # Config volume (keeps using PVC)
   config:
     enabled: true
     size: 1Gi
     storageClass: ""
     accessMode: ReadWriteOnce
     mountPath: /config
-
-  downloads:
-    enabled: true
-    size: 200Gi
-    storageClass: ""
-    accessMode: ReadWriteOnce
-    mountPath: /downloads
 
 # Security context
 securityContext:
@@ -115,3 +114,28 @@ podAnnotations: {}
 
 # Image pull secrets
 imagePullSecrets: []
+
+# Storage configuration (hostPath for shared data with media apps)
+storage:
+  # HostPath configuration (set by Kubarr during deployment)
+  hostPath:
+    enabled: false
+    rootPath: ""  # e.g., /mnt/data/kubarr - set by Kubarr
+  mountPath: /data
+
+# Prometheus exporter sidecar (auto-scraped by Prometheus when enabled)
+# NOTE: metalmatze/transmission-exporter is outdated and crashes on newer Transmission versions
+exporter:
+  enabled: false
+  image:
+    repository: metalmatze/transmission-exporter
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  port: 19091
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi

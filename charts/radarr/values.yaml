@@ -95,3 +95,35 @@ podAnnotations: {}
 
 # Image pull secrets
 imagePullSecrets: []
+
+# Storage configuration (hostPath for shared data with download clients)
+storage:
+  # HostPath configuration (set by Kubarr during deployment)
+  hostPath:
+    enabled: false
+    rootPath: ""  # e.g., /mnt/data/kubarr - set by Kubarr
+  mountPath: /data
+
+# Prometheus exporter (exportarr) - auto-scraped by Prometheus
+# Note: Requires API key from Radarr (Settings > General > API Key)
+exporter:
+  enabled: true
+  image:
+    repository: ghcr.io/onedr0p/exportarr
+    tag: "v2.0"
+    pullPolicy: IfNotPresent
+  port: 9708
+  # API key from Radarr (Settings > General > API Key)
+  # Can be set via secret or directly
+  apiKey: ""
+  # Or reference an existing secret
+  apiKeySecret:
+    name: ""
+    key: "api-key"
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi

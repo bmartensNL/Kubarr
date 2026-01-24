@@ -28,11 +28,35 @@ const UserList: React.FC<UserListProps> = ({
     return <span className="px-2 py-1 text-xs font-semibold rounded-full bg-green-900 text-green-300">Active</span>;
   };
 
-  const getRoleBadge = (user: User) => {
+  const getRoleBadges = (user: User) => {
+    // Show roles if available
+    if (user.roles && user.roles.length > 0) {
+      return (
+        <div className="flex flex-wrap gap-1">
+          {user.roles.map((role) => (
+            <span
+              key={role.id}
+              className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                role.name === 'admin'
+                  ? 'bg-blue-900 text-blue-300'
+                  : role.name === 'viewer'
+                  ? 'bg-purple-900 text-purple-300'
+                  : role.name === 'downloader'
+                  ? 'bg-orange-900 text-orange-300'
+                  : 'bg-gray-700 text-gray-300'
+              }`}
+            >
+              {role.name}
+            </span>
+          ))}
+        </div>
+      );
+    }
+    // Fallback to is_admin flag
     return user.is_admin ? (
       <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-900 text-blue-300">Admin</span>
     ) : (
-      <span className="px-2 py-1 text-xs font-semibold rounded-full bg-purple-900 text-purple-300">User</span>
+      <span className="px-2 py-1 text-xs font-semibold rounded-full bg-gray-700 text-gray-300">No roles</span>
     );
   };
 
@@ -44,7 +68,7 @@ const UserList: React.FC<UserListProps> = ({
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">ID</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Username</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Email</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Role</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Roles</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Status</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Created</th>
             {showActions && <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Actions</th>}
@@ -63,7 +87,7 @@ const UserList: React.FC<UserListProps> = ({
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{user.id}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{user.username}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{user.email}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">{getRoleBadge(user)}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm">{getRoleBadges(user)}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">{getStatusBadge(user)}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{new Date(user.created_at).toLocaleDateString()}</td>
                 {showActions && (

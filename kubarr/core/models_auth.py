@@ -1,12 +1,21 @@
 """SQLAlchemy models for authentication and OAuth2."""
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, TYPE_CHECKING
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, Table, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from kubarr.core.database import Base
+
+
+# Many-to-many association table for users and roles
+user_roles = Table(
+    "user_roles",
+    Base.metadata,
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("role_id", Integer, ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True),
+)
 
 
 class User(Base):
@@ -27,6 +36,33 @@ class User(Base):
     # Relationships
     tokens = relationship("OAuth2Token", back_populates="user", cascade="all, delete-orphan")
     auth_codes = relationship("OAuth2AuthorizationCode", back_populates="user", cascade="all, delete-orphan")
+    roles = relationship("Role", secondary=user_roles, back_populates="users", lazy="selectin")
+
+    def has_role(self, role_name: str) -> bool:
+        """Check if user has a specific role."""
+        return any(role.name == role_name for role in self.roles)
+
+    def has_admin_role(self) -> bool:
+        """Check if user has admin role (via roles or legacy is_admin flag)."""
+        return self.is_admin or self.has_role("admin")
+
+    def get_allowed_apps(self) -> Optional[set]:
+        """Get set of app names user can access. Returns None for admin (all apps)."""
+        if self.has_admin_role():
+            return None  # None means all apps
+
+        allowed = set()
+        for role in self.roles:
+            for perm in role.app_permissions:
+                allowed.add(perm.app_name)
+        return allowed
+
+    def can_access_app(self, app_name: str) -> bool:
+        """Check if user can access a specific app."""
+        allowed = self.get_allowed_apps()
+        if allowed is None:  # Admin
+            return True
+        return app_name in allowed
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, username='{self.username}', email='{self.email}')>"
@@ -119,3 +155,56 @@ class Invite(Base):
 
     def __repr__(self) -> str:
         return f"<Invite(id={self.id}, code='{self.code[:8]}...', is_used={self.is_used})>"
+
+
+class Role(Base):
+    """Role model for access control."""
+
+    __tablename__ = "roles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(50), unique=True, nullable=False, index=True)
+    description = Column(String(255), nullable=True)
+    is_system = Column(Boolean, default=False, nullable=False)  # Protect default roles from deletion
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    users = relationship("User", secondary=user_roles, back_populates="roles")
+    app_permissions = relationship("RoleAppPermission", back_populates="role", cascade="all, delete-orphan", lazy="selectin")
+
+    def __repr__(self) -> str:
+        return f"<Role(id={self.id}, name='{self.name}')>"
+
+
+class RoleAppPermission(Base):
+    """App permission for a role."""
+
+    __tablename__ = "role_app_permissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    role_id = Column(Integer, ForeignKey("roles.id", ondelete="CASCADE"), nullable=False, index=True)
+    app_name = Column(String(50), nullable=False, index=True)
+
+    # Relationships
+    role = relationship("Role", back_populates="app_permissions")
+
+    __table_args__ = (
+        UniqueConstraint('role_id', 'app_name', name='uq_role_app'),
+    )
+
+    def __repr__(self) -> str:
+        return f"<RoleAppPermission(role_id={self.role_id}, app_name='{self.app_name}')>"
+
+
+class SystemSettings(Base):
+    """System settings stored in database for runtime configuration."""
+
+    __tablename__ = "system_settings"
+
+    key = Column(String(100), primary_key=True, index=True)
+    value = Column(Text, nullable=False)
+    description = Column(String(255), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<SystemSettings(key='{self.key}', value='{self.value}')>"

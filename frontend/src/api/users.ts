@@ -1,4 +1,5 @@
 import apiClient from './client';
+import { RoleInfo } from './roles';
 
 export interface User {
   id: number;
@@ -9,6 +10,7 @@ export interface User {
   is_approved: boolean;
   created_at: string;
   updated_at: string;
+  roles: RoleInfo[];
 }
 
 export interface CreateUserRequest {
@@ -16,12 +18,15 @@ export interface CreateUserRequest {
   email: string;
   password: string;
   is_admin?: boolean;
+  role_ids?: number[];
 }
 
 export interface UpdateUserRequest {
+  email?: string;
   is_active?: boolean;
   is_admin?: boolean;
   is_approved?: boolean;
+  role_ids?: number[];
 }
 
 /**

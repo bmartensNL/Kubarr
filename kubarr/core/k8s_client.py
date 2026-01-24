@@ -123,3 +123,100 @@ class K8sClientManager:
             return True
         except ApiException:
             return False
+
+    def sync_oauth2_proxy_secret(
+        self,
+        client_id: str,
+        client_secret: str,
+        cookie_secret: str,
+        namespace: str = "kubarr-system"
+    ) -> bool:
+        """Sync OAuth2-proxy credentials to a Kubernetes secret.
+
+        Creates or updates the oauth2-proxy-credentials secret with the
+        client credentials from the kubarr database. This ensures oauth2-proxy
+        always has the correct credentials.
+
+        Args:
+            client_id: OAuth2 client ID
+            client_secret: OAuth2 client secret (plain text)
+            cookie_secret: Cookie encryption secret
+            namespace: Target namespace (default: kubarr-system)
+
+        Returns:
+            True if sync was successful
+        """
+        import base64
+
+        core_api = self.get_core_v1_api()
+        secret_name = "oauth2-proxy-credentials"
+
+        secret_data = {
+            "client-id": base64.b64encode(client_id.encode()).decode(),
+            "client-secret": base64.b64encode(client_secret.encode()).decode(),
+            "cookie-secret": base64.b64encode(cookie_secret.encode()).decode(),
+        }
+
+        secret = client.V1Secret(
+            metadata=client.V1ObjectMeta(
+                name=secret_name,
+                namespace=namespace,
+                labels={
+                    "app": "oauth2-proxy",
+                    "managed-by": "kubarr",
+                }
+            ),
+            type="Opaque",
+            data=secret_data
+        )
+
+        try:
+            # Try to update existing secret
+            core_api.replace_namespaced_secret(
+                name=secret_name,
+                namespace=namespace,
+                body=secret
+            )
+            return True
+        except ApiException as e:
+            if e.status == 404:
+                # Secret doesn't exist, create it
+                try:
+                    core_api.create_namespaced_secret(
+                        namespace=namespace,
+                        body=secret
+                    )
+                    return True
+                except ApiException:
+                    return False
+            return False
+
+    def get_oauth2_proxy_secret(
+        self,
+        namespace: str = "kubarr-system"
+    ) -> Optional[dict]:
+        """Get OAuth2-proxy credentials from Kubernetes secret.
+
+        Args:
+            namespace: Source namespace (default: kubarr-system)
+
+        Returns:
+            Dict with client_id, client_secret, cookie_secret or None
+        """
+        import base64
+
+        core_api = self.get_core_v1_api()
+        secret_name = "oauth2-proxy-credentials"
+
+        try:
+            secret = core_api.read_namespaced_secret(
+                name=secret_name,
+                namespace=namespace
+            )
+            return {
+                "client_id": base64.b64decode(secret.data.get("client-id", "")).decode(),
+                "client_secret": base64.b64decode(secret.data.get("client-secret", "")).decode(),
+                "cookie_secret": base64.b64decode(secret.data.get("cookie-secret", "")).decode(),
+            }
+        except ApiException:
+            return None

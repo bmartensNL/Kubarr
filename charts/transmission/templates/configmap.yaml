@@ -9,3 +9,7 @@ data:
   {{- range $key, $value := .Values.transmission.env }}
   {{ $key }}: {{ $value | quote }}
   {{- end }}
+  # Download paths - mounted at /downloads (only this app's folder)
+  TRANSMISSION_DOWNLOAD_DIR: /downloads
+  TRANSMISSION_INCOMPLETE_DIR: /downloads/incomplete
+  TRANSMISSION_WATCH_DIR: /downloads/watch

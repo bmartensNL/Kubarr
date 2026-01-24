@@ -71,16 +71,32 @@ class DeploymentManager:
             raise RuntimeError(f"Helm command failed: {result.stderr}")
         return result
 
+    def _get_storage_helm_values(self, storage_path: str) -> Dict[str, str]:
+        """Get Helm values for storage configuration.
+
+        Args:
+            storage_path: Root storage path for hostPath volumes
+
+        Returns:
+            Dictionary of Helm values to set
+        """
+        return {
+            "storage.hostPath.enabled": "true",
+            "storage.hostPath.rootPath": storage_path,
+        }
+
     def deploy_app(
         self,
         request: DeploymentRequest,
-        dry_run: bool = False
+        dry_run: bool = False,
+        storage_path: Optional[str] = None
     ) -> DeploymentStatus:
         """Deploy an application to Kubernetes using Helm.
 
         Args:
             request: Deployment request with app name and config
             dry_run: If True, validate but don't actually deploy
+            storage_path: Root storage path for hostPath volumes (from database)
 
         Returns:
             DeploymentStatus with result
@@ -114,6 +130,12 @@ class DeploymentManager:
             # Only add --create-namespace for actual install
             if not dry_run:
                 helm_args.append("--create-namespace")
+
+            # Inject storage configuration if provided
+            if storage_path:
+                storage_config = self._get_storage_helm_values(storage_path)
+                for key, value in storage_config.items():
+                    helm_args.extend(["--set", f"{key}={value}"])
 
             # Add any custom config as --set arguments
             if request.custom_config:

@@ -6,15 +6,12 @@ metadata:
   labels:
     {{- include "kubarr-dashboard.labels" . | nindent 4 }}
 spec:
-  type: {{ .Values.frontend.service.type }}
+  type: {{ .Values.backend.service.type }}
   ports:
-    - port: {{ .Values.frontend.service.port }}
+    # Single port for combined backend+frontend (FastAPI serves static files)
+    - port: 80
       targetPort: http
       protocol: TCP
       name: http
-    - port: {{ .Values.backend.service.port }}
-      targetPort: api
-      protocol: TCP
-      name: api
   selector:
     {{- include "kubarr-dashboard.selectorLabels" . | nindent 4 }}

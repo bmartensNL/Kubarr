@@ -115,6 +115,10 @@ spec:
             - name: config
               mountPath: {{ .Values.persistence.config.mountPath }}
             {{- end }}
+            {{- if .Values.storage.hostPath.enabled }}
+            - name: data
+              mountPath: {{ .Values.storage.mountPath }}
+            {{- end }}
             - name: setup-scripts
               mountPath: /custom-services.d/setup-downloadclients
               subPath: setup-downloadclients.sh
@@ -123,6 +127,12 @@ spec:
         - name: config
           persistentVolumeClaim:
             claimName: {{ include "sonarr.fullname" . }}-config
+        {{- end }}
+        {{- if .Values.storage.hostPath.enabled }}
+        - name: data
+          hostPath:
+            path: {{ .Values.storage.hostPath.rootPath }}
+            type: Directory
         {{- end }}
         - name: setup-scripts
           configMap:

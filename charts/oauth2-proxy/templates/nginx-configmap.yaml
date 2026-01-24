@@ -132,6 +132,7 @@ data:
             }
 
             # Proxy jellyseerr - use variable to force dynamic DNS resolution
+            # Jellyseerr doesn't support base path natively, so we rewrite URLs in responses
             location /jellyseerr/ {
                 set $jellyseerr_upstream jellyseerr.jellyseerr.svc.cluster.local:5055;
                 rewrite ^/jellyseerr/(.*) /$1 break;
@@ -140,6 +141,44 @@ data:
                 proxy_set_header X-Real-IP $remote_addr;
                 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
                 proxy_set_header X-Forwarded-Proto $scheme;
+
+                # Disable gzip from upstream so sub_filter can work
+                proxy_set_header Accept-Encoding "";
+
+                # Rewrite redirects from Jellyseerr
+                proxy_redirect / /jellyseerr/;
+                proxy_redirect ~^(https?://[^/]+)/(.*)$ $1/jellyseerr/$2;
+
+                # Rewrite all /_next/ paths and other absolute URLs in responses
+                sub_filter_once off;
+                sub_filter_types text/html text/css application/javascript application/json text/javascript;
+
+                # Catch-all for /_next/ paths (most important)
+                sub_filter '/_next/' '/jellyseerr/_next/';
+                sub_filter '"/_next' '"/jellyseerr/_next';
+                sub_filter "'/_next" "'/jellyseerr/_next";
+
+                # API paths
+                sub_filter '"/api/' '"/jellyseerr/api/';
+                sub_filter "'/api/" "'/jellyseerr/api/";
+                sub_filter '(/api/' '(/jellyseerr/api/';
+
+                # Auth/navigation paths
+                sub_filter '"/login' '"/jellyseerr/login';
+                sub_filter '"/setup' '"/jellyseerr/setup';
+                sub_filter '"/settings' '"/jellyseerr/settings';
+                sub_filter '"/users' '"/jellyseerr/users';
+                sub_filter '"/profile' '"/jellyseerr/profile';
+                sub_filter '"/requests' '"/jellyseerr/requests';
+                sub_filter '"/movie' '"/jellyseerr/movie';
+                sub_filter '"/tv' '"/jellyseerr/tv';
+                sub_filter '"/discover' '"/jellyseerr/discover';
+
+                # Generic href/src rewrites for any remaining absolute paths
+                sub_filter 'href="/' 'href="/jellyseerr/';
+                sub_filter "href='/" "href='/jellyseerr/";
+                sub_filter 'src="/' 'src="/jellyseerr/';
+                sub_filter "src='/" "src='/jellyseerr/";
             }
 
             # Proxy sabnzbd - use variable to force dynamic DNS resolution
@@ -153,9 +192,44 @@ data:
                 proxy_set_header X-Forwarded-Proto $scheme;
             }
 
+            # Proxy Grafana
+            location /grafana/ {
+                set $grafana_upstream grafana.grafana.svc.cluster.local:3000;
+                proxy_pass http://$grafana_upstream;
+                proxy_set_header Host $http_host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+
+                # WebSocket support for Grafana Live
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection "upgrade";
+            }
+
+            # Proxy Prometheus
+            location /prometheus/ {
+                set $prometheus_upstream prometheus.prometheus.svc.cluster.local:9090;
+                proxy_pass http://$prometheus_upstream;
+                proxy_set_header Host $http_host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+            }
+
+            # Proxy Loki API
+            location /loki/ {
+                set $loki_upstream loki.loki.svc.cluster.local:3100;
+                proxy_pass http://$loki_upstream;
+                proxy_set_header Host $http_host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+            }
+
             # Default to kubarr dashboard - use variable to force dynamic DNS resolution
             location / {
-                set $kubarr_upstream kubarr-dashboard.kubarr-system.svc.cluster.local:8000;
+                set $kubarr_upstream kubarr-dashboard.kubarr-system.svc.cluster.local:80;
                 proxy_pass http://$kubarr_upstream;
                 proxy_set_header Host $host;
                 proxy_set_header X-Real-IP $remote_addr;

@@ -19,15 +19,80 @@ import {
   CreateUserRequest,
   UpdateUserRequest,
 } from '../api/users';
+import {
+  Role,
+  getRoles,
+  createRole,
+  deleteRole,
+  setRoleApps,
+} from '../api/roles';
+import { getCatalog, App } from '../api/apps';
 
 type ViewMode = 'list' | 'create' | 'edit';
-type ActiveTab = 'all' | 'pending' | 'invites';
+type ActiveTab = 'all' | 'pending' | 'invites' | 'roles';
+
+// Inline component for editing role apps
+interface RoleAppEditorProps {
+  role: Role;
+  apps: App[];
+  onSave: (appNames: string[]) => void;
+  onCancel: () => void;
+}
+
+const RoleAppEditor: React.FC<RoleAppEditorProps> = ({ role, apps, onSave, onCancel }) => {
+  const [selectedApps, setSelectedApps] = useState<string[]>(role.app_names || []);
+
+  const toggleApp = (appName: string) => {
+    setSelectedApps(prev =>
+      prev.includes(appName)
+        ? prev.filter(a => a !== appName)
+        : [...prev, appName]
+    );
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2">
+        {apps.map((app) => (
+          <button
+            key={app.name}
+            type="button"
+            onClick={() => toggleApp(app.name)}
+            className={`px-2 py-1 rounded text-xs transition-colors ${
+              selectedApps.includes(app.name)
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+            }`}
+          >
+            {app.name}
+          </button>
+        ))}
+      </div>
+      <div className="flex space-x-2">
+        <button
+          onClick={() => onSave(selectedApps)}
+          className="px-2 py-1 bg-green-600 hover:bg-green-700 rounded text-xs text-white transition-colors"
+        >
+          Save
+        </button>
+        <button
+          onClick={onCancel}
+          className="px-2 py-1 bg-gray-600 hover:bg-gray-700 rounded text-xs text-white transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+};
 
 const UsersPage: React.FC = () => {
   const { isAdmin } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [pendingUsers, setPendingUsers] = useState<User[]>([]);
   const [invites, setInvites] = useState<Invite[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [apps, setApps] = useState<App[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
@@ -36,12 +101,20 @@ const UsersPage: React.FC = () => {
   const [creatingInvite, setCreatingInvite] = useState(false);
   const [copiedInviteId, setCopiedInviteId] = useState<number | null>(null);
   const [newInvite, setNewInvite] = useState<Invite | null>(null);
+  // Role editing state
+  const [editingRole, setEditingRole] = useState<Role | null>(null);
+  const [newRoleName, setNewRoleName] = useState('');
+  const [newRoleDescription, setNewRoleDescription] = useState('');
+  const [newRoleApps, setNewRoleApps] = useState<string[]>([]);
+  const [creatingRole, setCreatingRole] = useState(false);
 
   useEffect(() => {
     if (isAdmin) {
       loadUsers();
       loadPendingUsers();
       loadInvites();
+      loadRoles();
+      loadApps();
     }
   }, [isAdmin]);
 
@@ -73,6 +146,24 @@ const UsersPage: React.FC = () => {
       setInvites(data);
     } catch (err: any) {
       console.error('Failed to load invites:', err);
+    }
+  };
+
+  const loadRoles = async () => {
+    try {
+      const data = await getRoles();
+      setRoles(data);
+    } catch (err: any) {
+      console.error('Failed to load roles:', err);
+    }
+  };
+
+  const loadApps = async () => {
+    try {
+      const data = await getCatalog();
+      setApps(data);
+    } catch (err: any) {
+      console.error('Failed to load apps:', err);
     }
   };
 
@@ -189,6 +280,67 @@ const UsersPage: React.FC = () => {
     return new Date(expiresAt) < new Date();
   };
 
+  // Role management functions
+  const handleCreateRole = async () => {
+    if (!newRoleName.trim()) {
+      setError('Role name is required');
+      return;
+    }
+    try {
+      setCreatingRole(true);
+      await createRole({
+        name: newRoleName,
+        description: newRoleDescription || undefined,
+        app_names: newRoleApps,
+      });
+      setNewRoleName('');
+      setNewRoleDescription('');
+      setNewRoleApps([]);
+      await loadRoles();
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to create role');
+    } finally {
+      setCreatingRole(false);
+    }
+  };
+
+  const handleDeleteRole = async (role: Role) => {
+    if (role.is_system) {
+      setError('Cannot delete system roles');
+      return;
+    }
+    if (window.confirm(`Are you sure you want to delete role "${role.name}"?`)) {
+      try {
+        await deleteRole(role.id);
+        await loadRoles();
+      } catch (err: any) {
+        setError(err.response?.data?.detail || 'Failed to delete role');
+      }
+    }
+  };
+
+  const handleEditRoleApps = (role: Role) => {
+    setEditingRole(role);
+  };
+
+  const handleSaveRoleApps = async (roleId: number, appNames: string[]) => {
+    try {
+      await setRoleApps(roleId, { app_names: appNames });
+      setEditingRole(null);
+      await loadRoles();
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to update role apps');
+    }
+  };
+
+  const toggleAppForNewRole = (appName: string) => {
+    setNewRoleApps(prev =>
+      prev.includes(appName)
+        ? prev.filter(a => a !== appName)
+        : [...prev, appName]
+    );
+  };
+
   if (!isAdmin) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-8">
@@ -261,6 +413,16 @@ const UsersPage: React.FC = () => {
                 onClick={() => setActiveTab('invites')}
               >
                 Invite Links ({invites.filter(i => !i.is_used && !isExpired(i.expires_at)).length})
+              </button>
+              <button
+                className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                  activeTab === 'roles'
+                    ? 'border-blue-500 text-blue-500'
+                    : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
+                }`}
+                onClick={() => setActiveTab('roles')}
+              >
+                Roles ({roles.length})
               </button>
             </nav>
           </div>
@@ -381,6 +543,156 @@ const UsersPage: React.FC = () => {
                   )}
                 </div>
               )}
+              {activeTab === 'roles' && (
+                <div className="space-y-6">
+                  {/* Create new role form */}
+                  <div className="bg-gray-800 rounded-lg border border-gray-700 p-6">
+                    <h3 className="text-lg font-medium mb-4">Create New Role</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                          Role Name
+                        </label>
+                        <input
+                          type="text"
+                          value={newRoleName}
+                          onChange={(e) => setNewRoleName(e.target.value)}
+                          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="e.g., media-viewer"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                          Description
+                        </label>
+                        <input
+                          type="text"
+                          value={newRoleDescription}
+                          onChange={(e) => setNewRoleDescription(e.target.value)}
+                          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="Description of this role"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-4">
+                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                        App Permissions
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        {apps.map((app) => (
+                          <button
+                            key={app.name}
+                            type="button"
+                            onClick={() => toggleAppForNewRole(app.name)}
+                            className={`px-3 py-1 rounded-full text-sm transition-colors ${
+                              newRoleApps.includes(app.name)
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                            }`}
+                          >
+                            {app.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="mt-4">
+                      <button
+                        onClick={handleCreateRole}
+                        disabled={creatingRole || !newRoleName.trim()}
+                        className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-md font-medium transition-colors"
+                      >
+                        {creatingRole ? 'Creating...' : 'Create Role'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Existing roles list */}
+                  <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+                    <table className="min-w-full divide-y divide-gray-700">
+                      <thead className="bg-gray-750">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                            Role
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                            Description
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                            Apps
+                          </th>
+                          <th className="px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">
+                            Actions
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-700">
+                        {roles.map((role) => (
+                          <tr key={role.id}>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex items-center">
+                                <span className="font-medium text-white">{role.name}</span>
+                                {role.is_system && (
+                                  <span className="ml-2 px-2 py-1 text-xs bg-gray-600 text-gray-300 rounded">
+                                    System
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-400">
+                              {role.description || '-'}
+                            </td>
+                            <td className="px-6 py-4">
+                              {editingRole?.id === role.id ? (
+                                <RoleAppEditor
+                                  role={role}
+                                  apps={apps}
+                                  onSave={(appNames) => handleSaveRoleApps(role.id, appNames)}
+                                  onCancel={() => setEditingRole(null)}
+                                />
+                              ) : (
+                                <div className="flex flex-wrap gap-1">
+                                  {role.app_names.length === 0 ? (
+                                    <span className="text-gray-500 text-sm">
+                                      {role.name === 'admin' ? 'All apps' : 'No apps'}
+                                    </span>
+                                  ) : (
+                                    role.app_names.map((appName) => (
+                                      <span
+                                        key={appName}
+                                        className="px-2 py-1 text-xs bg-gray-700 text-gray-300 rounded"
+                                      >
+                                        {appName}
+                                      </span>
+                                    ))
+                                  )}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm space-x-2">
+                              {editingRole?.id !== role.id && (
+                                <button
+                                  onClick={() => handleEditRoleApps(role)}
+                                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-white transition-colors"
+                                >
+                                  Edit Apps
+                                </button>
+                              )}
+                              {!role.is_system && (
+                                <button
+                                  onClick={() => handleDeleteRole(role)}
+                                  className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-white transition-colors"
+                                >
+                                  Delete
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </>
@@ -388,7 +700,12 @@ const UsersPage: React.FC = () => {
 
       {viewMode === 'create' && (
         <div className="bg-gray-800 rounded-lg border border-gray-700 p-6">
-          <UserForm onSubmit={handleCreateUser} onCancel={handleCancel} isEdit={false} />
+          <UserForm
+            roles={roles}
+            onSubmit={handleCreateUser}
+            onCancel={handleCancel}
+            isEdit={false}
+          />
         </div>
       )}
 
@@ -396,6 +713,7 @@ const UsersPage: React.FC = () => {
         <div className="bg-gray-800 rounded-lg border border-gray-700 p-6">
           <UserForm
             user={selectedUser}
+            roles={roles}
             onSubmit={handleUpdateUser}
             onCancel={handleCancel}
             isEdit={true}

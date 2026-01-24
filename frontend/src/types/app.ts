@@ -10,6 +10,8 @@ export interface AppConfig {
   environment_variables: Record<string, string>;
   volumes: VolumeConfig[];
   category: string;
+  is_system: boolean;
+  is_hidden: boolean;
 }
 
 export interface ResourceRequirements {

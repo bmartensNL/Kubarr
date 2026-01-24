@@ -61,6 +61,84 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
+def seed_default_roles(session) -> None:
+    """Create default roles if they don't exist."""
+    from kubarr.core.models_auth import Role, RoleAppPermission
+
+    default_roles = [
+        {
+            "name": "admin",
+            "description": "Full administrative access to all apps and settings",
+            "is_system": True,
+            "apps": []  # Empty = all apps (handled in code)
+        },
+        {
+            "name": "viewer",
+            "description": "Access to media servers and request tools",
+            "is_system": True,
+            "apps": ["jellyfin", "jellyseerr"]
+        },
+        {
+            "name": "downloader",
+            "description": "Access to download clients and indexers",
+            "is_system": True,
+            "apps": ["qbittorrent", "transmission", "deluge", "rutorrent", "sabnzbd", "jackett"]
+        }
+    ]
+
+    for role_data in default_roles:
+        # Check if role exists
+        existing = session.query(Role).filter(Role.name == role_data["name"]).first()
+        if existing:
+            continue
+
+        # Create role
+        role = Role(
+            name=role_data["name"],
+            description=role_data["description"],
+            is_system=role_data["is_system"]
+        )
+        session.add(role)
+        session.flush()  # Get the role ID
+
+        # Add app permissions
+        for app_name in role_data["apps"]:
+            perm = RoleAppPermission(role_id=role.id, app_name=app_name)
+            session.add(perm)
+
+        print(f"Created role: {role_data['name']}")
+
+    session.commit()
+
+
+def migrate_existing_users(session) -> None:
+    """Assign roles to existing users based on is_admin flag."""
+    from kubarr.core.models_auth import User, Role, user_roles
+
+    admin_role = session.query(Role).filter(Role.name == "admin").first()
+    viewer_role = session.query(Role).filter(Role.name == "viewer").first()
+
+    if not admin_role or not viewer_role:
+        print("Roles not found, skipping user migration")
+        return
+
+    # Get users without any roles
+    users = session.query(User).all()
+    for user in users:
+        # Check if user already has roles
+        if user.roles:
+            continue
+
+        if user.is_admin:
+            user.roles.append(admin_role)
+            print(f"Assigned admin role to user: {user.username}")
+        else:
+            user.roles.append(viewer_role)
+            print(f"Assigned viewer role to user: {user.username}")
+
+    session.commit()
+
+
 def init_db() -> None:
     """Initialize database tables synchronously."""
     # Ensure directory exists
@@ -70,12 +148,18 @@ def init_db() -> None:
 
     # Import models to register them with Base
     from kubarr.core.models_auth import (
-        User, OAuth2Client, OAuth2AuthorizationCode, OAuth2Token, Invite
+        User, OAuth2Client, OAuth2AuthorizationCode, OAuth2Token, Invite,
+        Role, RoleAppPermission, user_roles
     )
 
     # Create all tables
     Base.metadata.create_all(bind=sync_engine)
     print(f"Database initialized at {DATABASE_URL}")
+
+    # Seed default roles and migrate users
+    with sync_session_maker() as session:
+        seed_default_roles(session)
+        migrate_existing_users(session)
 
 
 async def close_db() -> None:

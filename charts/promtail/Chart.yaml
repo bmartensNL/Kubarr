@@ -1,0 +1,12 @@
+apiVersion: v2
+name: promtail
+description: Promtail log collector agent for Loki
+type: application
+version: 0.1.0
+appVersion: "2.9.3"
+annotations:
+  kubarr.io/display-name: "Promtail"
+  kubarr.io/icon: "📥"
+  kubarr.io/category: "monitoring"
+  kubarr.io/system: "true"
+  kubarr.io/hidden: "true"

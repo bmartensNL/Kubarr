@@ -51,6 +51,8 @@ class AppConfig(BaseModel):
         description="Volume mounts"
     )
     category: str = Field(default="media", description="App category")
+    is_system: bool = Field(default=False, description="System app that cannot be uninstalled")
+    is_hidden: bool = Field(default=False, description="Hidden app without Open button")
 
 
 # Deployment Models

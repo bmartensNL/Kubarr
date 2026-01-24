@@ -61,19 +61,13 @@ deluge:
 
 # Persistent volumes configuration
 persistence:
+  # Config volume (keeps using PVC)
   config:
     enabled: true
     size: 1Gi
     storageClass: ""
     accessMode: ReadWriteOnce
     mountPath: /config
-
-  downloads:
-    enabled: true
-    size: 200Gi
-    storageClass: ""
-    accessMode: ReadWriteOnce
-    mountPath: /downloads
 
 # Security context
 securityContext:
@@ -115,3 +109,11 @@ podAnnotations: {}
 
 # Image pull secrets
 imagePullSecrets: []
+
+# Storage configuration (hostPath for shared data with media apps)
+storage:
+  # HostPath configuration (set by Kubarr during deployment)
+  hostPath:
+    enabled: false
+    rootPath: ""  # e.g., /mnt/data/kubarr - set by Kubarr
+  mountPath: /data

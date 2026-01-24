@@ -1,19 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { User, CreateUserRequest, UpdateUserRequest } from '../../api/users';
+import { Role } from '../../api/roles';
 
 interface UserFormProps {
   user?: User | null;
+  roles?: Role[];
   onSubmit: (data: CreateUserRequest | UpdateUserRequest) => Promise<void>;
   onCancel: () => void;
   isEdit?: boolean;
 }
 
-const UserForm: React.FC<UserFormProps> = ({ user, onSubmit, onCancel, isEdit = false }) => {
+const UserForm: React.FC<UserFormProps> = ({ user, roles = [], onSubmit, onCancel, isEdit = false }) => {
   const [formData, setFormData] = useState<CreateUserRequest>({
     username: '',
     email: '',
     password: '',
     is_admin: false,
+    role_ids: [],
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,6 +28,7 @@ const UserForm: React.FC<UserFormProps> = ({ user, onSubmit, onCancel, isEdit = 
         email: user.email,
         password: '',
         is_admin: user.is_admin,
+        role_ids: user.roles?.map(r => r.id) || [],
       });
     }
   }, [user, isEdit]);
@@ -39,6 +43,7 @@ const UserForm: React.FC<UserFormProps> = ({ user, onSubmit, onCancel, isEdit = 
         // Only send fields that can be updated
         const updateData: UpdateUserRequest = {
           is_admin: formData.is_admin,
+          role_ids: formData.role_ids,
         };
         await onSubmit(updateData);
       } else {
@@ -62,6 +67,17 @@ const UserForm: React.FC<UserFormProps> = ({ user, onSubmit, onCancel, isEdit = 
       ...prev,
       [name]: type === 'checkbox' ? checked : value,
     }));
+  };
+
+  const handleRoleToggle = (roleId: number) => {
+    setFormData((prev) => {
+      const currentRoles = prev.role_ids || [];
+      if (currentRoles.includes(roleId)) {
+        return { ...prev, role_ids: currentRoles.filter(id => id !== roleId) };
+      } else {
+        return { ...prev, role_ids: [...currentRoles, roleId] };
+      }
+    });
   };
 
   return (
@@ -126,6 +142,39 @@ const UserForm: React.FC<UserFormProps> = ({ user, onSubmit, onCancel, isEdit = 
           </div>
         )}
 
+        {/* Roles selection */}
+        {roles.length > 0 && (
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Roles
+            </label>
+            <div className="space-y-2">
+              {roles.map((role) => (
+                <div key={role.id} className="flex items-start">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 mt-1 bg-gray-700 border border-gray-600 rounded text-blue-600 focus:ring-2 focus:ring-blue-500"
+                    id={`role-${role.id}`}
+                    checked={formData.role_ids?.includes(role.id) || false}
+                    onChange={() => handleRoleToggle(role.id)}
+                  />
+                  <label className="ml-2 text-sm text-gray-300" htmlFor={`role-${role.id}`}>
+                    <span className="font-medium">{role.name}</span>
+                    {role.description && (
+                      <span className="text-gray-500 ml-2">- {role.description}</span>
+                    )}
+                    {role.app_names && role.app_names.length > 0 && (
+                      <div className="text-xs text-gray-500 mt-1">
+                        Apps: {role.app_names.join(', ')}
+                      </div>
+                    )}
+                  </label>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center">
           <input
             type="checkbox"
@@ -136,7 +185,7 @@ const UserForm: React.FC<UserFormProps> = ({ user, onSubmit, onCancel, isEdit = 
             onChange={handleChange}
           />
           <label className="ml-2 text-sm font-medium text-gray-300" htmlFor="is_admin">
-            Administrator
+            Administrator (Legacy - prefer using admin role)
           </label>
         </div>
 

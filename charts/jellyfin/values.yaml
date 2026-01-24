@@ -104,3 +104,12 @@ podAnnotations: {}
 
 # Image pull secrets
 imagePullSecrets: []
+
+# Storage configuration (hostPath for accessing media files)
+storage:
+  # HostPath configuration (set by Kubarr during deployment)
+  hostPath:
+    enabled: false
+    rootPath: ""  # e.g., /mnt/data/kubarr - set by Kubarr
+  mountPath: /data
+  readOnly: true  # Jellyfin only reads media

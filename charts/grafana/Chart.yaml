@@ -1,0 +1,11 @@
+apiVersion: v2
+name: grafana
+description: Grafana visualization and dashboards (optional - uses ~512Mi memory)
+type: application
+version: 0.1.0
+appVersion: "10.2.3"
+annotations:
+  kubarr.io/display-name: "Grafana"
+  kubarr.io/icon: "📈"
+  kubarr.io/category: "monitoring"
+  kubarr.io/optional: "true"

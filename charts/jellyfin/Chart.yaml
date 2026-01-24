@@ -1,6 +1,10 @@
 apiVersion: v2
 name: jellyfin
-description: A Helm chart for Jellyfin - Free software media server
+description: Free software media server for organizing and streaming media
 type: application
 version: 0.1.0
 appVersion: "10.8.0"
+annotations:
+  kubarr.io/display-name: "Jellyfin"
+  kubarr.io/icon: "📺"
+  kubarr.io/category: "media-server"

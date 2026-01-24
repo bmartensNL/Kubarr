@@ -15,9 +15,9 @@ data:
     # Manual endpoint configuration
     # login_url must be browser-accessible, others can use internal service URLs
     login_url = "http://localhost:8080/auth/authorize"
-    redeem_url = "http://kubarr-dashboard.kubarr-system.svc.cluster.local:8000/auth/token"
-    validate_url = "http://kubarr-dashboard.kubarr-system.svc.cluster.local:8000/auth/userinfo"
-    oidc_jwks_url = "http://kubarr-dashboard.kubarr-system.svc.cluster.local:8000/auth/jwks"
+    redeem_url = "http://kubarr-dashboard.kubarr-system.svc.cluster.local:80/auth/token"
+    validate_url = "http://kubarr-dashboard.kubarr-system.svc.cluster.local:80/auth/userinfo"
+    oidc_jwks_url = "http://kubarr-dashboard.kubarr-system.svc.cluster.local:80/auth/jwks"
 
     # Skip the "Sign in with..." button and redirect directly to provider
     skip_provider_button = true
@@ -80,5 +80,6 @@ data:
     skip_auth_routes = [
       "^/ping$",
       "^/ready$",
-      "^/auth/.*"
+      "^/auth/.*",
+      "^/api/apps/catalog/[^/]+/icon$"
     ]

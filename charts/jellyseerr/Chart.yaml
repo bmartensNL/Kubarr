@@ -1,0 +1,10 @@
+apiVersion: v2
+name: jellyseerr
+description: Request management and media discovery tool for Jellyfin
+type: application
+version: 0.1.0
+appVersion: "1.9.0"
+annotations:
+  kubarr.io/display-name: "Jellyseerr"
+  kubarr.io/icon: "🔍"
+  kubarr.io/category: "request-manager"

@@ -1,6 +1,10 @@
 apiVersion: v2
 name: radarr
-description: A Helm chart for Radarr - Movie management
+description: Movie collection manager for Usenet and BitTorrent users
 type: application
 version: 0.1.0
 appVersion: "5.0.0"
+annotations:
+  kubarr.io/display-name: "Radarr"
+  kubarr.io/icon: "🎬"
+  kubarr.io/category: "media-manager"

@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "promtail.fullname" . }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "promtail.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "promtail.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "promtail.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "promtail.serviceAccountName" . }}
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: promtail
+          image: "{{ .Values.promtail.image.repository }}:{{ .Values.promtail.image.tag }}"
+          imagePullPolicy: {{ .Values.promtail.image.pullPolicy }}
+          args:
+            - "-config.file=/etc/promtail/promtail.yaml"
+          env:
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          ports:
+            - name: http-metrics
+              containerPort: 3101
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.promtail.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/promtail
+            - name: containers
+              mountPath: {{ .Values.promtail.containerLogPath }}
+              readOnly: true
+            - name: pods
+              mountPath: {{ .Values.promtail.podLogPath }}
+              readOnly: true
+            - name: run
+              mountPath: /run/promtail
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "promtail.fullname" . }}-config
+        - name: containers
+          hostPath:
+            path: {{ .Values.promtail.containerLogPath }}
+        - name: pods
+          hostPath:
+            path: {{ .Values.promtail.podLogPath }}
+        - name: run
+          hostPath:
+            path: /run/promtail

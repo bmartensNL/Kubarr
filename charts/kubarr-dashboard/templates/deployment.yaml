@@ -27,14 +27,14 @@ spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
-        # Backend container
+        # Combined backend + frontend container (FastAPI serves static files)
         - name: backend
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
           ports:
-            - name: api
+            - name: http
               containerPort: {{ .Values.backend.service.targetPort }}
               protocol: TCP
           env:
@@ -49,13 +49,23 @@ spec:
             - name: KUBARR_JWT_PUBLIC_KEY_PATH
               value: "/secrets/jwt-public.pem"
             {{- end }}
-          {{- if .Values.oauth2.enabled }}
+            {{- if .Values.storage.hostPath.enabled }}
+            - name: KUBARR_STORAGE_PATH
+              value: "{{ .Values.storage.mountPath }}"
+            {{- end }}
+          {{- if or .Values.oauth2.enabled .Values.storage.hostPath.enabled }}
           volumeMounts:
+            {{- if .Values.oauth2.enabled }}
             - name: data
               mountPath: /data
             - name: jwt-keys
               mountPath: /secrets
               readOnly: true
+            {{- end }}
+            {{- if .Values.storage.hostPath.enabled }}
+            - name: storage
+              mountPath: {{ .Values.storage.mountPath }}
+            {{- end }}
           {{- end }}
           livenessProbe:
             {{- toYaml .Values.backend.livenessProbe | nindent 12 }}
@@ -63,26 +73,22 @@ spec:
             {{- toYaml .Values.backend.readinessProbe | nindent 12 }}
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}
-        # Frontend container
-        - name: frontend
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
-          ports:
-            - name: http
-              containerPort: {{ .Values.frontend.service.targetPort }}
-              protocol: TCP
-          resources:
-            {{- toYaml .Values.frontend.resources | nindent 12 }}
-      {{- if .Values.oauth2.enabled }}
+      {{- if or .Values.oauth2.enabled .Values.storage.hostPath.enabled }}
       volumes:
+        {{- if .Values.oauth2.enabled }}
         - name: data
           persistentVolumeClaim:
             claimName: {{ include "kubarr-dashboard.fullname" . }}-data
         - name: jwt-keys
           secret:
             secretName: {{ .Values.auth.jwt.existingSecret | default (printf "%s-jwt-keys" (include "kubarr-dashboard.fullname" .)) }}
+        {{- end }}
+        {{- if .Values.storage.hostPath.enabled }}
+        - name: storage
+          hostPath:
+            path: {{ .Values.storage.hostPath.rootPath }}
+            type: Directory
+        {{- end }}
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

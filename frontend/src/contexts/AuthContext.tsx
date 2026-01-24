@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useMemo } from 'react';
 import { getCurrentUser, User } from '../api/users';
 
 interface AuthContextType {
@@ -6,6 +6,8 @@ interface AuthContextType {
   loading: boolean;
   isAuthenticated: boolean;
   isAdmin: boolean;
+  allowedApps: Set<string> | null;
+  canAccessApp: (appName: string) => boolean;
   checkAuth: () => Promise<void>;
   logout: () => void;
 }
@@ -47,19 +49,41 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setUser(null);
     // Clear token from localStorage
     localStorage.removeItem('access_token');
-    // Redirect to login page
-    window.location.href = '/login';
+    // Redirect to oauth2-proxy sign_out to clear session and trigger re-auth
+    window.location.href = '/oauth2/sign_out';
   };
 
   useEffect(() => {
     checkAuth();
   }, []);
 
+  // Compute allowed apps based on user roles
+  const isAdmin = user?.is_admin || user?.roles?.some(r => r.name === 'admin') || false;
+
+  const allowedApps = useMemo(() => {
+    if (!user?.roles?.length) return new Set<string>();
+    if (isAdmin) return null; // null means all apps
+
+    const apps = new Set<string>();
+    // Note: We don't have app_names in RoleInfo, so filtering will be done by the backend
+    // This is a placeholder for frontend-side filtering if needed
+    return apps;
+  }, [user, isAdmin]);
+
+  const canAccessApp = (_appName: string): boolean => {
+    if (isAdmin) return true;
+    if (allowedApps === null) return true;
+    // For now, trust backend filtering - return true and let API calls handle permissions
+    return true;
+  };
+
   const value: AuthContextType = {
     user,
     loading,
     isAuthenticated: user !== null,
-    isAdmin: user?.is_admin ?? false,
+    isAdmin,
+    allowedApps,
+    canAccessApp,
     checkAuth,
     logout,
   };

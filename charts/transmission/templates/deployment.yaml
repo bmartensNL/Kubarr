@@ -94,20 +94,40 @@ spec:
             - name: config
               mountPath: {{ .Values.persistence.config.mountPath }}
             {{- end }}
-            {{- if .Values.persistence.downloads.enabled }}
+            {{- if .Values.storage.hostPath.enabled }}
             - name: downloads
-              mountPath: {{ .Values.persistence.downloads.mountPath }}
+              mountPath: /downloads
             {{- end }}
+        {{- if .Values.exporter.enabled }}
+        # Prometheus exporter sidecar
+        - name: exporter
+          image: "{{ .Values.exporter.image.repository }}:{{ .Values.exporter.image.tag }}"
+          imagePullPolicy: {{ .Values.exporter.image.pullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.exporter.port }}
+              protocol: TCP
+          env:
+            - name: TRANSMISSION_ADDR
+              value: "http://localhost:{{ .Values.transmission.service.targetPort }}"
+            - name: WEB_ADDR
+              value: ":{{ .Values.exporter.port }}"
+            - name: WEB_PATH
+              value: "/metrics"
+          resources:
+            {{- toYaml .Values.exporter.resources | nindent 12 }}
+        {{- end }}
       volumes:
         {{- if .Values.persistence.config.enabled }}
         - name: config
           persistentVolumeClaim:
             claimName: {{ include "transmission.fullname" . }}-config
         {{- end }}
-        {{- if .Values.persistence.downloads.enabled }}
+        {{- if .Values.storage.hostPath.enabled }}
         - name: downloads
-          persistentVolumeClaim:
-            claimName: {{ include "transmission.fullname" . }}-downloads
+          hostPath:
+            path: {{ .Values.storage.hostPath.rootPath }}/downloads/transmission
+            type: DirectoryOrCreate
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

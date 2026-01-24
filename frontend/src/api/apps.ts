@@ -1,6 +1,15 @@
 import apiClient from './client';
 import type { AppConfig, DeploymentRequest, DeploymentStatus } from '../types';
 
+// Export type for convenience
+export type App = AppConfig;
+
+// Named exports for direct usage
+export const getCatalog = async (): Promise<AppConfig[]> => {
+  const response = await apiClient.get<AppConfig[]>('/apps/catalog');
+  return response.data;
+};
+
 export const appsApi = {
   // Get all apps in catalog
   getCatalog: async (): Promise<AppConfig[]> => {

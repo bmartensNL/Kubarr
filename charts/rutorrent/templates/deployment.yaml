@@ -37,9 +37,6 @@ spec:
             - name: http
               containerPort: {{ .Values.rutorrent.service.targetPort }}
               protocol: TCP
-            - name: xmlrpc
-              containerPort: {{ .Values.rutorrent.service.xmlrpcPort }}
-              protocol: TCP
           envFrom:
             - configMapRef:
                 name: {{ include "rutorrent.fullname" . }}-config
@@ -68,9 +65,9 @@ spec:
             - name: config
               mountPath: {{ .Values.persistence.config.mountPath }}
             {{- end }}
-            {{- if .Values.persistence.downloads.enabled }}
+            {{- if .Values.storage.hostPath.enabled }}
             - name: downloads
-              mountPath: {{ .Values.persistence.downloads.mountPath }}
+              mountPath: /downloads
             {{- end }}
       volumes:
         {{- if .Values.persistence.config.enabled }}
@@ -78,10 +75,11 @@ spec:
           persistentVolumeClaim:
             claimName: {{ include "rutorrent.fullname" . }}-config
         {{- end }}
-        {{- if .Values.persistence.downloads.enabled }}
+        {{- if .Values.storage.hostPath.enabled }}
         - name: downloads
-          persistentVolumeClaim:
-            claimName: {{ include "rutorrent.fullname" . }}-downloads
+          hostPath:
+            path: {{ .Values.storage.hostPath.rootPath }}/downloads/rutorrent
+            type: DirectoryOrCreate
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

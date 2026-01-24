@@ -10,6 +10,7 @@ from kubarr.core.setup import (
     get_setup_status,
     initialize_setup,
     is_setup_required,
+    validate_storage_path,
 )
 
 router = APIRouter()
@@ -41,7 +42,8 @@ class SetupRequest(BaseModel):
     admin_username: str
     admin_email: EmailStr
     admin_password: str
-    base_url: str
+    storage_path: str  # Root path for all storage (hostPath)
+    base_url: str | None = None  # Optional, for OAuth2 redirect URIs
     oauth2_client_secret: str | None = None
 
 
@@ -51,6 +53,7 @@ class SetupStatusResponse(BaseModel):
     setup_required: bool
     admin_user_exists: bool
     oauth2_client_exists: bool
+    storage_configured: bool
 
 
 class GeneratedCredentialsResponse(BaseModel):
@@ -78,7 +81,7 @@ async def setup_status(db: AsyncSession = Depends(verify_setup_required)):
 
 @router.post("/initialize")
 async def initialize(setup_data: SetupRequest, db: AsyncSession = Depends(verify_setup_required)):
-    """Initialize the dashboard with admin user and OAuth2 client (only accessible during initial setup).
+    """Initialize the dashboard with admin user, storage path, and OAuth2 client.
 
     Args:
         setup_data: Setup request data
@@ -88,14 +91,23 @@ async def initialize(setup_data: SetupRequest, db: AsyncSession = Depends(verify
         Setup results
 
     Raises:
-        HTTPException: If setup has already been completed
+        HTTPException: If setup has already been completed or validation fails
     """
+    # Validate storage path first
+    path_valid, path_error = validate_storage_path(setup_data.storage_path)
+    if not path_valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid storage path: {path_error}"
+        )
+
     try:
         result = await initialize_setup(
             db=db,
             admin_username=setup_data.admin_username,
             admin_email=setup_data.admin_email,
             admin_password=setup_data.admin_password,
+            storage_path=setup_data.storage_path,
             base_url=setup_data.base_url,
             oauth2_client_secret=setup_data.oauth2_client_secret,
         )
@@ -108,6 +120,11 @@ async def initialize(setup_data: SetupRequest, db: AsyncSession = Depends(verify
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        )
+    except OSError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create storage directories: {str(e)}"
         )
 
 
@@ -138,3 +155,21 @@ async def check_setup_required(db: AsyncSession = Depends(get_db)):
     """
     required = await is_setup_required(db)
     return {"setup_required": required}
+
+
+@router.post("/validate-path", dependencies=[Depends(verify_setup_required)])
+async def validate_path(path: str):
+    """Validate a storage path before setup.
+
+    Args:
+        path: Storage path to validate
+
+    Returns:
+        Validation result
+    """
+    valid, error = validate_storage_path(path)
+    return {
+        "valid": valid,
+        "error": error,
+        "path": path,
+    }

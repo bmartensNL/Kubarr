@@ -15,7 +15,7 @@ from kubarr.api.dependencies import (
     get_current_admin_user,
     get_db,
 )
-from kubarr.core.models_auth import Invite, User
+from kubarr.core.models_auth import Invite, User, Role
 from kubarr.core.security import hash_password
 
 router = APIRouter()
@@ -30,6 +30,7 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str
     is_admin: bool = False
+    role_ids: List[int] = []
 
 
 class UserUpdate(BaseModel):
@@ -37,6 +38,16 @@ class UserUpdate(BaseModel):
     is_active: Optional[bool] = None
     is_admin: Optional[bool] = None
     is_approved: Optional[bool] = None
+    role_ids: Optional[List[int]] = None
+
+
+class RoleInfo(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+
+    class Config:
+        from_attributes = True
 
 
 class UserResponse(UserBase):
@@ -46,6 +57,7 @@ class UserResponse(UserBase):
     is_approved: bool
     created_at: datetime
     updated_at: datetime
+    roles: List[RoleInfo] = []
 
     class Config:
         from_attributes = True
@@ -70,7 +82,9 @@ async def list_users(
         List of users
     """
     result = await db.execute(
-        select(User).offset(skip).limit(limit)
+        select(User)
+        .options(selectinload(User.roles))
+        .offset(skip).limit(limit)
     )
     users = result.scalars().all()
     return users
@@ -78,17 +92,26 @@ async def list_users(
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """Get current user information.
 
     Args:
         current_user: Current authenticated user
+        db: Database session
 
     Returns:
-        User information
+        User information with roles
     """
-    return current_user
+    # Reload user with roles
+    result = await db.execute(
+        select(User)
+        .options(selectinload(User.roles))
+        .where(User.id == current_user.id)
+    )
+    user = result.scalar_one()
+    return user
 
 
 @router.get("/pending", response_model=List[UserResponse])
@@ -106,7 +129,9 @@ async def list_pending_users(
         List of pending users
     """
     result = await db.execute(
-        select(User).where(User.is_approved == False)
+        select(User)
+        .options(selectinload(User.roles))
+        .where(User.is_approved == False)
     )
     users = result.scalars().all()
     return users
@@ -162,10 +187,25 @@ async def create_user(
     )
 
     db.add(new_user)
-    await db.commit()
-    await db.refresh(new_user)
+    await db.flush()
 
-    return new_user
+    # Assign roles if provided
+    if user_data.role_ids:
+        roles_result = await db.execute(
+            select(Role).where(Role.id.in_(user_data.role_ids))
+        )
+        roles = roles_result.scalars().all()
+        new_user.roles = list(roles)
+
+    await db.commit()
+
+    # Reload with roles
+    result = await db.execute(
+        select(User)
+        .options(selectinload(User.roles))
+        .where(User.id == new_user.id)
+    )
+    return result.scalar_one()
 
 
 # Invite schemas (must be defined before invite endpoints)
@@ -331,7 +371,9 @@ async def get_user(
         HTTPException: If user not found
     """
     result = await db.execute(
-        select(User).where(User.id == user_id)
+        select(User)
+        .options(selectinload(User.roles))
+        .where(User.id == user_id)
     )
     user = result.scalar_one_or_none()
 
@@ -366,7 +408,9 @@ async def update_user(
         HTTPException: If user not found
     """
     result = await db.execute(
-        select(User).where(User.id == user_id)
+        select(User)
+        .options(selectinload(User.roles))
+        .where(User.id == user_id)
     )
     user = result.scalar_one_or_none()
 
@@ -386,12 +430,28 @@ async def update_user(
     if user_data.is_approved is not None:
         user.is_approved = user_data.is_approved
 
+    # Update roles if provided
+    if user_data.role_ids is not None:
+        if user_data.role_ids:
+            roles_result = await db.execute(
+                select(Role).where(Role.id.in_(user_data.role_ids))
+            )
+            roles = roles_result.scalars().all()
+            user.roles = list(roles)
+        else:
+            user.roles = []
+
     user.updated_at = datetime.utcnow()
 
     await db.commit()
-    await db.refresh(user)
 
-    return user
+    # Reload with roles
+    result = await db.execute(
+        select(User)
+        .options(selectinload(User.roles))
+        .where(User.id == user_id)
+    )
+    return result.scalar_one()
 
 
 @router.post("/{user_id}/approve", response_model=UserResponse)

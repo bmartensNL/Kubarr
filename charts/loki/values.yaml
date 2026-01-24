@@ -1,0 +1,58 @@
+namespace:
+  create: false  # kubarr deployment manager creates the namespace
+  name: loki
+
+loki:
+  replicaCount: 1
+
+  image:
+    repository: grafana/loki
+    tag: "2.9.3"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 3100
+    targetPort: 3100
+
+  # Path prefix for reverse proxy
+  pathPrefix: "/loki"
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+  retention: "168h"
+
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 45
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+persistence:
+  enabled: true
+  size: 20Gi
+  storageClass: ""
+  accessMode: ReadWriteOnce
+
+serviceAccount:
+  create: true
+  name: loki
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}

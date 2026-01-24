@@ -1,0 +1,22 @@
+{{- if .Values.exporter.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "transmission.fullname" . }}-exporter
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "transmission.labels" . | nindent 4 }}
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "{{ .Values.exporter.port }}"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.exporter.port }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    {{- include "transmission.selectorLabels" . | nindent 4 }}
+{{- end }}

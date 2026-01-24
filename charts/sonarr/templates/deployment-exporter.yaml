@@ -1,0 +1,64 @@
+{{- if .Values.exporter.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sonarr.fullname" . }}-exporter
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "sonarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "sonarr.name" . }}-exporter
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "sonarr.name" . }}-exporter
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.exporter.port }}"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: exportarr
+          image: "{{ .Values.exporter.image.repository }}:{{ .Values.exporter.image.tag }}"
+          imagePullPolicy: {{ .Values.exporter.image.pullPolicy }}
+          args:
+            - sonarr
+          env:
+            - name: PORT
+              value: "{{ .Values.exporter.port }}"
+            - name: URL
+              value: "http://{{ include "sonarr.fullname" . }}.{{ .Values.namespace.name }}.svc.cluster.local:{{ .Values.sonarr.service.port }}{{ .Values.sonarr.basePath }}"
+            - name: APIKEY
+              {{- if .Values.exporter.apiKeySecret.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.exporter.apiKeySecret.name }}
+                  key: {{ .Values.exporter.apiKeySecret.key }}
+              {{- else }}
+              value: "{{ .Values.exporter.apiKey }}"
+              {{- end }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.exporter.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.exporter.resources | nindent 12 }}
+{{- end }}
