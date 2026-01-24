@@ -29,20 +29,16 @@ spec:
           imagePullPolicy: {{ .Values.exporter.image.pullPolicy }}
           args:
             - sonarr
+            - --config=/config/config.xml
           env:
             - name: PORT
               value: "{{ .Values.exporter.port }}"
             - name: URL
-              value: "http://{{ include "sonarr.fullname" . }}.{{ .Values.namespace.name }}.svc.cluster.local:{{ .Values.sonarr.service.port }}{{ .Values.sonarr.basePath }}"
-            - name: APIKEY
-              {{- if .Values.exporter.apiKeySecret.name }}
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.exporter.apiKeySecret.name }}
-                  key: {{ .Values.exporter.apiKeySecret.key }}
-              {{- else }}
-              value: "{{ .Values.exporter.apiKey }}"
-              {{- end }}
+              value: "http://{{ include "sonarr.fullname" . }}.{{ .Values.namespace.name }}.svc.cluster.local:{{ .Values.sonarr.service.port }}"
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
           ports:
             - name: metrics
               containerPort: {{ .Values.exporter.port }}
@@ -61,4 +57,8 @@ spec:
             periodSeconds: 10
           resources:
             {{- toYaml .Values.exporter.resources | nindent 12 }}
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: {{ include "sonarr.fullname" . }}-config
 {{- end }}

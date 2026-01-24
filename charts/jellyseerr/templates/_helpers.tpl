@@ -46,6 +46,7 @@ Selector labels
 {{- define "jellyseerr.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "jellyseerr.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+app: {{ include "jellyseerr.name" . }}
 {{- end }}
 
 {{/*

@@ -20,6 +20,12 @@ export interface ClusterMetrics {
   memory_usage_percent: number;
   container_count: number;
   pod_count: number;
+  network_receive_bytes_per_sec: number;
+  network_transmit_bytes_per_sec: number;
+  // Storage metrics
+  total_storage_bytes: number;
+  used_storage_bytes: number;
+  storage_usage_percent: number;
 }
 
 export interface PrometheusAvailability {

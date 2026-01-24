@@ -8,13 +8,15 @@ import MonitoringPage from './pages/MonitoringPage'
 import SettingsPage from './pages/SettingsPage'
 import SetupPage from './pages/SetupPage'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { MonitoringProvider } from './contexts/MonitoringContext'
 import { VersionFooter } from './components/VersionFooter'
 import { setupApi } from './api/setup'
-import { LayoutDashboard, Grid3X3, HardDrive, FileText, Activity, Settings, User, LogOut, Ship } from 'lucide-react'
+import { Grid3X3, HardDrive, FileText, Activity, Settings, User, LogOut, Ship, ChevronDown } from 'lucide-react'
 
 function Navigation() {
   const { user, loading, isAdmin, logout } = useAuth()
   const location = useLocation()
+  const [systemDropdownOpen, setSystemDropdownOpen] = useState(false)
 
   const handleLogout = () => {
     logout()
@@ -22,6 +24,7 @@ function Navigation() {
   }
 
   const isActive = (path: string) => location.pathname === path
+  const isSystemActive = ['/storage', '/logs', '/monitoring'].includes(location.pathname)
 
   return (
     <nav className="bg-gray-800 border-b border-gray-700">
@@ -35,17 +38,6 @@ function Navigation() {
           </div>
           <div className="flex items-center space-x-1">
             <Link
-              to="/"
-              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                isActive('/')
-                  ? 'bg-gray-700 text-white'
-                  : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-              }`}
-            >
-              <LayoutDashboard size={18} strokeWidth={2} />
-              <span>Dashboard</span>
-            </Link>
-            <Link
               to="/apps"
               className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                 isActive('/apps')
@@ -56,39 +48,58 @@ function Navigation() {
               <Grid3X3 size={18} strokeWidth={2} />
               <span>Apps</span>
             </Link>
-            <Link
-              to="/storage"
-              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                isActive('/storage')
-                  ? 'bg-gray-700 text-white'
-                  : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-              }`}
-            >
-              <HardDrive size={18} strokeWidth={2} />
-              <span>Storage</span>
-            </Link>
-            <Link
-              to="/logs"
-              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                isActive('/logs')
-                  ? 'bg-gray-700 text-white'
-                  : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-              }`}
-            >
-              <FileText size={18} strokeWidth={2} />
-              <span>Logs</span>
-            </Link>
-            <Link
-              to="/monitoring"
-              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                isActive('/monitoring')
-                  ? 'bg-gray-700 text-white'
-                  : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-              }`}
-            >
-              <Activity size={18} strokeWidth={2} />
-              <span>Monitoring</span>
-            </Link>
+            <div className="relative">
+              <button
+                onClick={() => setSystemDropdownOpen(!systemDropdownOpen)}
+                onBlur={() => setTimeout(() => setSystemDropdownOpen(false), 150)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  isSystemActive
+                    ? 'bg-gray-700 text-white'
+                    : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                }`}
+              >
+                <Activity size={18} strokeWidth={2} />
+                <span>System</span>
+                <ChevronDown size={16} strokeWidth={2} className={`transition-transform ${systemDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {systemDropdownOpen && (
+                <div className="absolute top-full left-0 mt-1 w-48 bg-gray-800 border border-gray-700 rounded-md shadow-lg z-50">
+                  <Link
+                    to="/monitoring"
+                    className={`flex items-center gap-2 px-4 py-2 text-sm transition-colors ${
+                      isActive('/monitoring')
+                        ? 'bg-gray-700 text-white'
+                        : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                    } rounded-t-md`}
+                  >
+                    <Activity size={16} strokeWidth={2} />
+                    <span>Monitoring</span>
+                  </Link>
+                  <Link
+                    to="/logs"
+                    className={`flex items-center gap-2 px-4 py-2 text-sm transition-colors ${
+                      isActive('/logs')
+                        ? 'bg-gray-700 text-white'
+                        : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                    }`}
+                  >
+                    <FileText size={16} strokeWidth={2} />
+                    <span>Logs</span>
+                  </Link>
+                  <Link
+                    to="/storage"
+                    className={`flex items-center gap-2 px-4 py-2 text-sm transition-colors ${
+                      isActive('/storage')
+                        ? 'bg-gray-700 text-white'
+                        : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                    } rounded-b-md`}
+                  >
+                    <HardDrive size={16} strokeWidth={2} />
+                    <span>Storage</span>
+                  </Link>
+                </div>
+              )}
+            </div>
             {isAdmin && (
               <Link
                 to="/settings"
@@ -202,6 +213,7 @@ function AppContent() {
 
   return (
     <ProtectedRoute>
+      <MonitoringProvider>
       <div className="h-screen bg-gray-900 text-white flex flex-col overflow-hidden">
         <Navigation />
         {isSettingsPage || isLogsPage ? (
@@ -225,6 +237,7 @@ function AppContent() {
           </main>
         )}
       </div>
+      </MonitoringProvider>
     </ProtectedRoute>
   )
 }

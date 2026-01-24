@@ -46,6 +46,12 @@ class ClusterMetrics(BaseModel):
     memory_usage_percent: float
     container_count: int
     pod_count: int
+    network_receive_bytes_per_sec: float
+    network_transmit_bytes_per_sec: float
+    # Storage metrics
+    total_storage_bytes: int = 0
+    used_storage_bytes: int = 0
+    storage_usage_percent: float = 0
 
 
 class TimeSeriesPoint(BaseModel):
@@ -235,6 +241,27 @@ async def get_cluster_metrics() -> ClusterMetrics:
     pod_results = await query_prometheus(pod_query)
     pod_count = int(float(pod_results[0]["value"][1])) if pod_results else 0
 
+    # Network receive rate (bytes per second)
+    network_rx_query = 'sum(rate(container_network_receive_bytes_total{interface!="lo"}[5m]))'
+    network_rx_results = await query_prometheus(network_rx_query)
+    network_rx = float(network_rx_results[0]["value"][1]) if network_rx_results else 0
+
+    # Network transmit rate (bytes per second)
+    network_tx_query = 'sum(rate(container_network_transmit_bytes_total{interface!="lo"}[5m]))'
+    network_tx_results = await query_prometheus(network_tx_query)
+    network_tx = float(network_tx_results[0]["value"][1]) if network_tx_results else 0
+
+    # Storage metrics - get filesystem usage from cadvisor
+    # Total storage - use the largest filesystem (main data disk)
+    total_storage_query = 'max(container_fs_limit_bytes{id="/",device=~"/dev/.*"})'
+    total_storage_results = await query_prometheus(total_storage_query)
+    total_storage = int(float(total_storage_results[0]["value"][1])) if total_storage_results else 0
+
+    # Used storage on the same device
+    used_storage_query = 'max(container_fs_usage_bytes{id="/",device=~"/dev/.*"})'
+    used_storage_results = await query_prometheus(used_storage_query)
+    used_storage = int(float(used_storage_results[0]["value"][1])) if used_storage_results else 0
+
     return ClusterMetrics(
         total_cpu_cores=round(total_cpu, 2),
         total_memory_bytes=total_memory,
@@ -243,7 +270,12 @@ async def get_cluster_metrics() -> ClusterMetrics:
         cpu_usage_percent=round((used_cpu / total_cpu * 100) if total_cpu > 0 else 0, 2),
         memory_usage_percent=round((used_memory / total_memory * 100) if total_memory > 0 else 0, 2),
         container_count=container_count,
-        pod_count=pod_count
+        pod_count=pod_count,
+        network_receive_bytes_per_sec=round(network_rx, 2),
+        network_transmit_bytes_per_sec=round(network_tx, 2),
+        total_storage_bytes=total_storage,
+        used_storage_bytes=used_storage,
+        storage_usage_percent=round((used_storage / total_storage * 100) if total_storage > 0 else 0, 2)
     )
 
 

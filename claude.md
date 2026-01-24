@@ -145,3 +145,32 @@ kubectl rollout status deployment/kubarr-dashboard -n kubarr-system --timeout=90
 
 - Frontend dev server: `cd frontend && npm run dev`
 - Backend dev server: `cd kubarr && uvicorn api.main:app --reload`
+
+## CRITICAL: Always Rebuild AND Deploy After Code Changes
+
+**After making ANY changes to frontend or backend code, you MUST:**
+1. Rebuild the Docker image with `--no-cache` to ensure fresh build
+2. Load the image into Kind
+3. Update the deployment and delete the pod
+4. Verify the new build is running
+
+**This is NOT optional. Every code change requires a full rebuild and deploy.**
+
+Changes that require rebuild/deploy:
+- Frontend component changes (React/TypeScript)
+- Backend API changes (Python/FastAPI)
+- Style changes (CSS/Tailwind)
+- Any file in `frontend/` or `kubarr/`
+
+**Quick Deploy Command (run this after EVERY code change):**
+```bash
+cd /c/Users/admin/Projects/Kubarr && \
+TAG=deploy$(date +%s) && \
+docker build --no-cache -f docker/Dockerfile.backend -t kubarr-backend:$TAG \
+  --build-arg COMMIT_HASH=$(git rev-parse --short HEAD) \
+  --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") . && \
+docker save kubarr-backend:$TAG | docker exec -i kubarr-test-control-plane ctr -n k8s.io images import - && \
+kubectl set image deployment/kubarr-dashboard backend=kubarr-backend:$TAG -n kubarr-system && \
+kubectl delete pod -l app.kubernetes.io/name=kubarr-dashboard -n kubarr-system && \
+kubectl rollout status deployment/kubarr-dashboard -n kubarr-system --timeout=90s
+```

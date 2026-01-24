@@ -1,13 +1,14 @@
-import { useState, useEffect, useMemo } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState, useMemo } from 'react'
+import { useMutation } from '@tanstack/react-query'
 import { appsApi } from '../api/apps'
 import { AppIcon } from '../components/AppIcon'
+import { useMonitoring } from '../contexts/MonitoringContext'
 import type { AppConfig } from '../types'
 
-type AppState = 'idle' | 'installing' | 'installed' | 'deleting' | 'error'
+type OperationState = 'installing' | 'deleting' | 'error'
 
-interface AppStatus {
-  state: AppState
+interface OperationStatus {
+  state: OperationState
   message?: string
 }
 
@@ -94,20 +95,12 @@ const defaultCategoryInfo = {
 const categoryOrder = ['media-manager', 'download-client', 'media-server', 'request-manager', 'indexer', 'monitoring', 'system']
 
 export default function AppsPage() {
-  const queryClient = useQueryClient()
+  const { catalog, installedApps: installed, appStatuses: globalAppStatuses, refreshAppStatuses } = useMonitoring()
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
-  const [appStatuses, setAppStatuses] = useState<Record<string, AppStatus>>({})
+  // Only track operation states (installing/deleting/error) locally
+  const [operationStatuses, setOperationStatuses] = useState<Record<string, OperationStatus>>({})
 
-  const { data: catalog, isLoading } = useQuery({
-    queryKey: ['apps', 'catalog'],
-    queryFn: appsApi.getCatalog,
-  })
-
-  const { data: installed } = useQuery({
-    queryKey: ['apps', 'installed'],
-    queryFn: () => appsApi.getInstalled(),
-    refetchInterval: 3000,
-  })
+  const isLoading = catalog.length === 0
 
   // Group apps by category
   const appsByCategory = useMemo(() => {
@@ -139,30 +132,24 @@ export default function AppsPage() {
     })
   }, [appsByCategory])
 
-  // Fetch status for each app when catalog loads
-  useEffect(() => {
-    if (catalog && catalog.length > 0) {
-      catalog.forEach(async (app) => {
-        try {
-          const status = await appsApi.getStatus(app.name)
-          updateAppState(app.name, status.state as AppState, status.message)
-        } catch (error) {
-          // Silently handle - app might not exist yet
-        }
-      })
-    }
-  }, [catalog])
-
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type })
     setTimeout(() => setToast(null), 5000)
   }
 
-  const updateAppState = (appName: string, state: AppState, message?: string) => {
-    setAppStatuses(prev => ({
-      ...prev,
-      [appName]: { state, message }
-    }))
+  const setOperationState = (appName: string, state: OperationState | null, message?: string) => {
+    if (state === null) {
+      // Clear operation state
+      setOperationStatuses(prev => {
+        const { [appName]: _, ...rest } = prev
+        return rest
+      })
+    } else {
+      setOperationStatuses(prev => ({
+        ...prev,
+        [appName]: { state, message }
+      }))
+    }
   }
 
   // Poll for health after installation
@@ -175,15 +162,15 @@ export default function AppsPage() {
         const health = await appsApi.checkHealth(appName)
 
         if (health.healthy && health.status === 'healthy') {
-          updateAppState(appName, 'installed')
-          queryClient.invalidateQueries({ queryKey: ['apps', 'installed'] })
+          setOperationState(appName, null) // Clear operation state
+          refreshAppStatuses() // Refresh global store
           showToast(`${appName} installed successfully`, 'success')
           return true
         }
 
         attempts++
         if (attempts >= maxAttempts) {
-          updateAppState(appName, 'error', 'Installation timeout - deployments not healthy')
+          setOperationState(appName, 'error', 'Installation timeout - deployments not healthy')
           showToast(`${appName} installation timed out`, 'error')
           return true
         }
@@ -193,7 +180,7 @@ export default function AppsPage() {
       } catch (error) {
         attempts++
         if (attempts >= maxAttempts) {
-          updateAppState(appName, 'error', 'Health check failed')
+          setOperationState(appName, 'error', 'Health check failed')
           showToast(`${appName} health check failed`, 'error')
           return true
         }
@@ -215,15 +202,15 @@ export default function AppsPage() {
         const { exists } = await appsApi.checkExists(appName)
 
         if (!exists) {
-          updateAppState(appName, 'idle')
-          queryClient.invalidateQueries({ queryKey: ['apps', 'installed'] })
+          setOperationState(appName, null) // Clear operation state
+          refreshAppStatuses() // Refresh global store
           showToast(`${appName} uninstalled successfully`, 'success')
           return true
         }
 
         attempts++
         if (attempts >= maxAttempts) {
-          updateAppState(appName, 'error', 'Deletion timeout')
+          setOperationState(appName, 'error', 'Deletion timeout')
           showToast(`${appName} deletion timed out`, 'error')
           return true
         }
@@ -233,7 +220,7 @@ export default function AppsPage() {
       } catch (error) {
         attempts++
         if (attempts >= maxAttempts) {
-          updateAppState(appName, 'error', 'Deletion check failed')
+          setOperationState(appName, 'error', 'Deletion check failed')
           showToast(`${appName} deletion check failed`, 'error')
           return true
         }
@@ -247,28 +234,28 @@ export default function AppsPage() {
 
   const installMutation = useMutation({
     mutationFn: (appName: string) => {
-      updateAppState(appName, 'installing')
+      setOperationState(appName, 'installing')
       return appsApi.install({ app_name: appName, namespace: appName })
     },
     onSuccess: (_data, appName) => {
       pollHealth(appName)
     },
     onError: (error: any, appName) => {
-      updateAppState(appName, 'error', error.response?.data?.detail || error.message)
+      setOperationState(appName, 'error', error.response?.data?.detail || error.message)
       showToast(`Failed to install ${appName}: ${error.response?.data?.detail || error.message}`, 'error')
     },
   })
 
   const deleteMutation = useMutation({
     mutationFn: (appName: string) => {
-      updateAppState(appName, 'deleting')
+      setOperationState(appName, 'deleting')
       return appsApi.delete(appName)
     },
     onSuccess: (_data, appName) => {
       pollDeletion(appName)
     },
     onError: (error: any, appName) => {
-      updateAppState(appName, 'error', error.response?.data?.detail || error.message)
+      setOperationState(appName, 'error', error.response?.data?.detail || error.message)
       showToast(`Failed to uninstall ${appName}: ${error.response?.data?.detail || error.message}`, 'error')
     },
   })
@@ -283,8 +270,20 @@ export default function AppsPage() {
 
   const renderAppCard = (app: AppConfig) => {
     const isInstalled = installed?.includes(app.name)
-    const appStatus = appStatuses[app.name] || { state: isInstalled ? 'installed' : 'idle' }
-    const effectiveState = app.is_system ? 'installed' : appStatus.state
+    const operationStatus = operationStatuses[app.name]
+    const globalStatus = globalAppStatuses[app.name]
+
+    // Determine effective state: operation state takes priority, then global health state
+    let effectiveState: string
+    if (app.is_system) {
+      effectiveState = 'installed'
+    } else if (operationStatus) {
+      effectiveState = operationStatus.state
+    } else if (isInstalled) {
+      effectiveState = globalStatus?.loading ? 'loading' : 'installed'
+    } else {
+      effectiveState = 'idle'
+    }
 
     return (
       <div
@@ -313,6 +312,12 @@ export default function AppsPage() {
                     <span className="flex-shrink-0 inline-flex items-center gap-1 bg-green-500/20 text-green-400 text-xs px-2 py-0.5 rounded-full">
                       <span className="w-1.5 h-1.5 bg-green-400 rounded-full"></span>
                       Installed
+                    </span>
+                  )}
+                  {effectiveState === 'loading' && (
+                    <span className="flex-shrink-0 inline-flex items-center gap-1 bg-gray-500/20 text-gray-400 text-xs px-2 py-0.5 rounded-full animate-pulse">
+                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full"></span>
+                      Loading
                     </span>
                   )}
                   {effectiveState === 'installing' && (
@@ -355,6 +360,14 @@ export default function AppsPage() {
               >
                 Open
               </a>
+            ) : effectiveState === 'loading' ? (
+              // Loading state - show disabled button
+              <button
+                disabled
+                className="w-full bg-gray-700 cursor-not-allowed text-gray-400 text-sm font-medium py-2 px-4 rounded-lg"
+              >
+                Loading...
+              </button>
             ) : effectiveState === 'installed' ? (
               <>
                 {!app.is_hidden && (

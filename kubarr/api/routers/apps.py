@@ -132,7 +132,10 @@ async def get_app_icon(app_name: str) -> FileResponse:
     return FileResponse(
         path=str(icon_path),
         media_type="image/svg+xml",
-        headers={"Cache-Control": "public, max-age=86400"},  # Cache for 24 hours
+        headers={
+            "Cache-Control": "public, max-age=604800, immutable",  # Cache for 7 days, immutable
+            "Vary": "Accept-Encoding",
+        },
     )
 
 

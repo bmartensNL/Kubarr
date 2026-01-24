@@ -46,6 +46,7 @@ Selector labels
 {{- define "sonarr.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "sonarr.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+app: {{ include "sonarr.name" . }}
 {{- end }}
 
 {{/*

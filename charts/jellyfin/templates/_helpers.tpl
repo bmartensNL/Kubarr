@@ -46,6 +46,7 @@ Selector labels
 {{- define "jellyfin.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "jellyfin.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+app: {{ include "jellyfin.name" . }}
 {{- end }}
 
 {{/*

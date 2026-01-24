@@ -738,19 +738,19 @@ WebUI\\HostHeaderValidation=false
                 ready_replicas = deployment.status.ready_replicas or 0
                 available_replicas = deployment.status.available_replicas or 0
 
+                # Basic health check: all replicas are ready and available
                 is_healthy = (
-                    ready_replicas == replicas and
-                    available_replicas == replicas and
-                    bool(deployment.status.conditions)
+                    ready_replicas >= replicas and
+                    available_replicas >= replicas
                 )
 
-                # Check conditions
+                # Also check the "Available" condition if present
+                # Note: "Progressing" condition can be False when stable, so we don't check it
                 if deployment.status.conditions:
                     for condition in deployment.status.conditions:
                         if condition.type == "Available" and condition.status != "True":
                             is_healthy = False
-                        elif condition.type == "Progressing" and condition.status != "True":
-                            is_healthy = False
+                            break
 
                 deployment_statuses.append({
                     "name": deployment.metadata.name,

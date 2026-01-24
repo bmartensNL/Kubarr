@@ -1,14 +1,14 @@
 {{/*
 Expand the name of the chart.
 */}}
-{{- define "radarr.name" -}}
+{{- define "plex.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Create a default fully qualified app name.
 */}}
-{{- define "radarr.fullname" -}}
+{{- define "plex.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -24,16 +24,16 @@ Create a default fully qualified app name.
 {{/*
 Create chart name and version as used by the chart label.
 */}}
-{{- define "radarr.chart" -}}
+{{- define "plex.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Common labels
 */}}
-{{- define "radarr.labels" -}}
-helm.sh/chart: {{ include "radarr.chart" . }}
-{{ include "radarr.selectorLabels" . }}
+{{- define "plex.labels" -}}
+helm.sh/chart: {{ include "plex.chart" . }}
+{{ include "plex.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -43,18 +43,18 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{/*
 Selector labels
 */}}
-{{- define "radarr.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "radarr.name" . }}
+{{- define "plex.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "plex.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
-app: {{ include "radarr.name" . }}
+app: {{ include "plex.name" . }}
 {{- end }}
 
 {{/*
 Create the name of the service account to use
 */}}
-{{- define "radarr.serviceAccountName" -}}
+{{- define "plex.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
-{{- default (include "radarr.fullname" .) .Values.serviceAccount.name }}
+{{- default (include "plex.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}

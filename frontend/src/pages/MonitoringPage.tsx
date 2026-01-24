@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { monitoringApi, TimeSeriesPoint } from '../api/monitoring'
+import { useMonitoring } from '../contexts/MonitoringContext'
 import { logsApi } from '../api/logs'
 import { AppIcon } from '../components/AppIcon'
 import {
@@ -65,7 +66,7 @@ function ProgressBar({ value, max, color = 'blue' }: { value: number; max: numbe
   )
 }
 
-// Simple line chart component
+// Simple line chart component with smooth curves
 function SimpleChart({
   data,
   color = 'blue',
@@ -79,46 +80,92 @@ function SimpleChart({
 }) {
   if (!data || data.length === 0) {
     return (
-      <div className="flex items-center justify-center text-gray-500" style={{ height }}>
+      <div className="flex items-center justify-center text-gray-500" style={{ height: height + 20 }}>
         No data available
       </div>
     )
   }
 
-  const values = data.map(d => d.value)
-  const maxValue = Math.max(...values) || 1
-  const minValue = Math.min(...values)
-
-  const colorClasses: Record<string, string> = {
-    blue: 'stroke-blue-500 fill-blue-500/20',
-    green: 'stroke-green-500 fill-green-500/20',
-  }
-
-  // Generate path
-  const width = 100
-  const pathPoints = data.map((d, i) => {
-    const x = (i / (data.length - 1)) * width
-    const y = height - ((d.value - minValue) / (maxValue - minValue || 1)) * (height - 20) - 10
-    return `${x},${y}`
+  // Filter out zero/invalid values at the edges that might be artifacts
+  const filteredData = data.filter((d, i) => {
+    // Keep all middle points
+    if (i > 0 && i < data.length - 1) return true
+    // For edge points, only keep if they're not suspiciously zero when neighbors aren't
+    if (i === 0 && data.length > 1) {
+      return d.value > 0 || data[1].value === 0
+    }
+    if (i === data.length - 1 && data.length > 1) {
+      return d.value > 0 || data[data.length - 2].value === 0
+    }
+    return true
   })
 
-  const linePath = `M ${pathPoints.join(' L ')}`
-  const areaPath = `${linePath} L ${width},${height} L 0,${height} Z`
+  if (filteredData.length < 2) {
+    return (
+      <div className="flex items-center justify-center text-gray-500" style={{ height: height + 20 }}>
+        Not enough data
+      </div>
+    )
+  }
+
+  const values = filteredData.map(d => d.value)
+  const maxValue = Math.max(...values)
+  const minValue = Math.min(...values)
+  // Add padding to prevent line from touching edges
+  const range = maxValue - minValue || maxValue * 0.1 || 1
+  const paddedMin = minValue - range * 0.05
+  const paddedMax = maxValue + range * 0.05
+
+  const colorMap: Record<string, { stroke: string; fill: string }> = {
+    blue: { stroke: '#3b82f6', fill: 'rgba(59, 130, 246, 0.15)' },
+    green: { stroke: '#22c55e', fill: 'rgba(34, 197, 94, 0.15)' },
+  }
+  const colors = colorMap[color] || colorMap.blue
+
+  // Generate smooth curve using cubic bezier
+  const width = 100
+  const chartHeight = height - 10
+  const points = filteredData.map((d, i) => {
+    const x = (i / (filteredData.length - 1)) * width
+    const y = chartHeight - ((d.value - paddedMin) / (paddedMax - paddedMin)) * chartHeight
+    return { x, y }
+  })
+
+  // Create smooth bezier curve
+  let linePath = `M ${points[0].x},${points[0].y}`
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1]
+    const curr = points[i]
+    const tension = 0.3
+    const cp1x = prev.x + (curr.x - prev.x) * tension
+    const cp1y = prev.y
+    const cp2x = curr.x - (curr.x - prev.x) * tension
+    const cp2y = curr.y
+    linePath += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${curr.x},${curr.y}`
+  }
+
+  const areaPath = `${linePath} L ${width},${chartHeight} L 0,${chartHeight} Z`
 
   // Get first and last timestamps for x-axis labels
-  const startTime = formatTime(data[0].timestamp)
-  const endTime = formatTime(data[data.length - 1].timestamp)
+  const startTime = formatTime(filteredData[0].timestamp)
+  const endTime = formatTime(filteredData[filteredData.length - 1].timestamp)
 
   return (
     <div className="relative" style={{ height: height + 20 }}>
       <svg
-        viewBox={`0 0 ${width} ${height}`}
+        viewBox={`0 0 ${width} ${chartHeight}`}
         preserveAspectRatio="none"
         className="w-full"
         style={{ height }}
       >
-        <path d={areaPath} className={colorClasses[color]} fillOpacity="0.2" />
-        <path d={linePath} className={colorClasses[color]} fill="none" strokeWidth="1.5" />
+        <defs>
+          <linearGradient id={`gradient-${color}`} x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor={colors.fill.replace('0.15', '0.3')} />
+            <stop offset="100%" stopColor={colors.fill.replace('0.15', '0.05')} />
+          </linearGradient>
+        </defs>
+        <path d={areaPath} fill={`url(#gradient-${color})`} />
+        <path d={linePath} stroke={colors.stroke} fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
       <div className="flex justify-between text-xs text-gray-500 mt-1">
         <span>{startTime}</span>
@@ -173,10 +220,12 @@ function AppDetailModal({
   const [duration, setDuration] = useState('1h')
   const [activeTab, setActiveTab] = useState<'metrics' | 'pods' | 'logs'>('metrics')
 
-  const { data: detailMetrics, isLoading } = useQuery({
+  const { data: detailMetrics, isLoading, isFetching } = useQuery({
     queryKey: ['monitoring', 'app', appName, duration],
     queryFn: () => monitoringApi.getAppDetailMetrics(appName, duration),
     refetchInterval: 30000,
+    placeholderData: (previousData) => previousData, // Keep previous data while fetching
+    staleTime: 10000, // Consider data fresh for 10 seconds
   })
 
   const { data: logsData, isLoading: logsLoading } = useQuery({
@@ -277,8 +326,8 @@ function AppDetailModal({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-auto p-6">
-          {isLoading ? (
+        <div className="flex-1 overflow-auto p-6 min-h-[400px]">
+          {isLoading && !detailMetrics ? (
             <div className="flex items-center justify-center py-12">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
             </div>
@@ -303,6 +352,9 @@ function AppDetailModal({
                     </button>
                   ))}
                 </div>
+                {isFetching && (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500 ml-2"></div>
+                )}
               </div>
 
               {/* Current stats */}
@@ -456,6 +508,7 @@ function AppDetailModal({
 export default function MonitoringPage() {
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [selectedApp, setSelectedApp] = useState<string | null>(null)
+  const { installedApps } = useMonitoring()
 
   // Check if Prometheus is available
   const { data: prometheusStatus, isLoading: prometheusLoading } = useQuery({
@@ -493,10 +546,10 @@ export default function MonitoringPage() {
     refetchApps()
   }
 
-  // Sort apps by memory usage (descending)
-  const sortedApps = [...(appMetrics || [])].sort(
-    (a, b) => b.memory_usage_bytes - a.memory_usage_bytes
-  )
+  // Filter to only show installed apps, then sort by memory usage (descending)
+  const sortedApps = [...(appMetrics || [])]
+    .filter((app) => installedApps.includes(app.app_name))
+    .sort((a, b) => b.memory_usage_bytes - a.memory_usage_bytes)
 
   // Calculate totals for apps
   const totalAppMemory = sortedApps.reduce((sum, app) => sum + app.memory_usage_bytes, 0)

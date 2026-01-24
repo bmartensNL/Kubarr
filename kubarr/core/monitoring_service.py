@@ -45,10 +45,11 @@ class MonitoringService:
         try:
             core_api = self._k8s.get_core_v1_api()
 
-            # Build label selector
+            # Build label selector - support both common label patterns
             label_selector = None
             if app_name:
-                label_selector = f"app={app_name}"
+                # Use app.kubernetes.io/name which is the standard Helm label
+                label_selector = f"app.kubernetes.io/name={app_name}"
 
             pods = core_api.list_namespaced_pod(
                 namespace=namespace,
@@ -76,9 +77,17 @@ class MonitoringService:
                             ready = condition.status == "True"
                             break
 
+                # Get app name from labels - try standard Kubernetes label first, then fallback
+                labels = pod.metadata.labels or {}
+                app_label = (
+                    labels.get("app.kubernetes.io/name") or
+                    labels.get("app") or
+                    "unknown"
+                )
+
                 statuses.append(PodStatus(
                     name=pod.metadata.name,
-                    app=pod.metadata.labels.get("app", "unknown"),
+                    app=app_label,
                     namespace=namespace,
                     status=pod.status.phase,
                     ready=ready,
@@ -127,10 +136,11 @@ class MonitoringService:
             for item in metrics.get("items", []):
                 pod_name = item["metadata"]["name"]
 
-                # Filter by app if specified
+                # Filter by app if specified - check both label patterns
                 if app_name:
                     labels = item["metadata"].get("labels", {})
-                    if labels.get("app") != app_name:
+                    app_label = labels.get("app.kubernetes.io/name") or labels.get("app")
+                    if app_label != app_name:
                         continue
 
                 # Calculate total resource usage across containers
