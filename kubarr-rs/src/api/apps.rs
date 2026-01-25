@@ -1,0 +1,331 @@
+use axum::{
+    extract::{Path, Query, State},
+    http::header,
+    response::{IntoResponse, Response},
+    routing::{delete, get, post},
+    Json, Router,
+};
+use serde::{Deserialize, Serialize};
+
+use crate::api::extractors::AuthUser;
+use crate::config::CONFIG;
+use crate::error::{AppError, Result};
+use crate::services::{AppConfig, DeploymentManager, DeploymentRequest, DeploymentStatus};
+use crate::state::AppState;
+
+/// Create apps routes
+pub fn apps_routes(state: AppState) -> Router {
+    Router::new()
+        .route("/catalog", get(list_catalog))
+        .route("/catalog/:app_name", get(get_app_from_catalog))
+        .route("/catalog/:app_name/icon", get(get_app_icon))
+        .route("/installed", get(list_installed_apps))
+        .route("/install", post(install_app))
+        .route("/categories", get(list_categories))
+        .route("/category/:category", get(get_apps_by_category))
+        .route("/:app_name", delete(delete_app))
+        .route("/:app_name/restart", post(restart_app))
+        .route("/:app_name/health", get(check_app_health))
+        .route("/:app_name/exists", get(check_app_exists))
+        .route("/:app_name/status", get(get_app_status))
+        .with_state(state)
+}
+
+// ============================================================================
+// Request/Response Types
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct NamespaceQuery {
+    pub namespace: Option<String>,
+}
+
+// ============================================================================
+// Endpoint Handlers
+// ============================================================================
+
+/// List all apps in the catalog
+async fn list_catalog(
+    State(state): State<AppState>,
+    AuthUser(_): AuthUser,
+) -> Result<Json<Vec<AppConfig>>> {
+    let catalog = state.catalog.read().await;
+    let apps: Vec<AppConfig> = catalog.get_all_apps().into_iter().cloned().collect();
+    Ok(Json(apps))
+}
+
+/// Get a specific app from the catalog
+async fn get_app_from_catalog(
+    State(state): State<AppState>,
+    Path(app_name): Path<String>,
+    AuthUser(_): AuthUser,
+) -> Result<Json<AppConfig>> {
+    let catalog = state.catalog.read().await;
+    let app = catalog
+        .get_app(&app_name)
+        .cloned()
+        .ok_or_else(|| AppError::NotFound(format!("App '{}' not found", app_name)))?;
+    Ok(Json(app))
+}
+
+/// Get the icon for an app (SVG)
+async fn get_app_icon(
+    Path(app_name): Path<String>,
+) -> Result<Response> {
+    // Validate app name to prevent path traversal
+    if app_name.contains("..") || app_name.contains('/') || app_name.contains('\\') {
+        return Err(AppError::BadRequest("Invalid app name".to_string()));
+    }
+
+    let icon_path = CONFIG.charts_dir.join(&app_name).join("icon.svg");
+
+    if !icon_path.exists() {
+        return Err(AppError::NotFound(format!("Icon not found for app '{}'", app_name)));
+    }
+
+    let content = std::fs::read(&icon_path)
+        .map_err(|e| AppError::Internal(format!("Failed to read icon: {}", e)))?;
+
+    Ok((
+        [
+            (header::CONTENT_TYPE, "image/svg+xml"),
+            (header::CACHE_CONTROL, "public, max-age=604800, immutable"),
+        ],
+        content,
+    )
+        .into_response())
+}
+
+/// List installed apps
+async fn list_installed_apps(
+    State(state): State<AppState>,
+    AuthUser(_): AuthUser,
+) -> Result<Json<Vec<String>>> {
+    let k8s = state.k8s_client.read().await;
+    let catalog = state.catalog.read().await;
+
+    let apps = if let Some(ref client) = *k8s {
+        let manager = DeploymentManager::new(client, &catalog);
+        manager.get_deployed_apps().await
+    } else {
+        Vec::new()
+    };
+
+    Ok(Json(apps))
+}
+
+/// Install an app
+async fn install_app(
+    State(state): State<AppState>,
+    AuthUser(_): AuthUser,
+    Json(request): Json<DeploymentRequest>,
+) -> Result<Json<DeploymentStatus>> {
+    let k8s = state.k8s_client.read().await;
+    let catalog = state.catalog.read().await;
+
+    let client = k8s
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("Kubernetes client not available".to_string()))?;
+
+    // Get storage path from settings
+    let storage_path: Option<String> = sqlx::query_scalar(
+        "SELECT value FROM system_settings WHERE key = 'storage_path'",
+    )
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let manager = DeploymentManager::new(client, &catalog);
+    let status = manager
+        .deploy_app(&request, storage_path.as_deref())
+        .await?;
+
+    Ok(Json(status))
+}
+
+/// Delete an app
+async fn delete_app(
+    State(state): State<AppState>,
+    Path(app_name): Path<String>,
+    AuthUser(_): AuthUser,
+) -> Result<Json<serde_json::Value>> {
+    let k8s = state.k8s_client.read().await;
+    let catalog = state.catalog.read().await;
+
+    // Check if this is a system app
+    if let Some(app) = catalog.get_app(&app_name) {
+        if app.is_system {
+            return Err(AppError::Forbidden(format!(
+                "Cannot delete system app '{}'",
+                app_name
+            )));
+        }
+    }
+
+    let client = k8s
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("Kubernetes client not available".to_string()))?;
+
+    let manager = DeploymentManager::new(client, &catalog);
+    manager.remove_app(&app_name).await?;
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": format!("App '{}' deletion initiated", app_name),
+        "status": "deleting"
+    })))
+}
+
+/// Restart an app
+async fn restart_app(
+    State(state): State<AppState>,
+    Path(app_name): Path<String>,
+    Query(query): Query<NamespaceQuery>,
+    AuthUser(_): AuthUser,
+) -> Result<Json<serde_json::Value>> {
+    let namespace = query.namespace.unwrap_or_else(|| app_name.clone());
+
+    let k8s = state.k8s_client.read().await;
+    let client = k8s
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("Kubernetes client not available".to_string()))?;
+
+    // Get pods with app label
+    let pods = client
+        .get_pod_status(&namespace, Some(&app_name))
+        .await?;
+
+    // Delete each pod
+    use k8s_openapi::api::core::v1::Pod;
+    use kube::api::{Api, DeleteParams};
+
+    let pod_api: Api<Pod> = Api::namespaced(client.client().clone(), &namespace);
+    let mut deleted_count = 0;
+
+    for pod in &pods {
+        if pod_api.delete(&pod.name, &DeleteParams::default()).await.is_ok() {
+            deleted_count += 1;
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": format!("Restarted {} pod(s) for app '{}'", deleted_count, app_name)
+    })))
+}
+
+/// List all categories
+async fn list_categories(
+    State(state): State<AppState>,
+    AuthUser(_): AuthUser,
+) -> Result<Json<Vec<String>>> {
+    let catalog = state.catalog.read().await;
+    Ok(Json(catalog.get_categories()))
+}
+
+/// Get apps by category
+async fn get_apps_by_category(
+    State(state): State<AppState>,
+    Path(category): Path<String>,
+    AuthUser(_): AuthUser,
+) -> Result<Json<Vec<AppConfig>>> {
+    let catalog = state.catalog.read().await;
+    let apps: Vec<AppConfig> = catalog
+        .get_apps_by_category(&category)
+        .into_iter()
+        .cloned()
+        .collect();
+    Ok(Json(apps))
+}
+
+/// Check app health
+async fn check_app_health(
+    State(state): State<AppState>,
+    Path(app_name): Path<String>,
+    AuthUser(_): AuthUser,
+) -> Result<Json<serde_json::Value>> {
+    let k8s = state.k8s_client.read().await;
+    let catalog = state.catalog.read().await;
+
+    let client = k8s
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("Kubernetes client not available".to_string()))?;
+
+    let manager = DeploymentManager::new(client, &catalog);
+    let health = manager.check_namespace_health(&app_name).await?;
+
+    Ok(Json(health))
+}
+
+/// Check if app exists
+async fn check_app_exists(
+    State(state): State<AppState>,
+    Path(app_name): Path<String>,
+    AuthUser(_): AuthUser,
+) -> Result<Json<serde_json::Value>> {
+    let k8s = state.k8s_client.read().await;
+    let catalog = state.catalog.read().await;
+
+    let client = k8s
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("Kubernetes client not available".to_string()))?;
+
+    let manager = DeploymentManager::new(client, &catalog);
+    let exists = manager.check_namespace_exists(&app_name).await;
+
+    Ok(Json(serde_json::json!({"exists": exists})))
+}
+
+/// Get app status
+async fn get_app_status(
+    State(state): State<AppState>,
+    Path(app_name): Path<String>,
+    AuthUser(_): AuthUser,
+) -> Result<Json<serde_json::Value>> {
+    let k8s = state.k8s_client.read().await;
+    let catalog = state.catalog.read().await;
+
+    let client = match k8s.as_ref() {
+        Some(c) => c,
+        None => {
+            return Ok(Json(serde_json::json!({
+                "state": "error",
+                "message": "Kubernetes client not available"
+            })));
+        }
+    };
+
+    let manager = DeploymentManager::new(client, &catalog);
+
+    // Check if namespace exists
+    if !manager.check_namespace_exists(&app_name).await {
+        return Ok(Json(serde_json::json!({
+            "state": "idle",
+            "message": "Not installed"
+        })));
+    }
+
+    // Check health
+    match manager.check_namespace_health(&app_name).await {
+        Ok(health) => {
+            let status = health["status"].as_str().unwrap_or("unknown");
+            match status {
+                "healthy" => Ok(Json(serde_json::json!({
+                    "state": "installed",
+                    "message": "Running"
+                }))),
+                "no_deployments" => Ok(Json(serde_json::json!({
+                    "state": "idle",
+                    "message": "No deployments found"
+                }))),
+                _ => Ok(Json(serde_json::json!({
+                    "state": "installing",
+                    "message": health["message"].as_str().unwrap_or("Waiting for deployments to be ready")
+                }))),
+            }
+        }
+        Err(e) => Ok(Json(serde_json::json!({
+            "state": "error",
+            "message": e.to_string()
+        }))),
+    }
+}

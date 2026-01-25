@@ -1,6 +1,8 @@
 # Example values for production deployment
 
-namespace: kubarr-system
+namespace:
+  create: true
+  name: oauth2-proxy
 
 replicaCount: 2  # High availability
 
@@ -11,7 +13,7 @@ image:
 
 provider:
   # Point to your Kubarr dashboard
-  issuerUrl: "http://kubarr-dashboard.kubarr-system.svc.cluster.local:8000/auth"
+  issuerUrl: "http://kubarr.kubarr.svc.cluster.local:8000/auth"
 
 config:
   clientId: "oauth2-proxy"
@@ -29,7 +31,7 @@ config:
   
   # Add upstream services here
   upstreams:
-    - "http://kubarr-dashboard:80"
+    - "http://kubarr:80"
     # Add media apps as needed:
     # - "http://radarr.media.svc.cluster.local:7878"
     # - "http://sonarr.media.svc.cluster.local:8989"

@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ include "oauth2-proxy.fullname" . }}-config
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Values.namespace.name }}
   labels:
     {{- include "oauth2-proxy.labels" . | nindent 4 }}
 data:
@@ -15,9 +15,9 @@ data:
     # Manual endpoint configuration
     # login_url must be browser-accessible, others go through nginx which routes to backend
     login_url = "http://localhost:8080/auth/authorize"
-    redeem_url = "http://{{ include "oauth2-proxy.fullname" . }}-nginx.{{ .Values.namespace }}.svc.cluster.local:8080/auth/token"
-    validate_url = "http://{{ include "oauth2-proxy.fullname" . }}-nginx.{{ .Values.namespace }}.svc.cluster.local:8080/auth/userinfo"
-    oidc_jwks_url = "http://{{ include "oauth2-proxy.fullname" . }}-nginx.{{ .Values.namespace }}.svc.cluster.local:8080/auth/jwks"
+    redeem_url = "http://nginx.nginx.svc.cluster.local:8080/auth/token"
+    validate_url = "http://nginx.nginx.svc.cluster.local:8080/auth/userinfo"
+    oidc_jwks_url = "http://nginx.nginx.svc.cluster.local:8080/auth/jwks"
 
     # Skip the "Sign in with..." button and redirect directly to provider
     skip_provider_button = true
@@ -52,7 +52,7 @@ data:
 
     # Upstream configuration (proxying to nginx service for path-based routing)
     upstreams = [
-      "http://{{ include "oauth2-proxy.fullname" . }}-nginx.{{ .Values.namespace }}.svc.cluster.local:8080",
+      "http://nginx.nginx.svc.cluster.local:8080",
     ]
 
     # Logging

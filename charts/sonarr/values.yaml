@@ -109,7 +109,7 @@ networkPolicy:
   enabled: true
   # Namespaces allowed to send traffic to this app
   ingressFrom:
-    - kubarr-system  # nginx reverse proxy
+    - nginx  # nginx reverse proxy
     - prometheus     # metrics scraping
   # Namespaces this app can send traffic to
   egressTo:

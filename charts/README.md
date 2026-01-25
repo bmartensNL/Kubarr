@@ -4,11 +4,11 @@ This directory contains Helm charts for deploying Kubarr and its components.
 
 ## Available Charts
 
-### 1. kubarr-dashboard
+### 1. kubarr
 The main Kubarr dashboard application with OAuth2 provider capability.
 
 **Components:**
-- FastAPI backend with OAuth2 authorization server
+- Rust/Axum backend with OAuth2 authorization server
 - React frontend UI
 - SQLite database for user management
 - RBAC and ServiceAccount configuration
@@ -22,13 +22,13 @@ The main Kubarr dashboard application with OAuth2 provider capability.
 
 **Installation:**
 ```bash
-helm install kubarr-dashboard ./kubarr-dashboard \
-  --namespace kubarr-system \
+helm install kubarr ./kubarr \
+  --namespace kubarr \
   --create-namespace \
   --set oauth2.enabled=true
 ```
 
-See [kubarr-dashboard/README.md](kubarr-dashboard/README.md) for details.
+See [kubarr/README.md](kubarr/README.md) for details.
 
 ### 2. oauth2-proxy
 OAuth2 reverse proxy for protecting media applications.
@@ -47,7 +47,8 @@ OAuth2 reverse proxy for protecting media applications.
 **Installation:**
 ```bash
 helm install oauth2-proxy ./oauth2-proxy \
-  --namespace kubarr-system \
+  --namespace oauth2-proxy \
+  --create-namespace \
   --set config.clientSecret="your-client-secret" \
   --set config.cookieSecret="your-cookie-secret"
 ```
@@ -61,9 +62,9 @@ See [oauth2-proxy/README.md](oauth2-proxy/README.md) for details.
 │           Ingress Controller (nginx)             │
 └──────────────┬──────────────────────────────────┘
                │
-               ├─> /auth/*       → kubarr-dashboard (OAuth2 Provider)
+               ├─> /auth/*       → kubarr (OAuth2 Provider)
                ├─> /oauth2/*     → oauth2-proxy (Callback)
-               ├─> /dashboard/*  → kubarr-dashboard (UI/API)
+               ├─> /dashboard/*  → kubarr (UI/API)
                └─> /apps/*       → oauth2-proxy → Media Apps
                                         │
                                         ├─> Radarr
@@ -82,8 +83,8 @@ cd scripts
 kubectl apply -f ../secrets/jwt-keys-secret.yaml
 
 # Install dashboard
-helm install kubarr-dashboard ./charts/kubarr-dashboard \
-  --namespace kubarr-system \
+helm install kubarr ./charts/kubarr \
+  --namespace kubarr \
   --create-namespace \
   --set oauth2.enabled=true \
   --set auth.jwt.existingSecret=kubarr-jwt-keys
@@ -92,7 +93,7 @@ helm install kubarr-dashboard ./charts/kubarr-dashboard \
 ### 2. Initialize Setup
 ```bash
 # Port forward
-kubectl port-forward -n kubarr-system svc/kubarr-dashboard 8080:80
+kubectl port-forward -n kubarr svc/kubarr 8080:80
 
 # Run setup
 curl -X POST http://localhost:8080/api/setup/initialize \
@@ -110,7 +111,8 @@ The response will include the OAuth2 client credentials.
 ### 3. Install OAuth2 Proxy
 ```bash
 helm install oauth2-proxy ./charts/oauth2-proxy \
-  --namespace kubarr-system \
+  --namespace oauth2-proxy \
+  --create-namespace \
   --set config.clientSecret="<client-secret-from-setup>" \
   --set config.cookieSecret="$(python3 -c 'import secrets; print(secrets.token_hex(16))')"
 ```
@@ -127,7 +129,7 @@ kubarr deploy radarr sonarr jellyfin
 
 #### Dashboard
 ```bash
-helm install test-dashboard ./kubarr-dashboard \
+helm install test-dashboard ./kubarr \
   --namespace test \
   --create-namespace \
   --dry-run --debug
@@ -144,27 +146,27 @@ helm install test-oauth2 ./oauth2-proxy \
 
 ### Linting
 ```bash
-helm lint ./kubarr-dashboard
+helm lint ./kubarr
 helm lint ./oauth2-proxy
 ```
 
 ## Chart Dependencies
 
-The **oauth2-proxy** chart requires the **kubarr-dashboard** chart to be deployed first (with OAuth2 enabled) as it provides the OAuth2 authorization server.
+The **oauth2-proxy** chart requires the **kubarr** chart to be deployed first (with OAuth2 enabled) as it provides the OAuth2 authorization server.
 
 ## Upgrading
 
 ### Dashboard
 ```bash
-helm upgrade kubarr-dashboard ./kubarr-dashboard \
-  --namespace kubarr-system \
+helm upgrade kubarr ./kubarr \
+  --namespace kubarr \
   --reuse-values
 ```
 
 ### OAuth2 Proxy
 ```bash
 helm upgrade oauth2-proxy ./oauth2-proxy \
-  --namespace kubarr-system \
+  --namespace oauth2-proxy \
   --reuse-values
 ```
 
@@ -172,10 +174,10 @@ helm upgrade oauth2-proxy ./oauth2-proxy \
 
 ```bash
 # Remove OAuth2 proxy first
-helm uninstall oauth2-proxy -n kubarr-system
+helm uninstall oauth2-proxy -n oauth2-proxy
 
 # Then remove dashboard
-helm uninstall kubarr-dashboard -n kubarr-system
+helm uninstall kubarr -n kubarr
 ```
 
 ## Support

@@ -1,0 +1,220 @@
+# Default values for kubarr
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Namespace configuration
+namespace:
+  create: true
+  name: kubarr
+
+# Backend configuration
+backend:
+  replicaCount: 1
+
+  image:
+    repository: kubarr-backend
+    pullPolicy: Never
+    tag: "latest"
+
+  service:
+    type: ClusterIP
+    port: 8000
+    targetPort: 8000
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+  livenessProbe:
+    httpGet:
+      path: /api/system/health
+      port: 8000
+    initialDelaySeconds: 10
+    periodSeconds: 30
+
+  readinessProbe:
+    httpGet:
+      path: /api/system/health
+      port: 8000
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+  env:
+    - name: KUBARR_IN_CLUSTER
+      value: "true"
+    - name: KUBARR_DEFAULT_NAMESPACE
+      value: "media"
+    - name: KUBARR_LOG_LEVEL
+      value: "INFO"
+    - name: KUBARR_OAUTH2_ISSUER_URL
+      value: "http://localhost:8080"
+
+# Frontend configuration (nginx Alpine serving static files with SPA routing)
+frontend:
+  replicaCount: 1
+
+  image:
+    repository: kubarr-frontend
+    pullPolicy: Never
+    tag: "latest"
+
+  service:
+    type: ClusterIP
+    port: 80
+
+  resources:
+    limits:
+      cpu: 50m
+      memory: 32Mi
+    requests:
+      cpu: 10m
+      memory: 16Mi
+
+# Service Account configuration
+serviceAccount:
+  create: true
+  name: kubarr
+  annotations: {}
+
+# RBAC configuration
+rbac:
+  create: true
+  # ClusterRole rules
+  rules:
+    - apiGroups: [""]
+      resources: ["namespaces"]
+      verbs: ["get", "list", "watch", "create", "delete"]
+    - apiGroups: ["apps"]
+      resources: ["deployments", "replicasets"]
+      verbs: ["get", "list", "watch", "create", "update", "delete", "patch"]
+    - apiGroups: [""]
+      resources: ["services", "serviceaccounts", "persistentvolumeclaims", "configmaps", "secrets"]
+      verbs: ["get", "list", "watch", "create", "update", "delete", "patch"]
+    - apiGroups: [""]
+      resources: ["pods", "pods/log"]
+      verbs: ["get", "list", "watch", "delete"]
+    - apiGroups: ["metrics.k8s.io"]
+      resources: ["pods"]
+      verbs: ["get", "list"]
+    - apiGroups: ["networking.k8s.io"]
+      resources: ["networkpolicies"]
+      verbs: ["get", "list", "watch", "create", "update", "delete", "patch"]
+    - apiGroups: ["rbac.authorization.k8s.io"]
+      resources: ["roles", "rolebindings"]
+      verbs: ["get", "list", "watch", "create", "update", "delete", "patch"]
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations:
+    # kubernetes.io/ingress.class: nginx
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: kubarr.local
+      paths:
+        - path: /
+          pathType: Prefix
+          backend: frontend
+        - path: /api
+          pathType: Prefix
+          backend: backend
+  tls: []
+  #  - secretName: kubarr-tls
+  #    hosts:
+  #      - kubarr.local
+
+# Pod Security Context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+# Security Context
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Pod annotations
+podAnnotations: {}
+
+# Image pull secrets
+imagePullSecrets: []
+
+# OAuth2 configuration (for dashboard backend OAuth2 provider)
+oauth2:
+  # Enable OAuth2 provider in the dashboard backend
+  enabled: true
+
+  # OAuth2 provider settings (used by the backend)
+  provider:
+    # Base URL for the OAuth2 provider (this dashboard)
+    # Used by the backend to generate correct issuer URLs
+    issuerUrl: "http://localhost:8080"
+
+# Database configuration
+database:
+  storage: "1Gi"
+  storageClassName: ""  # Use default storage class
+
+# Authentication settings
+auth:
+  # Admin user (created on first run)
+  adminUser:
+    username: "admin"
+    email: "admin@kubarr.local"
+    password: ""  # Generated during setup
+
+  # JWT configuration
+  jwt:
+    existingSecret: ""  # Use existing secret or create new one
+    privateKey: ""  # Provided via values or generated
+    publicKey: ""  # Provided via values or generated
+    accessTokenExpire: 3600  # 1 hour
+    refreshTokenExpire: 604800  # 7 days
+
+  # Registration settings
+  registration:
+    enabled: true
+    requireApproval: true
+
+# Storage configuration (hostPath for file browser feature)
+storage:
+  # HostPath configuration (set by user during setup)
+  hostPath:
+    enabled: false
+    rootPath: ""  # e.g., /mnt/data/kubarr - set during setup wizard
+  mountPath: /data/storage
+
+# Network policy configuration
+networkPolicy:
+  # Enable network policies to restrict traffic
+  enabled: true
+  # Namespaces that kubarr is allowed to reach
+  allowedNamespaces:
+    - sonarr
+    - radarr
+    - qbittorrent
+    - transmission
+    - deluge
+    - rutorrent
+    - jackett
+    - jellyfin
+    - jellyseerr
+    - sabnzbd

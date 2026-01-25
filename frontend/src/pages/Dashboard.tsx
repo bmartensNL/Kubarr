@@ -178,7 +178,7 @@ export default function Dashboard() {
 
             {/* Storage Usage */}
             <a
-              href="/monitoring"
+              href="/system/storage"
               className="bg-gray-800 rounded-lg p-5 hover:bg-gray-750 hover:ring-1 hover:ring-rose-500/50 transition-all cursor-pointer group"
             >
               <div className="flex items-center gap-3 mb-3">

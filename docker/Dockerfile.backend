@@ -1,72 +1,76 @@
-# Stage 1: Build frontend
-FROM node:20-alpine AS frontend-builder
+# Stage 1: Build Rust backend
+FROM rust:alpine AS rust-builder
+
+# Install build dependencies
+RUN apk add --no-cache musl-dev pkgconf openssl-dev openssl-libs-static
 
 WORKDIR /app
 
-# Copy frontend package files
-COPY frontend/package*.json ./
+# Copy Cargo files first for dependency caching
+COPY kubarr-rs/Cargo.toml kubarr-rs/Cargo.lock* ./
 
-# Install dependencies
-RUN npm ci
+# Create dummy src to build dependencies
+RUN mkdir src && \
+    echo 'fn main() { println!("dummy"); }' > src/main.rs
 
-# Copy frontend source
-COPY frontend/ ./
+# Build dependencies (this layer will be cached)
+RUN cargo build --release && \
+    rm -rf src target/release/deps/kubarr*
 
-# Build frontend
-RUN npm run build
-
-# Stage 2: Backend with frontend static files
-FROM python:3.11-slim
+# Copy actual source code
+COPY kubarr-rs/src ./src
 
 # Build args for version info
 ARG COMMIT_HASH=unknown
 ARG BUILD_TIME=unknown
 
+# Build the release binary with version info
+RUN COMMIT_HASH=${COMMIT_HASH} BUILD_TIME=${BUILD_TIME} cargo build --release
+
+# Stage 2: Final runtime image
+FROM alpine:3.19
+
+# Build args for environment
+ARG COMMIT_HASH=unknown
+ARG BUILD_TIME=unknown
+
 WORKDIR /app
 
-# Install system dependencies and Helm
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+# Install runtime dependencies
+RUN apk add --no-cache \
+    ca-certificates \
     curl \
-    && curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash \
-    && rm -rf /var/lib/apt/lists/*
+    libgcc \
+    openssl \
+    && curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | sh
 
-# Install Poetry
-RUN pip install --no-cache-dir poetry==1.7.1
-
-# Copy dependency files
-COPY pyproject.toml poetry.lock ./
-
-# Install dependencies
-RUN poetry config virtualenvs.create false && \
-    poetry install --no-dev --no-interaction --no-ansi
-
-# Copy application code
-COPY kubarr/ ./kubarr/
+# Copy the Rust binary
+COPY --from=rust-builder /app/target/release/kubarr /app/kubarr
 
 # Copy Helm charts
-COPY charts/ ./charts/
-
-# Copy frontend build from previous stage
-COPY --from=frontend-builder /app/dist /app/static
+COPY charts/ /app/charts/
 
 # Create non-root user
-RUN useradd -m -u 1000 kubarr && \
+RUN adduser -D -u 1000 kubarr && \
     chown -R kubarr:kubarr /app
 
 USER kubarr
 
 # Set environment variables
-ENV STATIC_FILES_DIR=/app/static
+ENV CHARTS_DIR=/app/charts
+ENV DATABASE_URL=sqlite:///app/data/kubarr.db
 ENV COMMIT_HASH=${COMMIT_HASH}
 ENV BUILD_TIME=${BUILD_TIME}
+
+# Create data directory
+RUN mkdir -p /app/data
 
 # Expose API port
 EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:8000/api/health || exit 1
 
-# Run FastAPI with uvicorn
-CMD ["uvicorn", "kubarr.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run the Rust binary
+CMD ["/app/kubarr"]

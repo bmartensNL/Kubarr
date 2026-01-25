@@ -118,6 +118,6 @@ storage:
 networkPolicy:
   enabled: true
   ingressFrom:
-    - kubarr-system
+    - nginx  # nginx reverse proxy
     - jellyseerr
   egressTo: []

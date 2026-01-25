@@ -168,7 +168,7 @@ storage:
 networkPolicy:
   enabled: true
   ingressFrom:
-    - kubarr-system  # nginx reverse proxy
+    - nginx  # nginx reverse proxy
     - sonarr         # arr apps connecting to download client
     - radarr
     - prometheus     # metrics scraping

@@ -14,28 +14,9 @@ import {
   Check
 } from 'lucide-react'
 
-// App display names (namespace -> display name)
-const APP_LABELS: Record<string, string> = {
-  sonarr: 'Sonarr',
-  radarr: 'Radarr',
-  qbittorrent: 'qBittorrent',
-  transmission: 'Transmission',
-  deluge: 'Deluge',
-  rutorrent: 'ruTorrent',
-  jellyfin: 'Jellyfin',
-  jellyseerr: 'Jellyseerr',
-  jackett: 'Jackett',
-  sabnzbd: 'SABnzbd',
-  prometheus: 'Prometheus',
-  loki: 'Loki',
-  promtail: 'Promtail',
-  grafana: 'Grafana',
-  'kubarr-system': 'Kubarr',
-}
-
-// Get display label for app
+// Get display label for app (capitalize first letter)
 function getAppLabel(app: string): string {
-  return APP_LABELS[app] || app.charAt(0).toUpperCase() + app.slice(1)
+  return app.charAt(0).toUpperCase() + app.slice(1).replace(/-/g, ' ')
 }
 
 // Time range options
@@ -125,13 +106,12 @@ export default function LogsPage() {
     let query = ''
 
     if (selectedApps.length === 0 || selectedApps.length === apps.length) {
-      // All apps or none selected - query all
+      // All apps or none selected - query everything
       query = '{namespace=~".+"}'
     } else if (selectedApps.length === 1) {
       query = `{namespace="${selectedApps[0]}"}`
     } else {
-      const appRegex = selectedApps.join('|')
-      query = `{namespace=~"${appRegex}"}`
+      query = `{namespace=~"${selectedApps.join('|')}"}`
     }
 
     // Add search filter if provided
@@ -411,6 +391,7 @@ export default function LogsPage() {
             <tbody>
               {entries.map((entry, index) => {
                 const appName = entry.labels.namespace || 'unknown'
+
                 return (
                   <tr
                     key={`${entry.timestamp}-${index}`}

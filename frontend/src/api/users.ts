@@ -41,7 +41,7 @@ export const getCurrentUser = async (): Promise<User> => {
  * Get all users (admin only)
  */
 export const getUsers = async (): Promise<User[]> => {
-  const response = await apiClient.get<User[]>('/users/');
+  const response = await apiClient.get<User[]>('/users');
   return response.data;
 };
 
@@ -65,7 +65,7 @@ export const getUser = async (userId: number): Promise<User> => {
  * Create a new user (admin only)
  */
 export const createUser = async (userData: CreateUserRequest): Promise<User> => {
-  const response = await apiClient.post<User>('/users/', userData);
+  const response = await apiClient.post<User>('/users', userData);
   return response.data;
 };
 

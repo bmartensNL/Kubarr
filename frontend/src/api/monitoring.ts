@@ -9,6 +9,8 @@ export interface AppMetricsPrometheus {
   memory_usage_mb: number;
   cpu_usage_percent?: number;
   memory_usage_percent?: number;
+  network_receive_bytes_per_sec: number;
+  network_transmit_bytes_per_sec: number;
 }
 
 export interface ClusterMetrics {
@@ -43,9 +45,13 @@ export interface AppHistoricalMetrics {
   namespace: string;
   cpu_series: TimeSeriesPoint[];
   memory_series: TimeSeriesPoint[];
+  network_rx_series: TimeSeriesPoint[];
+  network_tx_series: TimeSeriesPoint[];
   cpu_usage_cores: number;
   memory_usage_bytes: number;
   memory_usage_mb: number;
+  network_receive_bytes_per_sec: number;
+  network_transmit_bytes_per_sec: number;
 }
 
 export interface PodStatusInfo {

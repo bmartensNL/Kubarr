@@ -69,8 +69,8 @@ podAnnotations: {}
 networkPolicy:
   enabled: true
   ingressFrom:
-    - kubarr-system  # nginx reverse proxy and grafana
-    - grafana
+    - nginx  # nginx reverse proxy
+    - grafana  # for queries
   # Prometheus needs to scrape all app namespaces
   scrapeNamespaces:
     - sonarr

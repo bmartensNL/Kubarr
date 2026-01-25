@@ -49,7 +49,7 @@ jellyseerr:
     # clientSecret is stored in a Kubernetes secret
     secretName: "jellyseerr-oauth"
     # Kubarr OAuth2 provider URL (internal cluster URL)
-    issuerUrl: "http://kubarr-dashboard.kubarr.svc.cluster.local:8080"
+    issuerUrl: "http://kubarr.kubarr.svc.cluster.local:8080"
 
   # Probes configuration
   livenessProbe:
@@ -135,7 +135,7 @@ storage:
 networkPolicy:
   enabled: true
   ingressFrom:
-    - kubarr-system
+    - nginx  # nginx reverse proxy
   egressTo:
     - jellyfin
     - sonarr

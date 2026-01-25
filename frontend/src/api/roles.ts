@@ -34,7 +34,7 @@ export interface SetRoleAppsRequest {
  * Get all roles
  */
 export const getRoles = async (): Promise<Role[]> => {
-  const response = await apiClient.get<Role[]>('/roles/');
+  const response = await apiClient.get<Role[]>('/roles');
   return response.data;
 };
 
@@ -50,7 +50,7 @@ export const getRole = async (roleId: number): Promise<Role> => {
  * Create a new role (admin only)
  */
 export const createRole = async (roleData: CreateRoleRequest): Promise<Role> => {
-  const response = await apiClient.post<Role>('/roles/', roleData);
+  const response = await apiClient.post<Role>('/roles', roleData);
   return response.data;
 };
 

@@ -107,7 +107,7 @@ export default function StoragePage() {
           </p>
           <ol className="list-decimal list-inside mt-3 text-gray-400 space-y-1">
             <li>Deploy the shared-storage Helm chart</li>
-            <li>Update kubarr-dashboard chart with sharedStorage.enabled=true</li>
+            <li>Update kubarr chart with sharedStorage.enabled=true</li>
             <li>Ensure the storage PVC is bound and accessible</li>
           </ol>
         </div>

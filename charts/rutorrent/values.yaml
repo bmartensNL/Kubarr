@@ -122,7 +122,7 @@ imagePullSecrets: []
 networkPolicy:
   enabled: true
   ingressFrom:
-    - kubarr-system
+    - nginx  # nginx reverse proxy
     - sonarr
     - radarr
     - prometheus

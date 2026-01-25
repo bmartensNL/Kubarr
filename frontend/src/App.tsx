@@ -7,6 +7,7 @@ import LogsPage from './pages/LogsPage'
 import MonitoringPage from './pages/MonitoringPage'
 import SettingsPage from './pages/SettingsPage'
 import SetupPage from './pages/SetupPage'
+import LoginPage from './pages/LoginPage'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { MonitoringProvider } from './contexts/MonitoringContext'
 import { VersionFooter } from './components/VersionFooter'
@@ -168,6 +169,7 @@ function AppContent() {
   const isSettingsPage = location.pathname === '/settings'
   const isLogsPage = location.pathname === '/logs'
   const isSetupPage = location.pathname === '/setup'
+  const isLoginPage = location.pathname === '/login'
 
   // Check if setup is required on mount
   useEffect(() => {
@@ -194,6 +196,15 @@ function AppContent() {
     )
   }
 
+  // Render login page without navigation and without protection
+  if (isLoginPage) {
+    return (
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+      </Routes>
+    )
+  }
+
   // Redirect to setup if required and not already on setup page
   if (setupRequired && !isSetupPage) {
     return <Navigate to="/setup" replace />
@@ -207,9 +218,6 @@ function AppContent() {
       </Routes>
     )
   }
-
-  // Note: Login is handled by oauth2-proxy -> /auth/authorize (backend template)
-  // No frontend login page needed
 
   return (
     <ProtectedRoute>

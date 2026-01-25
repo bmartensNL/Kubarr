@@ -19,8 +19,8 @@ The OAuth2 Proxy sits in front of your media applications (Radarr, Sonarr, Jelly
 First, ensure the Kubarr dashboard is installed with OAuth2 enabled:
 
 ```bash
-helm install kubarr-dashboard ../kubarr-dashboard \
-  --namespace kubarr-system \
+helm install kubarr ../kubarr \
+  --namespace kubarr \
   --create-namespace \
   --set oauth2.enabled=true
 ```
@@ -35,7 +35,8 @@ Install the OAuth2 proxy with the client credentials:
 
 ```bash
 helm install oauth2-proxy . \
-  --namespace kubarr-system \
+  --namespace oauth2-proxy \
+  --create-namespace \
   --set config.clientSecret="your-client-secret" \
   --set config.cookieSecret="your-cookie-secret" \
   --set config.redirectUrl="https://your-domain.com/oauth2/callback"
@@ -47,16 +48,16 @@ helm install oauth2-proxy . \
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `namespace` | Namespace to deploy to | `kubarr-system` |
+| `namespace.name` | Namespace name | `oauth2-proxy` |
 | `replicaCount` | Number of replicas | `1` |
 | `image.repository` | OAuth2 proxy image | `quay.io/oauth2-proxy/oauth2-proxy` |
 | `image.tag` | Image tag | `v7.5.1` |
-| `provider.issuerUrl` | OIDC issuer URL (dashboard) | `http://kubarr-dashboard.kubarr-system.svc.cluster.local:8000/auth` |
+| `provider.issuerUrl` | OIDC issuer URL (dashboard) | `http://kubarr.kubarr.svc.cluster.local:8000/auth` |
 | `config.clientId` | OAuth2 client ID | `oauth2-proxy` |
 | `config.clientSecret` | OAuth2 client secret (required) | `""` |
 | `config.cookieSecret` | Cookie encryption secret (required) | `""` |
 | `config.redirectUrl` | OAuth2 redirect URL | `http://localhost:8080/oauth2/callback` |
-| `config.upstreams` | Upstream services to proxy | `["http://kubarr-dashboard:80"]` |
+| `config.upstreams` | Upstream services to proxy | `["http://kubarr:80"]` |
 | `service.port` | Service port | `4180` |
 
 ### Generate Secrets
@@ -79,7 +80,7 @@ kind: Ingress
 metadata:
   name: kubarr-apps
   annotations:
-    nginx.ingress.kubernetes.io/auth-url: "http://oauth2-proxy.kubarr-system.svc.cluster.local:4180/oauth2/auth"
+    nginx.ingress.kubernetes.io/auth-url: "http://oauth2-proxy.oauth2-proxy.svc.cluster.local:4180/oauth2/auth"
     nginx.ingress.kubernetes.io/auth-signin: "https://$host/auth/login?rd=$escaped_request_uri"
 spec:
   rules:
@@ -100,7 +101,7 @@ spec:
 Access the OAuth2 proxy directly:
 
 ```bash
-kubectl port-forward -n kubarr-system svc/oauth2-proxy 4180:4180
+kubectl port-forward -n oauth2-proxy svc/oauth2-proxy 4180:4180
 ```
 
 Then navigate to `http://localhost:4180` - you'll be redirected to the login page.
@@ -108,7 +109,7 @@ Then navigate to `http://localhost:4180` - you'll be redirected to the login pag
 ## Uninstallation
 
 ```bash
-helm uninstall oauth2-proxy -n kubarr-system
+helm uninstall oauth2-proxy -n oauth2-proxy
 ```
 
 ## Troubleshooting
@@ -117,15 +118,15 @@ helm uninstall oauth2-proxy -n kubarr-system
 
 Check logs:
 ```bash
-kubectl logs -n kubarr-system -l app=oauth2-proxy
+kubectl logs -n oauth2-proxy -l app=oauth2-proxy
 ```
 
 ### OIDC Discovery failing
 
 Ensure the dashboard OAuth2 provider is accessible:
 ```bash
-kubectl exec -n kubarr-system deployment/oauth2-proxy -- \
-  wget -q -O - http://kubarr-dashboard.kubarr-system.svc.cluster.local:8000/auth/.well-known/openid-configuration
+kubectl exec -n oauth2-proxy deployment/oauth2-proxy -- \
+  wget -q -O - http://kubarr.kubarr.svc.cluster.local:8000/auth/.well-known/openid-configuration
 ```
 
 ### Authentication not working

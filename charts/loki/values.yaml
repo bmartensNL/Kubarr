@@ -61,6 +61,7 @@ podAnnotations: {}
 networkPolicy:
   enabled: true
   ingressFrom:
-    - kubarr-system  # nginx reverse proxy and kubarr-dashboard
+    - nginx  # nginx reverse proxy
+    - kubarr  # for log queries
     - grafana        # for log queries
     - promtail       # for log ingestion

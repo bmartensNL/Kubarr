@@ -1,0 +1,59 @@
+# Default values for nginx reverse proxy
+
+# Namespace configuration
+namespace:
+  create: true
+  name: nginx
+
+# Nginx image configuration
+image:
+  repository: nginx
+  tag: "alpine"
+  pullPolicy: IfNotPresent
+
+# Number of replicas
+replicaCount: 1
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 8080
+
+# Resource limits
+resources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+# Node selector (optional)
+nodeSelector: {}
+
+# Tolerations (optional)
+tolerations: []
+
+# Affinity (optional)
+affinity: {}
+
+# Network policy configuration
+networkPolicy:
+  # Enable network policies to restrict traffic
+  enabled: true
+  # Namespaces that nginx is allowed to reach (for proxying to apps)
+  allowedNamespaces:
+    - sonarr
+    - radarr
+    - qbittorrent
+    - transmission
+    - deluge
+    - rutorrent
+    - jackett
+    - jellyfin
+    - jellyseerr
+    - sabnzbd
+    - grafana
+    - prometheus
+    - loki
+    - plex

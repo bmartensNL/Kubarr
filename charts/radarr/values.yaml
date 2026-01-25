@@ -108,7 +108,7 @@ storage:
 networkPolicy:
   enabled: true
   ingressFrom:
-    - kubarr-system  # nginx reverse proxy
+    - nginx  # nginx reverse proxy
     - prometheus     # metrics scraping
   egressTo:
     - qbittorrent

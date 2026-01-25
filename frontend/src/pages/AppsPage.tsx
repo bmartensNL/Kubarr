@@ -346,7 +346,7 @@ export default function AppsPage() {
 
           <div className="flex gap-2 mt-4">
             {app.is_system && app.is_hidden ? (
-              // System hidden apps (oauth2-proxy, kubarr-dashboard, loki, promtail) - no buttons
+              // System hidden apps (oauth2-proxy, kubarr, loki, promtail) - no buttons
               <div className="w-full bg-gray-700 text-gray-400 text-sm font-medium py-2 px-4 rounded-lg text-center">
                 Background Service
               </div>

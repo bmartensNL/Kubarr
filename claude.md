@@ -13,33 +13,30 @@ oauth2-proxy (handles authentication)
     v
 nginx (routes requests based on path)
     |
-    +-- /api/*, /auth/* --> kubarr-dashboard backend (port 8000)
+    +-- /api/*, /auth/* --> kubarr backend (port 8000)
     +-- /qbittorrent/*  --> qbittorrent service (port 8080)
     +-- /sonarr/*       --> sonarr service (port 8989)
     +-- /radarr/*       --> radarr service (port 7878)
-    +-- /*              --> kubarr-dashboard frontend (static files)
+    +-- /*              --> kubarr frontend (static files)
 ```
 
 ### Key Rules:
 1. **ONLY port-forward oauth2-proxy to localhost** - never forward individual apps
 2. **DO NOT add proxy router code to the dashboard backend** - nginx handles all routing
-3. **kubarr-dashboard only provides UI and API** for managing apps, NOT proxying to them
+3. **kubarr only provides UI and API** for managing apps, NOT proxying to them
 4. All apps are accessed through their path prefix (e.g., `/qbittorrent/`) via nginx
 
 ---
 
 ## IMPORTANT: Architecture Note
 
-**The backend container serves the frontend static files!**
+**Frontend and backend are separate pods/images!**
 
-The `Dockerfile.backend` has a multi-stage build that:
-1. Builds the frontend in a Node.js stage
-2. Copies the built frontend to `/app/static` in the Python stage
-3. Serves static files from the backend via FastAPI
+- **Frontend**: `Dockerfile.frontend` - nginx (Alpine) serving static files on port 80 with SPA routing
+- **Backend**: `Dockerfile.backend` - Rust API server on port 8000
 
-This means: **When you change frontend code, you MUST rebuild the BACKEND image, not the frontend image.**
-
-The separate `Dockerfile.frontend` (nginx-based) exists but is NOT used for serving in the current deployment.
+When you change frontend code, rebuild the **frontend** image.
+When you change backend code, rebuild the **backend** image.
 
 ## Deploying to Kind Cluster
 
@@ -77,13 +74,13 @@ Simply updating the image is NOT enough. You must also delete the existing pod:
 
 ```bash
 # Update the deployment image
-kubectl set image deployment/kubarr-dashboard frontend=kubarr-frontend:<tag> -n kubarr-system
+kubectl set image deployment/kubarr frontend=kubarr-frontend:<tag> -n kubarr
 
 # Delete the pod to force recreation with new image
-kubectl delete pod -l app=kubarr-dashboard -n kubarr-system
+kubectl delete pod -l app=kubarr -n kubarr
 
 # Wait for rollout
-kubectl rollout status deployment/kubarr-dashboard -n kubarr-system --timeout=60s
+kubectl rollout status deployment/kubarr -n kubarr --timeout=60s
 ```
 
 ### Step 4: Verify the deployment
@@ -92,10 +89,10 @@ Always verify the new image is running:
 
 ```bash
 # Check the version endpoint
-kubectl exec deployment/kubarr-dashboard -n kubarr-system -c backend -- curl -s http://localhost:8000/api/system/version
+kubectl exec deployment/kubarr -n kubarr -c backend -- curl -s http://localhost:8000/api/system/version
 
 # Check actual image being used
-kubectl get pod -n kubarr-system -l app=kubarr-dashboard -o jsonpath='{.items[0].spec.containers[*].image}'
+kubectl get pod -n kubarr -l app=kubarr -o jsonpath='{.items[0].spec.containers[*].image}'
 ```
 
 ## Common Issues
@@ -119,58 +116,51 @@ kubectl get pod -n kubarr-system -l app=kubarr-dashboard -o jsonpath='{.items[0]
 --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 ```
 
-## Quick Deploy Script
+## Quick Deploy Scripts
 
-For convenience, here's a one-liner to rebuild and deploy (frontend changes require backend rebuild):
+### Deploy Frontend Only
+```bash
+TAG=$(date +%s) && \
+docker build -f docker/Dockerfile.frontend -t kubarr-frontend:$TAG \
+  --build-arg COMMIT_HASH=$(git rev-parse --short HEAD) \
+  --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") . && \
+docker save kubarr-frontend:$TAG | docker exec -i kubarr-test-control-plane ctr -n k8s.io images import - && \
+kubectl set image deployment/kubarr-frontend frontend=kubarr-frontend:$TAG -n kubarr && \
+kubectl delete pod -l app.kubernetes.io/name=kubarr-frontend -n kubarr && \
+kubectl rollout status deployment/kubarr-frontend -n kubarr --timeout=60s
+```
 
+### Deploy Backend Only
 ```bash
 TAG=$(date +%s) && \
 docker build -f docker/Dockerfile.backend -t kubarr-backend:$TAG \
   --build-arg COMMIT_HASH=$(git rev-parse --short HEAD) \
   --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") . && \
 docker save kubarr-backend:$TAG | docker exec -i kubarr-test-control-plane ctr -n k8s.io images import - && \
-kubectl set image deployment/kubarr-dashboard backend=kubarr-backend:$TAG -n kubarr-system && \
-kubectl delete pod -l app=kubarr-dashboard -n kubarr-system && \
-kubectl rollout status deployment/kubarr-dashboard -n kubarr-system --timeout=90s
+kubectl set image deployment/kubarr backend=kubarr-backend:$TAG -n kubarr && \
+kubectl delete pod -l app.kubernetes.io/name=kubarr -n kubarr && \
+kubectl rollout status deployment/kubarr -n kubarr --timeout=120s
 ```
 
 ## Project Structure
 
 - `frontend/` - React frontend (Vite + TypeScript)
-- `kubarr/` - Python backend (FastAPI)
+- `kubarr-rs/` - Rust backend (Axum)
 - `charts/` - Helm charts for all apps
 - `docker/` - Dockerfiles for frontend and backend
 
 ## Development
 
 - Frontend dev server: `cd frontend && npm run dev`
-- Backend dev server: `cd kubarr && uvicorn api.main:app --reload`
+- Backend: `cd kubarr-rs && cargo run`
 
 ## CRITICAL: Always Rebuild AND Deploy After Code Changes
 
 **After making ANY changes to frontend or backend code, you MUST:**
-1. Rebuild the Docker image with `--no-cache` to ensure fresh build
+1. Rebuild the appropriate Docker image
 2. Load the image into Kind
 3. Update the deployment and delete the pod
 4. Verify the new build is running
 
-**This is NOT optional. Every code change requires a full rebuild and deploy.**
-
-Changes that require rebuild/deploy:
-- Frontend component changes (React/TypeScript)
-- Backend API changes (Python/FastAPI)
-- Style changes (CSS/Tailwind)
-- Any file in `frontend/` or `kubarr/`
-
-**Quick Deploy Command (run this after EVERY code change):**
-```bash
-cd /c/Users/admin/Projects/Kubarr && \
-TAG=deploy$(date +%s) && \
-docker build --no-cache -f docker/Dockerfile.backend -t kubarr-backend:$TAG \
-  --build-arg COMMIT_HASH=$(git rev-parse --short HEAD) \
-  --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") . && \
-docker save kubarr-backend:$TAG | docker exec -i kubarr-test-control-plane ctr -n k8s.io images import - && \
-kubectl set image deployment/kubarr-dashboard backend=kubarr-backend:$TAG -n kubarr-system && \
-kubectl delete pod -l app.kubernetes.io/name=kubarr-dashboard -n kubarr-system && \
-kubectl rollout status deployment/kubarr-dashboard -n kubarr-system --timeout=90s
-```
+**Changes that require frontend rebuild:** `frontend/` directory
+**Changes that require backend rebuild:** `kubarr-rs/` directory

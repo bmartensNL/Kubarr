@@ -11,7 +11,7 @@ export interface SettingsResponse {
 }
 
 export const getSettings = async (): Promise<Record<string, Setting>> => {
-  const response = await apiClient.get<SettingsResponse>('/settings/');
+  const response = await apiClient.get<SettingsResponse>('/settings');
   return response.data.settings;
 };
 

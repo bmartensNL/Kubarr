@@ -88,7 +88,7 @@ podAnnotations: {}
 networkPolicy:
   enabled: true
   ingressFrom:
-    - kubarr-system  # nginx reverse proxy
+    - nginx  # nginx reverse proxy
   egressTo:
     - prometheus
     - loki

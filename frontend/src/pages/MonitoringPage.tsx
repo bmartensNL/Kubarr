@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { monitoringApi, TimeSeriesPoint } from '../api/monitoring'
-import { useMonitoring } from '../contexts/MonitoringContext'
 import { logsApi } from '../api/logs'
 import { AppIcon } from '../components/AppIcon'
 import {
@@ -19,7 +18,10 @@ import {
   CheckCircle,
   XCircle,
   RotateCcw,
-  FileText
+  FileText,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Network
 } from 'lucide-react'
 
 // Format bytes to human readable
@@ -29,6 +31,15 @@ function formatBytes(bytes: number): string {
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
+}
+
+// Format bytes per second to human readable bandwidth
+function formatBandwidth(bytesPerSec: number): string {
+  if (bytesPerSec === 0) return '0 B/s'
+  const k = 1024
+  const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s']
+  const i = Math.floor(Math.log(bytesPerSec) / Math.log(k))
+  return `${parseFloat((bytesPerSec / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
 }
 
 // Format CPU cores to millicores or cores
@@ -358,7 +369,7 @@ function AppDetailModal({
               </div>
 
               {/* Current stats */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="bg-gray-900 rounded-lg p-4">
                   <div className="flex items-center gap-2 text-gray-400 mb-2">
                     <Cpu size={16} />
@@ -377,34 +388,82 @@ function AppDetailModal({
                     {formatBytes(detailMetrics?.historical?.memory_usage_bytes || 0)}
                   </div>
                 </div>
+                <div className="bg-gray-900 rounded-lg p-4">
+                  <div className="flex items-center gap-2 text-gray-400 mb-2">
+                    <ArrowDownToLine size={16} className="text-green-400" />
+                    <span className="text-sm">Network In</span>
+                  </div>
+                  <div className="text-2xl font-bold text-green-400">
+                    {formatBandwidth(detailMetrics?.historical?.network_receive_bytes_per_sec || 0)}
+                  </div>
+                </div>
+                <div className="bg-gray-900 rounded-lg p-4">
+                  <div className="flex items-center gap-2 text-gray-400 mb-2">
+                    <ArrowUpFromLine size={16} className="text-orange-400" />
+                    <span className="text-sm">Network Out</span>
+                  </div>
+                  <div className="text-2xl font-bold text-orange-400">
+                    {formatBandwidth(detailMetrics?.historical?.network_transmit_bytes_per_sec || 0)}
+                  </div>
+                </div>
               </div>
 
               {/* Charts */}
               <div className="space-y-6">
-                <div className="bg-gray-900 rounded-lg p-4">
-                  <h3 className="text-sm font-medium text-gray-400 mb-4 flex items-center gap-2">
-                    <Cpu size={16} className="text-blue-400" />
-                    CPU Usage History
-                  </h3>
-                  <SimpleChart
-                    data={detailMetrics?.historical?.cpu_series || []}
-                    color="blue"
-                    height={100}
-                    formatValue={formatCpu}
-                  />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-gray-900 rounded-lg p-4">
+                    <h3 className="text-sm font-medium text-gray-400 mb-4 flex items-center gap-2">
+                      <Cpu size={16} className="text-blue-400" />
+                      CPU Usage History
+                    </h3>
+                    <SimpleChart
+                      data={detailMetrics?.historical?.cpu_series || []}
+                      color="blue"
+                      height={100}
+                      formatValue={formatCpu}
+                    />
+                  </div>
+
+                  <div className="bg-gray-900 rounded-lg p-4">
+                    <h3 className="text-sm font-medium text-gray-400 mb-4 flex items-center gap-2">
+                      <HardDrive size={16} className="text-green-400" />
+                      Memory Usage History
+                    </h3>
+                    <SimpleChart
+                      data={detailMetrics?.historical?.memory_series || []}
+                      color="green"
+                      height={100}
+                      formatValue={formatBytes}
+                    />
+                  </div>
                 </div>
 
-                <div className="bg-gray-900 rounded-lg p-4">
-                  <h3 className="text-sm font-medium text-gray-400 mb-4 flex items-center gap-2">
-                    <HardDrive size={16} className="text-green-400" />
-                    Memory Usage History
-                  </h3>
-                  <SimpleChart
-                    data={detailMetrics?.historical?.memory_series || []}
-                    color="green"
-                    height={100}
-                    formatValue={formatBytes}
-                  />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-gray-900 rounded-lg p-4">
+                    <h3 className="text-sm font-medium text-gray-400 mb-4 flex items-center gap-2">
+                      <ArrowDownToLine size={16} className="text-green-400" />
+                      Network Receive History
+                    </h3>
+                    <SimpleChart
+                      data={detailMetrics?.historical?.network_rx_series || []}
+                      color="green"
+                      height={100}
+                      formatValue={formatBandwidth}
+                    />
+                  </div>
+
+                  <div className="bg-gray-900 rounded-lg p-4">
+                    <h3 className="text-sm font-medium text-gray-400 mb-4 flex items-center gap-2">
+                      <ArrowUpFromLine size={16} className="text-orange-400" />
+                      Network Transmit History
+                    </h3>
+                    <SimpleChart
+                      data={detailMetrics?.historical?.network_tx_series || []}
+                      color="blue"
+                      height={100}
+                      formatValue={formatBandwidth}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -508,7 +567,6 @@ function AppDetailModal({
 export default function MonitoringPage() {
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [selectedApp, setSelectedApp] = useState<string | null>(null)
-  const { installedApps } = useMonitoring()
 
   // Check if Prometheus is available
   const { data: prometheusStatus, isLoading: prometheusLoading } = useQuery({
@@ -546,14 +604,15 @@ export default function MonitoringPage() {
     refetchApps()
   }
 
-  // Filter to only show installed apps, then sort by memory usage (descending)
+  // Sort apps by memory usage (descending) - backend already returns only relevant apps
   const sortedApps = [...(appMetrics || [])]
-    .filter((app) => installedApps.includes(app.app_name))
     .sort((a, b) => b.memory_usage_bytes - a.memory_usage_bytes)
 
   // Calculate totals for apps
   const totalAppMemory = sortedApps.reduce((sum, app) => sum + app.memory_usage_bytes, 0)
   const totalAppCpu = sortedApps.reduce((sum, app) => sum + app.cpu_usage_cores, 0)
+  const totalAppNetworkRx = sortedApps.reduce((sum, app) => sum + (app.network_receive_bytes_per_sec || 0), 0)
+  const totalAppNetworkTx = sortedApps.reduce((sum, app) => sum + (app.network_transmit_bytes_per_sec || 0), 0)
 
   if (prometheusLoading) {
     return (
@@ -623,7 +682,7 @@ export default function MonitoringPage() {
           <Server size={20} />
           Cluster Overview
         </h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <ClusterStatsCard
             icon={Cpu}
             label="CPU Usage"
@@ -639,18 +698,25 @@ export default function MonitoringPage() {
             color="green"
           />
           <ClusterStatsCard
+            icon={Network}
+            label="Network I/O"
+            value={formatBandwidth((clusterMetrics?.network_receive_bytes_per_sec || 0) + (clusterMetrics?.network_transmit_bytes_per_sec || 0))}
+            subValue={`↓ ${formatBandwidth(clusterMetrics?.network_receive_bytes_per_sec || 0)} ↑ ${formatBandwidth(clusterMetrics?.network_transmit_bytes_per_sec || 0)}`}
+            color="purple"
+          />
+          <ClusterStatsCard
             icon={Box}
             label="Containers"
             value={String(clusterMetrics?.container_count || 0)}
             subValue="Running containers"
-            color="purple"
+            color="yellow"
           />
           <ClusterStatsCard
             icon={Server}
             label="Pods"
             value={String(clusterMetrics?.pod_count || 0)}
             subValue="Active pods"
-            color="yellow"
+            color="blue"
           />
         </div>
 
@@ -707,7 +773,8 @@ export default function MonitoringPage() {
                   <th className="text-left px-6 py-4 text-sm font-medium text-gray-400">App</th>
                   <th className="text-right px-6 py-4 text-sm font-medium text-gray-400">CPU</th>
                   <th className="text-right px-6 py-4 text-sm font-medium text-gray-400">Memory</th>
-                  <th className="text-left px-6 py-4 text-sm font-medium text-gray-400 w-1/3">Usage</th>
+                  <th className="text-right px-6 py-4 text-sm font-medium text-gray-400">Network</th>
+                  <th className="text-left px-6 py-4 text-sm font-medium text-gray-400 w-1/4">Usage</th>
                 </tr>
               </thead>
               <tbody>
@@ -725,10 +792,7 @@ export default function MonitoringPage() {
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           <AppIcon appName={app.app_name} size={32} />
-                          <div>
-                            <div className="font-medium capitalize">{app.app_name}</div>
-                            <div className="text-xs text-gray-500">{app.namespace}</div>
-                          </div>
+                          <div className="font-medium capitalize">{app.app_name}</div>
                         </div>
                       </td>
                       <td className="text-right px-6 py-4">
@@ -740,6 +804,18 @@ export default function MonitoringPage() {
                         <span className="text-green-400 font-mono">
                           {formatBytes(app.memory_usage_bytes)}
                         </span>
+                      </td>
+                      <td className="text-right px-6 py-4">
+                        <div className="text-purple-400 font-mono text-sm">
+                          <div className="flex items-center justify-end gap-1">
+                            <ArrowDownToLine size={12} className="text-green-400" />
+                            <span className="text-green-400">{formatBandwidth(app.network_receive_bytes_per_sec || 0)}</span>
+                          </div>
+                          <div className="flex items-center justify-end gap-1">
+                            <ArrowUpFromLine size={12} className="text-orange-400" />
+                            <span className="text-orange-400">{formatBandwidth(app.network_transmit_bytes_per_sec || 0)}</span>
+                          </div>
+                        </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
@@ -771,6 +847,18 @@ export default function MonitoringPage() {
                     <span className="text-green-400 font-mono font-medium">
                       {formatBytes(totalAppMemory)}
                     </span>
+                  </td>
+                  <td className="text-right px-6 py-4">
+                    <div className="font-mono text-sm">
+                      <div className="flex items-center justify-end gap-1">
+                        <ArrowDownToLine size={12} className="text-green-400" />
+                        <span className="text-green-400">{formatBandwidth(totalAppNetworkRx)}</span>
+                      </div>
+                      <div className="flex items-center justify-end gap-1">
+                        <ArrowUpFromLine size={12} className="text-orange-400" />
+                        <span className="text-orange-400">{formatBandwidth(totalAppNetworkTx)}</span>
+                      </div>
+                    </div>
                   </td>
                   <td className="px-6 py-4"></td>
                 </tr>

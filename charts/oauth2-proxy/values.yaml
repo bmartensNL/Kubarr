@@ -1,7 +1,9 @@
 # Default values for oauth2-proxy
 
-# Namespace to deploy to
-namespace: kubarr-system
+# Namespace configuration
+namespace:
+  create: true
+  name: oauth2-proxy
 
 # OAuth2 Proxy image configuration
 image:
@@ -35,7 +37,7 @@ config:
 
   # Upstream services to proxy (can be overridden)
   upstreams:
-    - "http://kubarr-dashboard:80"
+    - "http://kubarr:80"
 
 # Service configuration
 service:

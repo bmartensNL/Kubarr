@@ -4,7 +4,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: {{ include "oauth2-proxy.fullname" . }}
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Values.namespace.name }}
   labels:
     {{- include "oauth2-proxy.labels" . | nindent 4 }}
 spec:
@@ -31,82 +31,26 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # Allow access to nginx pod only
-    - to:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: {{ include "oauth2-proxy.name" . }}-nginx
-      ports:
-        - protocol: TCP
-          port: 8080
-    # Allow access to kubarr-dashboard for OAuth endpoints (token, userinfo, jwks)
-    - to:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: kubarr-dashboard
-      ports:
-        - protocol: TCP
-          port: 8000
----
-# Network policy for nginx pod
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: {{ include "oauth2-proxy.fullname" . }}-nginx
-  namespace: {{ .Values.namespace }}
-  labels:
-    {{- include "oauth2-proxy.labels" . | nindent 4 }}
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/name: {{ include "oauth2-proxy.name" . }}-nginx
-  policyTypes:
-    - Ingress
-    - Egress
-  ingress:
-    # Only allow traffic from oauth2-proxy pod
-    - from:
-        - podSelector:
-            matchLabels:
-              {{- include "oauth2-proxy.selectorLabels" . | nindent 14 }}
-      ports:
-        - protocol: TCP
-          port: 8080
-  egress:
-    # Allow DNS resolution
-    - to:
-        - namespaceSelector: {}
-          podSelector:
-            matchLabels:
-              k8s-app: kube-dns
-      ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
-    # Allow access to kubarr-dashboard backend (port 8000 is the actual container port)
-    - to:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: kubarr-dashboard
-      ports:
-        - protocol: TCP
-          port: 8000
-    # Allow access to kubarr-dashboard frontend (port 80)
-    - to:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: kubarr-dashboard-frontend
-      ports:
-        - protocol: TCP
-          port: 80
-    # Allow access to apps in their namespaces
-    {{- range .Values.networkPolicy.allowedNamespaces }}
+    # Allow access to nginx pod (in nginx namespace)
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ . }}
+              kubernetes.io/metadata.name: nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nginx
       ports:
         - protocol: TCP
-    {{- end }}
+          port: 8080
+    # Allow access to kubarr for OAuth endpoints (in kubarr namespace)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kubarr
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kubarr
+      ports:
+        - protocol: TCP
+          port: 8000
 {{- end }}

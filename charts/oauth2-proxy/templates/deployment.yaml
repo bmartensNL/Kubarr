@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "oauth2-proxy.fullname" . }}
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Values.namespace.name }}
   labels:
     {{- include "oauth2-proxy.labels" . | nindent 4 }}
 spec:
@@ -30,7 +30,7 @@ spec:
             - -c
             - |
               echo "Waiting for oauth2-proxy-credentials secret..."
-              while ! kubectl get secret oauth2-proxy-credentials -n {{ .Values.namespace }} 2>/dev/null; do
+              while ! kubectl get secret oauth2-proxy-credentials -n {{ .Values.namespace.name }} 2>/dev/null; do
                 echo "Secret not found, waiting..."
                 sleep 5
               done
