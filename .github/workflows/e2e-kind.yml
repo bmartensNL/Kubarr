@@ -304,7 +304,7 @@ jobs:
           echo ""
           echo "=========================================="
           echo "Verification complete"
-          echo "==========================================""
+          echo "=========================================="
 
       - name: Run Playwright tests
         run: npm test -- --project=chromium
