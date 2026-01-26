@@ -7,6 +7,13 @@ export interface Role {
   is_system: boolean;
   created_at: string;
   app_names: string[];
+  permissions: string[];
+}
+
+export interface PermissionInfo {
+  key: string;
+  category: string;
+  description: string;
 }
 
 export interface RoleInfo {
@@ -28,6 +35,10 @@ export interface UpdateRoleRequest {
 
 export interface SetRoleAppsRequest {
   app_names: string[];
+}
+
+export interface SetRolePermissionsRequest {
+  permissions: string[];
 }
 
 /**
@@ -75,5 +86,29 @@ export const deleteRole = async (roleId: number): Promise<{ message: string }> =
  */
 export const setRoleApps = async (roleId: number, apps: SetRoleAppsRequest): Promise<Role> => {
   const response = await apiClient.put<Role>(`/roles/${roleId}/apps`, apps);
+  return response.data;
+};
+
+/**
+ * Get all available permissions
+ */
+export const getPermissions = async (): Promise<PermissionInfo[]> => {
+  const response = await apiClient.get<PermissionInfo[]>('/roles/permissions');
+  return response.data;
+};
+
+/**
+ * Get permissions for a specific role
+ */
+export const getRolePermissions = async (roleId: number): Promise<string[]> => {
+  const response = await apiClient.get<string[]>(`/roles/${roleId}/permissions`);
+  return response.data;
+};
+
+/**
+ * Set permissions for a role
+ */
+export const setRolePermissions = async (roleId: number, data: SetRolePermissionsRequest): Promise<Role> => {
+  const response = await apiClient.put<Role>(`/roles/${roleId}/permissions`, data);
   return response.data;
 };

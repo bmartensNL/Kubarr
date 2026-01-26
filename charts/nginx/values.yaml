@@ -6,9 +6,10 @@ namespace:
   name: nginx
 
 # Nginx image configuration
+# Use custom image with njs module for JWT validation
 image:
-  repository: nginx
-  tag: "alpine"
+  repository: kubarr-nginx
+  tag: "latest"
   pullPolicy: IfNotPresent
 
 # Number of replicas
@@ -54,6 +55,7 @@ networkPolicy:
     - jellyseerr
     - sabnzbd
     - grafana
-    - prometheus
+    - victoriametrics
     - loki
     - plex
+    - kubernetes-dashboard

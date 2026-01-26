@@ -5,138 +5,434 @@ import AppsPage from './pages/AppsPage'
 import StoragePage from './pages/StoragePage'
 import LogsPage from './pages/LogsPage'
 import MonitoringPage from './pages/MonitoringPage'
+import NetworkingPage from './pages/NetworkingPage'
 import SettingsPage from './pages/SettingsPage'
+import AccountPage from './pages/AccountPage'
 import SetupPage from './pages/SetupPage'
 import LoginPage from './pages/LoginPage'
+import NotFoundPage from './pages/NotFoundPage'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { ThemeProvider, useTheme } from './contexts/ThemeContext'
 import { MonitoringProvider } from './contexts/MonitoringContext'
 import { VersionFooter } from './components/VersionFooter'
+import { PageTransition } from './components/PageTransition'
 import { setupApi } from './api/setup'
-import { Grid3X3, HardDrive, FileText, Activity, Settings, User, LogOut, Ship, ChevronDown } from 'lucide-react'
+import { Grid3X3, HardDrive, FileText, Activity, Settings, User, LogOut, Ship, ChevronDown, Sun, Moon, Monitor, Network, Menu, X } from 'lucide-react'
 
-function Navigation() {
-  const { user, loading, isAdmin, logout } = useAuth()
-  const location = useLocation()
-  const [systemDropdownOpen, setSystemDropdownOpen] = useState(false)
+function ThemeToggle() {
+  const { theme, resolvedTheme, setTheme } = useTheme()
+  const [dropdownOpen, setDropdownOpen] = useState(false)
 
-  const handleLogout = () => {
-    logout()
-    window.location.href = '/oauth2/sign_out?rd=/auth/login'
-  }
+  const themes = [
+    { value: 'light' as const, icon: Sun, label: 'Light' },
+    { value: 'dark' as const, icon: Moon, label: 'Dark' },
+    { value: 'system' as const, icon: Monitor, label: 'System' },
+  ]
 
-  const isActive = (path: string) => location.pathname === path
-  const isSystemActive = ['/storage', '/logs', '/monitoring'].includes(location.pathname)
+  // Show Sun/Moon based on actual displayed theme, not the setting
+  const ButtonIcon = resolvedTheme === 'dark' ? Moon : Sun
+  const currentTheme = themes.find(t => t.value === theme) || themes[2]
 
   return (
-    <nav className="bg-gray-800 border-b border-gray-700">
+    <div className="relative">
+      <button
+        onClick={() => setDropdownOpen(!dropdownOpen)}
+        onBlur={() => setTimeout(() => setDropdownOpen(false), 150)}
+        className="flex items-center justify-center w-9 h-9 rounded-md text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+        title={`Theme: ${currentTheme.label}`}
+      >
+        <ButtonIcon size={18} strokeWidth={2} />
+      </button>
+      {dropdownOpen && (
+        <div className="absolute top-full right-0 mt-1 w-36 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50">
+          {themes.map(({ value, icon: Icon, label }) => (
+            <button
+              key={value}
+              onClick={() => {
+                setTheme(value)
+                setDropdownOpen(false)
+              }}
+              className={`flex items-center gap-2 w-full px-3 py-2 text-sm transition-colors ${
+                theme === value
+                  ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+              } first:rounded-t-md last:rounded-b-md`}
+            >
+              <Icon size={16} strokeWidth={2} />
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function UserMenu() {
+  const { user, loading } = useAuth()
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const location = useLocation()
+
+  const handleLogout = () => {
+    // Redirect to oauth2-proxy sign out endpoint to clear session cookie
+    // Don't call logout() first - it triggers ProtectedRoute redirect before navigation
+    // rd=/ will trigger OAuth redirect after session is cleared
+    window.location.href = '/oauth2/sign_out?rd=/'
+  }
+
+  if (loading || !user) return null
+
+  const isAccountActive = location.pathname === '/account'
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setDropdownOpen(!dropdownOpen)}
+        onBlur={() => setTimeout(() => setDropdownOpen(false), 150)}
+        className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+          isAccountActive
+            ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'
+            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+        }`}
+      >
+        <User size={18} strokeWidth={2} />
+        <span>{user.username}</span>
+        <ChevronDown size={16} strokeWidth={2} className={`transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
+      </button>
+      {dropdownOpen && (
+        <div className="absolute top-full right-0 mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50">
+          <Link
+            to="/account"
+            className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-t-md"
+          >
+            <Settings size={16} strokeWidth={2} />
+            <span>Account Settings</span>
+          </Link>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-b-md"
+          >
+            <LogOut size={16} strokeWidth={2} />
+            <span>Logout</span>
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Navigation() {
+  const { hasPermission } = useAuth()
+  const location = useLocation()
+  const [systemDropdownOpen, setSystemDropdownOpen] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [mobileSystemOpen, setMobileSystemOpen] = useState(false)
+
+  const isActive = (path: string) => location.pathname === path
+
+  // Check which system menu items are visible
+  const canViewResources = hasPermission('monitoring.view')
+  const canViewStorage = hasPermission('storage.view')
+  const canViewLogs = hasPermission('logs.view')
+  const canViewApps = hasPermission('apps.view')
+
+  // Show System dropdown if user has any system permission
+  const hasAnySystemPermission = canViewResources || canViewStorage || canViewLogs
+  const isSystemActive = ['/storage', '/logs', '/resources', '/networking'].includes(location.pathname)
+
+  // Show Settings if user has any settings/users/roles permission
+  const canViewSettings = hasPermission('settings.view') || hasPermission('users.view') || hasPermission('roles.view')
+
+  // Close mobile menu on navigation
+  useEffect(() => {
+    setMobileMenuOpen(false)
+    setMobileSystemOpen(false)
+  }, [location.pathname])
+
+  return (
+    <nav className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
       <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16">
         <div className="flex items-center justify-between h-16">
+          {/* Logo */}
           <div className="flex items-center">
-            <Link to="/" className="flex items-center space-x-2 text-xl font-bold hover:text-gray-300 transition-colors">
-              <Ship size={28} className="text-blue-400" strokeWidth={2} />
+            <Link to="/" className="flex items-center space-x-2 text-xl font-bold text-gray-900 dark:text-white hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+              <Ship size={28} className="text-blue-500 dark:text-blue-400" strokeWidth={2} />
               <span>Kubarr</span>
             </Link>
           </div>
-          <div className="flex items-center space-x-1">
-            <Link
-              to="/apps"
-              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                isActive('/apps')
-                  ? 'bg-gray-700 text-white'
-                  : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-              }`}
-            >
-              <Grid3X3 size={18} strokeWidth={2} />
-              <span>Apps</span>
-            </Link>
-            <div className="relative">
-              <button
-                onClick={() => setSystemDropdownOpen(!systemDropdownOpen)}
-                onBlur={() => setTimeout(() => setSystemDropdownOpen(false), 150)}
+
+          {/* Desktop Navigation */}
+          <div className="hidden md:flex items-center space-x-1">
+            {canViewApps && (
+              <Link
+                to="/apps"
                 className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  isSystemActive
-                    ? 'bg-gray-700 text-white'
-                    : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                  isActive('/apps')
+                    ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'
+                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
                 }`}
               >
-                <Activity size={18} strokeWidth={2} />
-                <span>System</span>
-                <ChevronDown size={16} strokeWidth={2} className={`transition-transform ${systemDropdownOpen ? 'rotate-180' : ''}`} />
-              </button>
-              {systemDropdownOpen && (
-                <div className="absolute top-full left-0 mt-1 w-48 bg-gray-800 border border-gray-700 rounded-md shadow-lg z-50">
-                  <Link
-                    to="/monitoring"
-                    className={`flex items-center gap-2 px-4 py-2 text-sm transition-colors ${
-                      isActive('/monitoring')
-                        ? 'bg-gray-700 text-white'
-                        : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-                    } rounded-t-md`}
-                  >
-                    <Activity size={16} strokeWidth={2} />
-                    <span>Monitoring</span>
-                  </Link>
-                  <Link
-                    to="/logs"
-                    className={`flex items-center gap-2 px-4 py-2 text-sm transition-colors ${
-                      isActive('/logs')
-                        ? 'bg-gray-700 text-white'
-                        : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-                    }`}
-                  >
-                    <FileText size={16} strokeWidth={2} />
-                    <span>Logs</span>
-                  </Link>
-                  <Link
-                    to="/storage"
-                    className={`flex items-center gap-2 px-4 py-2 text-sm transition-colors ${
-                      isActive('/storage')
-                        ? 'bg-gray-700 text-white'
-                        : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-                    } rounded-b-md`}
-                  >
-                    <HardDrive size={16} strokeWidth={2} />
-                    <span>Storage</span>
-                  </Link>
-                </div>
-              )}
-            </div>
-            {isAdmin && (
+                <Grid3X3 size={18} strokeWidth={2} />
+                <span>Apps</span>
+              </Link>
+            )}
+            {hasAnySystemPermission && (
+              <div className="relative">
+                <button
+                  onClick={() => setSystemDropdownOpen(!systemDropdownOpen)}
+                  onBlur={() => setTimeout(() => setSystemDropdownOpen(false), 150)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                    isSystemActive
+                      ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'
+                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Activity size={18} strokeWidth={2} />
+                  <span>System</span>
+                  <ChevronDown size={16} strokeWidth={2} className={`transition-transform ${systemDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {systemDropdownOpen && (
+                  <div className="absolute top-full left-0 mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50">
+                    {canViewResources && (
+                      <Link
+                        to="/resources"
+                        className={`flex items-center gap-2 px-4 py-2 text-sm transition-colors ${
+                          isActive('/resources')
+                            ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
+                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
+                        } first:rounded-t-md last:rounded-b-md`}
+                      >
+                        <Activity size={16} strokeWidth={2} />
+                        <span>Resources</span>
+                      </Link>
+                    )}
+                    {canViewResources && (
+                      <Link
+                        to="/networking"
+                        className={`flex items-center gap-2 px-4 py-2 text-sm transition-colors ${
+                          isActive('/networking')
+                            ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
+                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
+                        } first:rounded-t-md last:rounded-b-md`}
+                      >
+                        <Network size={16} strokeWidth={2} />
+                        <span>Networking</span>
+                      </Link>
+                    )}
+                    {canViewStorage && (
+                      <Link
+                        to="/storage"
+                        className={`flex items-center gap-2 px-4 py-2 text-sm transition-colors ${
+                          isActive('/storage')
+                            ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
+                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
+                        } first:rounded-t-md last:rounded-b-md`}
+                      >
+                        <HardDrive size={16} strokeWidth={2} />
+                        <span>Storage</span>
+                      </Link>
+                    )}
+                    {canViewLogs && (
+                      <Link
+                        to="/logs"
+                        className={`flex items-center gap-2 px-4 py-2 text-sm transition-colors ${
+                          isActive('/logs')
+                            ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
+                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
+                        } first:rounded-t-md last:rounded-b-md`}
+                      >
+                        <FileText size={16} strokeWidth={2} />
+                        <span>Logs</span>
+                      </Link>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            {canViewSettings && (
               <Link
                 to="/settings"
                 className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                   isActive('/settings')
-                    ? 'bg-gray-700 text-white'
-                    : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                    ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'
+                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
                 }`}
               >
                 <Settings size={18} strokeWidth={2} />
                 <span>Settings</span>
               </Link>
             )}
-            <div className="flex items-center gap-3 ml-4 border-l border-gray-700 pl-4">
-              {!loading && user && (
-                <div className="flex items-center gap-2 text-sm text-gray-300">
-                  <User size={18} strokeWidth={2} />
-                  <span>{user.username}</span>
-                  {user.is_admin && (
-                    <span className="px-2 py-0.5 text-xs bg-blue-600 rounded-full font-medium">
-                      Admin
-                    </span>
-                  )}
-                </div>
-              )}
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-red-600 hover:bg-red-700 transition-colors"
-              >
-                <LogOut size={18} strokeWidth={2} />
-                <span>Logout</span>
-              </button>
+            <div className="flex items-center gap-2 ml-4 border-l border-gray-200 dark:border-gray-700 pl-4">
+              <UserMenu />
+              <ThemeToggle />
             </div>
+          </div>
+
+          {/* Mobile: Theme toggle and hamburger menu */}
+          <div className="flex md:hidden items-center gap-2">
+            <ThemeToggle />
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="flex items-center justify-center w-10 h-10 rounded-md text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              aria-label="Toggle menu"
+            >
+              {mobileMenuOpen ? <X size={24} strokeWidth={2} /> : <Menu size={24} strokeWidth={2} />}
+            </button>
           </div>
         </div>
       </div>
+
+      {/* Mobile Menu Overlay */}
+      {mobileMenuOpen && (
+        <div className="md:hidden border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+          <div className="px-4 py-3 space-y-1">
+            {/* Dashboard link */}
+            <Link
+              to="/"
+              className={`flex items-center gap-3 px-4 py-3 rounded-md text-base font-medium transition-colors ${
+                isActive('/')
+                  ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+            >
+              <Ship size={20} strokeWidth={2} />
+              <span>Dashboard</span>
+            </Link>
+
+            {canViewApps && (
+              <Link
+                to="/apps"
+                className={`flex items-center gap-3 px-4 py-3 rounded-md text-base font-medium transition-colors ${
+                  isActive('/apps')
+                    ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'
+                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+              >
+                <Grid3X3 size={20} strokeWidth={2} />
+                <span>Apps</span>
+              </Link>
+            )}
+
+            {/* System submenu */}
+            {hasAnySystemPermission && (
+              <div>
+                <button
+                  onClick={() => setMobileSystemOpen(!mobileSystemOpen)}
+                  className={`flex items-center justify-between w-full px-4 py-3 rounded-md text-base font-medium transition-colors ${
+                    isSystemActive
+                      ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'
+                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <Activity size={20} strokeWidth={2} />
+                    <span>System</span>
+                  </div>
+                  <ChevronDown size={20} strokeWidth={2} className={`transition-transform ${mobileSystemOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {mobileSystemOpen && (
+                  <div className="ml-6 mt-1 space-y-1">
+                    {canViewResources && (
+                      <Link
+                        to="/resources"
+                        className={`flex items-center gap-3 px-4 py-3 rounded-md text-base transition-colors ${
+                          isActive('/resources')
+                            ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
+                            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                        }`}
+                      >
+                        <Activity size={18} strokeWidth={2} />
+                        <span>Resources</span>
+                      </Link>
+                    )}
+                    {canViewResources && (
+                      <Link
+                        to="/networking"
+                        className={`flex items-center gap-3 px-4 py-3 rounded-md text-base transition-colors ${
+                          isActive('/networking')
+                            ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
+                            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                        }`}
+                      >
+                        <Network size={18} strokeWidth={2} />
+                        <span>Networking</span>
+                      </Link>
+                    )}
+                    {canViewStorage && (
+                      <Link
+                        to="/storage"
+                        className={`flex items-center gap-3 px-4 py-3 rounded-md text-base transition-colors ${
+                          isActive('/storage')
+                            ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
+                            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                        }`}
+                      >
+                        <HardDrive size={18} strokeWidth={2} />
+                        <span>Storage</span>
+                      </Link>
+                    )}
+                    {canViewLogs && (
+                      <Link
+                        to="/logs"
+                        className={`flex items-center gap-3 px-4 py-3 rounded-md text-base transition-colors ${
+                          isActive('/logs')
+                            ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
+                            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                        }`}
+                      >
+                        <FileText size={18} strokeWidth={2} />
+                        <span>Logs</span>
+                      </Link>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {canViewSettings && (
+              <Link
+                to="/settings"
+                className={`flex items-center gap-3 px-4 py-3 rounded-md text-base font-medium transition-colors ${
+                  isActive('/settings')
+                    ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'
+                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+              >
+                <Settings size={20} strokeWidth={2} />
+                <span>Settings</span>
+              </Link>
+            )}
+
+            {/* Divider */}
+            <div className="border-t border-gray-200 dark:border-gray-700 my-2" />
+
+            {/* Account link */}
+            <Link
+              to="/account"
+              className={`flex items-center gap-3 px-4 py-3 rounded-md text-base font-medium transition-colors ${
+                isActive('/account')
+                  ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+            >
+              <User size={20} strokeWidth={2} />
+              <span>Account</span>
+            </Link>
+
+            {/* Logout button */}
+            <button
+              onClick={() => {
+                setMobileMenuOpen(false)
+                window.location.href = '/oauth2/sign_out?rd=/'
+              }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-md text-base font-medium text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            >
+              <LogOut size={20} strokeWidth={2} />
+              <span>Logout</span>
+            </button>
+          </div>
+        </div>
+      )}
     </nav>
   )
 }
@@ -146,15 +442,15 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div className="h-screen bg-gray-900 text-white flex items-center justify-center">
+      <div className="h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white flex items-center justify-center">
         <div className="text-xl">Loading...</div>
       </div>
     )
   }
 
-  // If not authenticated, redirect to oauth2-proxy sign_in to start auth flow
+  // If not authenticated, redirect to login page
   if (!isAuthenticated) {
-    window.location.href = '/oauth2/sign_in'
+    window.location.href = '/login'
     return null
   }
 
@@ -190,7 +486,7 @@ function AppContent() {
   // Show loading while checking setup
   if (setupCheckLoading) {
     return (
-      <div className="h-screen bg-gray-900 text-white flex items-center justify-center">
+      <div className="h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white flex items-center justify-center">
         <div className="text-xl">Loading...</div>
       </div>
     )
@@ -222,25 +518,33 @@ function AppContent() {
   return (
     <ProtectedRoute>
       <MonitoringProvider>
-      <div className="h-screen bg-gray-900 text-white flex flex-col overflow-hidden">
+      <div className="h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white flex flex-col overflow-hidden">
         <Navigation />
         {isSettingsPage || isLogsPage ? (
           <main className="flex-1 overflow-hidden p-6">
-            <Routes>
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/logs" element={<LogsPage />} />
-            </Routes>
+            <PageTransition className="h-full">
+              <Routes>
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/logs" element={<LogsPage />} />
+                <Route path="*" element={<NotFoundPage />} />
+              </Routes>
+            </PageTransition>
           </main>
         ) : (
           <main className="flex-1 overflow-auto pb-10">
-            <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16 py-8">
-              <Routes>
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/apps" element={<AppsPage />} />
-                <Route path="/storage" element={<StoragePage />} />
-                <Route path="/monitoring" element={<MonitoringPage />} />
-              </Routes>
-            </div>
+            <PageTransition>
+              <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16 py-8">
+                <Routes>
+                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/apps" element={<AppsPage />} />
+                  <Route path="/storage" element={<StoragePage />} />
+                  <Route path="/resources" element={<MonitoringPage />} />
+                  <Route path="/networking" element={<NetworkingPage />} />
+                  <Route path="/account" element={<AccountPage />} />
+                  <Route path="*" element={<NotFoundPage />} />
+                </Routes>
+              </div>
+            </PageTransition>
             <VersionFooter />
           </main>
         )}
@@ -254,7 +558,9 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AppContent />
+        <ThemeProvider>
+          <AppContent />
+        </ThemeProvider>
       </AuthProvider>
     </BrowserRouter>
   )

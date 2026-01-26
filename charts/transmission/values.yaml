@@ -130,10 +130,10 @@ networkPolicy:
     - nginx  # nginx reverse proxy
     - sonarr
     - radarr
-    - prometheus
+    - victoriametrics
   egressTo: []
 
-# Prometheus exporter sidecar (auto-scraped by Prometheus when enabled)
+# Metrics exporter sidecar (auto-scraped by VictoriaMetrics when enabled)
 # NOTE: metalmatze/transmission-exporter is outdated and crashes on newer Transmission versions
 exporter:
   enabled: false

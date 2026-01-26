@@ -171,10 +171,10 @@ networkPolicy:
     - nginx  # nginx reverse proxy
     - sonarr         # arr apps connecting to download client
     - radarr
-    - prometheus     # metrics scraping
+    - victoriametrics  # metrics scraping
   egressTo: []       # download clients mainly need outbound internet
 
-# Prometheus exporter sidecar (auto-scraped by Prometheus when enabled)
+# Metrics exporter sidecar (auto-scraped by VictoriaMetrics when enabled)
 exporter:
   enabled: true
   image:

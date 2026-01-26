@@ -1,0 +1,74 @@
+# Traefik with traefik-forward-auth configuration
+
+namespace:
+  create: true
+  name: traefik
+
+# Traefik image
+traefik:
+  image:
+    repository: traefik
+    tag: "v3.0"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# traefik-forward-auth configuration
+forwardAuth:
+  image:
+    repository: thomseddon/traefik-forward-auth
+    tag: "2"
+    pullPolicy: IfNotPresent
+
+  # Generic OAuth2 configuration (avoids OIDC issuer mismatch issues)
+  # Auth URL is browser-facing (external), token/user URLs are server-facing (internal)
+  clientId: oauth2-proxy
+  clientSecret: 7c322f0a16ad75eaff6e31a0b402dce92be9935eda76546fdd77201c384284f4
+  secret: a-random-secret-for-cookie-encryption
+
+  # Browser-facing URL (external - what user's browser can reach)
+  authUrl: http://localhost:8080/auth/authorize
+
+  # Server-facing URLs (internal - what forward-auth container can reach)
+  tokenUrl: http://kubarr.kubarr.svc.cluster.local:8000/auth/token
+  userUrl: http://kubarr.kubarr.svc.cluster.local:8000/auth/userinfo
+
+  # Cookie settings
+  cookieDomain: localhost
+  cookieName: _forward_auth
+  cookieSecure: "false"
+
+  # Auth host mode (single host handles all auth)
+  authHost: ""
+
+  # Allowed users/domains (empty = allow all authenticated users)
+  allowedDomains: []
+  allowedUsers: []
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 8080
+
+# Network policy
+networkPolicy:
+  enabled: true
+  allowedNamespaces:
+    - kubarr
+    - sonarr
+    - radarr
+    - qbittorrent
+    - transmission
+    - jackett
+    - jellyfin
+    - grafana
+    - victoriametrics
+    - loki

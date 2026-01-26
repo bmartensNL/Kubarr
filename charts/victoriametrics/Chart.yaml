@@ -1,0 +1,11 @@
+apiVersion: v2
+name: victoriametrics
+description: VictoriaMetrics - fast, cost-effective and scalable monitoring solution
+type: application
+version: 0.1.0
+appVersion: "1.96.0"
+annotations:
+  kubarr.io/display-name: "VictoriaMetrics"
+  kubarr.io/icon: "victoria"
+  kubarr.io/category: "monitoring"
+  kubarr.io/system: "true"

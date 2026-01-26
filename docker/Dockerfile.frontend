@@ -23,49 +23,17 @@ ENV VITE_BUILD_TIME=${BUILD_TIME}
 # Build the app
 RUN npm run build
 
-# Production stage - minimal Alpine with nginx for SPA routing
-# Note: BusyBox httpd doesn't support SPA routing (serving index.html for non-existent paths)
-# nginx provides proper try_files directive for React Router support
-FROM alpine:3.19
-
-# Install nginx (minimal ~2MB addition)
-RUN apk add --no-cache nginx
+# Production stage - minimal BusyBox httpd (~1MB total)
+FROM busybox:1.36
 
 WORKDIR /var/www
 
 # Copy built files
 COPY --from=builder /app/dist /var/www
 
-# Configure nginx for SPA routing
-RUN cat > /etc/nginx/http.d/default.conf << 'EOF'
-server {
-    listen 80;
-    root /var/www;
-    index index.html;
-
-    # SPA routing - serve index.html for all non-file routes
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # Cache static assets
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-    }
-
-    # Gzip compression
-    gzip on;
-    gzip_types text/plain text/css application/json application/javascript text/xml application/xml text/javascript;
-}
-EOF
-
-# Create nginx pid directory and set permissions
-RUN mkdir -p /run/nginx && \
-    chown -R nginx:nginx /var/www /run/nginx
-
 # Expose port
 EXPOSE 80
 
-# Run nginx in foreground
-CMD ["nginx", "-g", "daemon off;"]
+# Run BusyBox httpd in foreground
+# SPA routing handled by nginx proxy (intercepts 404s and serves index.html)
+CMD ["httpd", "-f", "-v", "-p", "80", "-h", "/var/www"]

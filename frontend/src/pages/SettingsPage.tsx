@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import UserList from '../components/users/UserList';
 import UserForm from '../components/users/UserForm';
@@ -22,95 +23,70 @@ import {
 import {
   Role,
   getRoles,
-  createRole,
-  deleteRole,
-  setRoleApps,
+  // createRole,  // Commented out - role management UI not yet implemented
+  // deleteRole,
 } from '../api/roles';
 import { getCatalog, App } from '../api/apps';
 import { getSettings, updateSetting, Setting } from '../api/settings';
-import { Users, Shield, Link, UserPlus, Settings, Sliders } from 'lucide-react';
+import { Users, Link, UserPlus, Settings, Sliders, Lock, Menu, X } from 'lucide-react';
+import PermissionMatrix from '../components/permissions/PermissionMatrix';
 
 type ViewMode = 'list' | 'create' | 'edit';
-type SettingsSection = 'general' | 'users' | 'pending' | 'invites' | 'roles';
-
-// Inline component for editing role apps
-interface RoleAppEditorProps {
-  role: Role;
-  apps: App[];
-  onSave: (appNames: string[]) => void;
-  onCancel: () => void;
-}
-
-const RoleAppEditor: React.FC<RoleAppEditorProps> = ({ role, apps, onSave, onCancel }) => {
-  const [selectedApps, setSelectedApps] = useState<string[]>(role.app_names || []);
-
-  const toggleApp = (appName: string) => {
-    setSelectedApps(prev =>
-      prev.includes(appName)
-        ? prev.filter(a => a !== appName)
-        : [...prev, appName]
-    );
-  };
-
-  return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap gap-2">
-        {apps.map((app) => (
-          <button
-            key={app.name}
-            type="button"
-            onClick={() => toggleApp(app.name)}
-            className={`px-2 py-1 rounded text-xs transition-colors ${
-              selectedApps.includes(app.name)
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-            }`}
-          >
-            {app.name}
-          </button>
-        ))}
-      </div>
-      <div className="flex space-x-2">
-        <button
-          onClick={() => onSave(selectedApps)}
-          className="px-2 py-1 bg-green-600 hover:bg-green-700 rounded text-xs text-white transition-colors"
-        >
-          Save
-        </button>
-        <button
-          onClick={onCancel}
-          className="px-2 py-1 bg-gray-600 hover:bg-gray-700 rounded text-xs text-white transition-colors"
-        >
-          Cancel
-        </button>
-      </div>
-    </div>
-  );
-};
+type SettingsSection = 'general' | 'users' | 'pending' | 'invites' | 'permissions';
 
 const SettingsPage: React.FC = () => {
   const { isAdmin } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [users, setUsers] = useState<User[]>([]);
   const [pendingUsers, setPendingUsers] = useState<User[]>([]);
   const [invites, setInvites] = useState<Invite[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
-  const [apps, setApps] = useState<App[]>([]);
+  const [_apps, setApps] = useState<App[]>([]);
   const [systemSettings, setSystemSettings] = useState<Record<string, Setting>>({});
   const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>('list');
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  const [activeSection, setActiveSection] = useState<SettingsSection>('general');
+
+  // Get state from URL params
+  const activeSection = (searchParams.get('section') as SettingsSection) || 'general';
+  const viewMode = (searchParams.get('view') as ViewMode) || 'list';
+  const selectedUserId = searchParams.get('user');
+
+  // Find selected user from users list
+  const selectedUser = selectedUserId ? users.find(u => u.id === parseInt(selectedUserId)) || null : null;
+
+  // URL state setters
+  const setActiveSection = (section: SettingsSection) => {
+    // Don't include view when it's 'list' (default)
+    setSearchParams({ section });
+    setMobileSidebarOpen(false); // Close mobile sidebar when selecting
+  };
+
+  const setViewMode = (mode: ViewMode) => {
+    if (mode === 'list') {
+      // Remove view and user params when going back to list
+      setSearchParams({ section: activeSection });
+    } else {
+      // Set view mode (create or edit)
+      setSearchParams({ section: activeSection, view: mode });
+    }
+  };
+
+  const setSelectedUser = (user: User | null) => {
+    if (user) {
+      setSearchParams({ section: activeSection, view: 'edit', user: user.id.toString() });
+    } else {
+      setSearchParams({ section: activeSection, view: 'list' });
+    }
+  };
   const [creatingInvite, setCreatingInvite] = useState(false);
   const [copiedInviteId, setCopiedInviteId] = useState<number | null>(null);
   const [newInvite, setNewInvite] = useState<Invite | null>(null);
-  // Role editing state
-  const [editingRole, setEditingRole] = useState<Role | null>(null);
-  const [newRoleName, setNewRoleName] = useState('');
-  const [newRoleDescription, setNewRoleDescription] = useState('');
-  const [newRoleApps, setNewRoleApps] = useState<string[]>([]);
-  const [creatingRole, setCreatingRole] = useState(false);
+  // Role editing state - commented out until UI is implemented
+  // const [newRoleName, setNewRoleName] = useState('');
+  // const [newRoleDescription, setNewRoleDescription] = useState('');
+  // const [creatingRole, setCreatingRole] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   useEffect(() => {
     if (isAdmin) {
@@ -198,15 +174,14 @@ const SettingsPage: React.FC = () => {
   const handleCreateUser = async (data: CreateUserRequest | UpdateUserRequest) => {
     await createUser(data as CreateUserRequest);
     await loadUsers();
-    setViewMode('list');
+    setSearchParams({ section: activeSection });
   };
 
   const handleUpdateUser = async (data: CreateUserRequest | UpdateUserRequest) => {
     if (selectedUser) {
       await updateUser(selectedUser.id, data as UpdateUserRequest);
       await loadUsers();
-      setViewMode('list');
-      setSelectedUser(null);
+      setSearchParams({ section: activeSection });
     }
   };
 
@@ -244,13 +219,13 @@ const SettingsPage: React.FC = () => {
   };
 
   const handleEditUser = (user: User) => {
+    // setSelectedUser already sets view to 'edit'
     setSelectedUser(user);
-    setViewMode('edit');
   };
 
   const handleCancel = () => {
-    setViewMode('list');
-    setSelectedUser(null);
+    // Go back to list view, clearing user selection
+    setSearchParams({ section: activeSection });
   };
 
   const handleCreateInvite = async () => {
@@ -304,71 +279,47 @@ const SettingsPage: React.FC = () => {
     return new Date(expiresAt) < new Date();
   };
 
-  // Role management functions
-  const handleCreateRole = async () => {
-    if (!newRoleName.trim()) {
-      setError('Role name is required');
-      return;
-    }
-    try {
-      setCreatingRole(true);
-      await createRole({
-        name: newRoleName,
-        description: newRoleDescription || undefined,
-        app_names: newRoleApps,
-      });
-      setNewRoleName('');
-      setNewRoleDescription('');
-      setNewRoleApps([]);
-      await loadRoles();
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to create role');
-    } finally {
-      setCreatingRole(false);
-    }
-  };
+  // Role management functions - commented out until UI is added
+  // const handleCreateRole = async () => {
+  //   if (!newRoleName.trim()) {
+  //     setError('Role name is required');
+  //     return;
+  //   }
+  //   try {
+  //     setCreatingRole(true);
+  //     await createRole({
+  //       name: newRoleName,
+  //       description: newRoleDescription || undefined,
+  //     });
+  //     setNewRoleName('');
+  //     setNewRoleDescription('');
+  //     await loadRoles();
+  //   } catch (err: any) {
+  //     setError(err.response?.data?.detail || 'Failed to create role');
+  //   } finally {
+  //     setCreatingRole(false);
+  //   }
+  // };
 
-  const handleDeleteRole = async (role: Role) => {
-    if (role.is_system) {
-      setError('Cannot delete system roles');
-      return;
-    }
-    if (window.confirm(`Are you sure you want to delete role "${role.name}"?`)) {
-      try {
-        await deleteRole(role.id);
-        await loadRoles();
-      } catch (err: any) {
-        setError(err.response?.data?.detail || 'Failed to delete role');
-      }
-    }
-  };
-
-  const handleEditRoleApps = (role: Role) => {
-    setEditingRole(role);
-  };
-
-  const handleSaveRoleApps = async (roleId: number, appNames: string[]) => {
-    try {
-      await setRoleApps(roleId, { app_names: appNames });
-      setEditingRole(null);
-      await loadRoles();
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to update role apps');
-    }
-  };
-
-  const toggleAppForNewRole = (appName: string) => {
-    setNewRoleApps(prev =>
-      prev.includes(appName)
-        ? prev.filter(a => a !== appName)
-        : [...prev, appName]
-    );
-  };
+  // const handleDeleteRole = async (role: Role) => {
+  //   if (role.is_system) {
+  //     setError('Cannot delete system roles');
+  //     return;
+  //   }
+  //   if (window.confirm(`Are you sure you want to delete role "${role.name}"?`)) {
+  //     try {
+  //       await deleteRole(role.id);
+  //       await loadRoles();
+  //     } catch (err: any) {
+  //       setError(err.response?.data?.detail || 'Failed to delete role');
+  //     }
+  //   }
+  // };
 
   if (!isAdmin) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="bg-red-900 border border-red-700 text-white px-4 py-3 rounded">
+        <div className="bg-red-100 dark:bg-red-900 border border-red-300 dark:border-red-700 text-red-800 dark:text-white px-4 py-3 rounded">
           You do not have permission to access this page. Admin privileges required.
         </div>
       </div>
@@ -380,23 +331,56 @@ const SettingsPage: React.FC = () => {
     { id: 'users' as SettingsSection, label: 'All Users', icon: Users, count: users.length },
     { id: 'pending' as SettingsSection, label: 'Pending Approval', icon: UserPlus, count: pendingUsers.length },
     { id: 'invites' as SettingsSection, label: 'Invite Links', icon: Link, count: invites.filter(i => !i.is_used && !isExpired(i.expires_at)).length },
-    { id: 'roles' as SettingsSection, label: 'Roles', icon: Shield, count: roles.length },
+    { id: 'permissions' as SettingsSection, label: 'Permissions', icon: Lock },
   ];
 
   return (
-    <div className="flex h-full w-full">
+    <div className="flex h-full w-full relative">
+      {/* Mobile Sidebar Toggle Button */}
+      <button
+        onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
+        className="md:hidden fixed bottom-4 right-4 z-50 flex items-center justify-center w-14 h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg transition-colors"
+        aria-label="Toggle settings menu"
+      >
+        {mobileSidebarOpen ? <X size={24} /> : <Menu size={24} />}
+      </button>
+
+      {/* Mobile Sidebar Overlay */}
+      {mobileSidebarOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-black/50 z-40"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
+
       {/* Left Sidebar */}
-      <div className="w-64 bg-gray-800 border-r border-gray-700 flex-shrink-0 flex flex-col">
-        <div className="p-4 border-b border-gray-700 flex-shrink-0">
-          <div className="flex items-center space-x-2">
-            <Settings size={20} className="text-gray-400" />
-            <h2 className="text-lg font-semibold text-white">Settings</h2>
+      <div className={`
+        ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+        md:translate-x-0
+        fixed md:relative
+        inset-y-0 left-0
+        z-40 md:z-auto
+        w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex-shrink-0 flex flex-col
+        transition-transform duration-200 ease-in-out
+      `}>
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Settings size={20} className="text-gray-500 dark:text-gray-400" />
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Settings</h2>
+            </div>
+            <button
+              onClick={() => setMobileSidebarOpen(false)}
+              className="md:hidden p-1 rounded-md text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              <X size={20} />
+            </button>
           </div>
         </div>
         <nav className="p-2 flex-1 overflow-auto">
           {/* Access Management Section */}
           <div className="mb-2">
-            <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            <div className="px-3 py-2 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
               Access Management
             </div>
             {accessManagementItems.map((item) => {
@@ -404,14 +388,11 @@ const SettingsPage: React.FC = () => {
               return (
                 <button
                   key={item.id}
-                  onClick={() => {
-                    setActiveSection(item.id);
-                    setViewMode('list');
-                  }}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-md mb-1 transition-colors ${
+                  onClick={() => setActiveSection(item.id)}
+                  className={`w-full flex items-center justify-between px-3 py-3 md:py-2 rounded-md mb-1 transition-colors ${
                     activeSection === item.id
                       ? 'bg-blue-600 text-white'
-                      : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
                   }`}
                 >
                   <div className="flex items-center space-x-3">
@@ -422,7 +403,7 @@ const SettingsPage: React.FC = () => {
                     <span className={`px-2 py-0.5 text-xs rounded-full ${
                       activeSection === item.id
                         ? 'bg-blue-500 text-white'
-                        : 'bg-gray-700 text-gray-300'
+                        : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
                     }`}>
                       {item.count}
                     </span>
@@ -435,13 +416,24 @@ const SettingsPage: React.FC = () => {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 overflow-auto p-6 min-w-0">
+      <div className="flex-1 overflow-auto p-4 md:p-6 min-w-0">
+        {/* Mobile Section Header */}
+        <div className="md:hidden mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
+          <button
+            onClick={() => setMobileSidebarOpen(true)}
+            className="flex items-center gap-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+          >
+            <Menu size={20} />
+            <span className="text-sm">Settings Menu</span>
+          </button>
+        </div>
+
         {error && (
-          <div className="bg-red-900 border border-red-700 text-white px-4 py-3 rounded mb-4 flex justify-between items-center">
+          <div className="bg-red-100 dark:bg-red-900 border border-red-300 dark:border-red-700 text-red-800 dark:text-white px-4 py-3 rounded mb-4 flex justify-between items-center">
             <span>{error}</span>
             <button
               onClick={() => setError(null)}
-              className="text-white hover:text-gray-300"
+              className="text-red-600 dark:text-white hover:text-red-800 dark:hover:text-gray-300"
             >
               <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -460,32 +452,32 @@ const SettingsPage: React.FC = () => {
             {activeSection === 'general' && (
               <div className="space-y-6">
                 <div>
-                  <h3 className="text-2xl font-bold">General Settings</h3>
-                  <p className="text-gray-400 text-sm mt-1">
+                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white">General Settings</h3>
+                  <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
                     Configure general access management settings.
                   </p>
                 </div>
 
-                <div className="bg-gray-800 rounded-lg border border-gray-700 p-6 space-y-6">
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 space-y-6">
                   {/* Registration Settings */}
                   <div>
-                    <h4 className="text-lg font-medium mb-4">User Registration</h4>
+                    <h4 className="text-lg font-medium text-gray-900 dark:text-white mb-4">User Registration</h4>
 
                     {/* Registration Enabled Toggle */}
-                    <div className="flex items-center justify-between py-4 border-b border-gray-700">
+                    <div className="flex items-center justify-between py-4 border-b border-gray-200 dark:border-gray-700">
                       <div className="flex-1">
-                        <div className="font-medium text-white">Allow Open Registration</div>
-                        <div className="text-sm text-gray-400 mt-1">
+                        <div className="font-medium text-gray-900 dark:text-white">Allow Open Registration</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                           When disabled, users can only register using invite links.
                         </div>
                       </div>
                       <button
                         onClick={() => handleToggleSetting('registration_enabled')}
                         disabled={savingSettings}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 ${
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-gray-800 ${
                           systemSettings.registration_enabled?.value === 'true'
                             ? 'bg-blue-600'
-                            : 'bg-gray-600'
+                            : 'bg-gray-300 dark:bg-gray-600'
                         } ${savingSettings ? 'opacity-50 cursor-not-allowed' : ''}`}
                       >
                         <span
@@ -501,18 +493,18 @@ const SettingsPage: React.FC = () => {
                     {/* Require Approval Toggle */}
                     <div className="flex items-center justify-between py-4">
                       <div className="flex-1">
-                        <div className="font-medium text-white">Require Admin Approval</div>
-                        <div className="text-sm text-gray-400 mt-1">
+                        <div className="font-medium text-gray-900 dark:text-white">Require Admin Approval</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                           New registrations require admin approval before users can log in. Users with invite links are auto-approved.
                         </div>
                       </div>
                       <button
                         onClick={() => handleToggleSetting('registration_require_approval')}
                         disabled={savingSettings}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 ${
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-gray-800 ${
                           systemSettings.registration_require_approval?.value === 'true'
                             ? 'bg-blue-600'
-                            : 'bg-gray-600'
+                            : 'bg-gray-300 dark:bg-gray-600'
                         } ${savingSettings ? 'opacity-50 cursor-not-allowed' : ''}`}
                       >
                         <span
@@ -533,7 +525,7 @@ const SettingsPage: React.FC = () => {
             {activeSection === 'users' && viewMode === 'list' && (
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
-                  <h3 className="text-2xl font-bold">All Users</h3>
+                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white">All Users</h3>
                   <button
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-md font-medium transition-colors"
                     onClick={() => setViewMode('create')}
@@ -554,8 +546,8 @@ const SettingsPage: React.FC = () => {
             {/* Pending Users Section */}
             {activeSection === 'pending' && viewMode === 'list' && (
               <div className="space-y-4">
-                <h3 className="text-2xl font-bold">Pending Approval</h3>
-                <p className="text-gray-400">Users waiting for approval to access the system.</p>
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Pending Approval</h3>
+                <p className="text-gray-500 dark:text-gray-400">Users waiting for approval to access the system.</p>
                 <UserList
                   users={pendingUsers}
                   onApprove={handleApproveUser}
@@ -571,8 +563,8 @@ const SettingsPage: React.FC = () => {
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
                   <div>
-                    <h3 className="text-2xl font-bold">Invite Links</h3>
-                    <p className="text-gray-400 text-sm mt-1">
+                    <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Invite Links</h3>
+                    <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
                       Create invite links to share with users. Each link can only be used once.
                     </p>
                   </div>
@@ -586,39 +578,39 @@ const SettingsPage: React.FC = () => {
                 </div>
 
                 {invites.length === 0 ? (
-                  <div className="bg-gray-800 rounded-lg border border-gray-700 p-8 text-center">
-                    <p className="text-gray-400">No invites created yet. Create one to get started.</p>
+                  <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-8 text-center">
+                    <p className="text-gray-500 dark:text-gray-400">No invites created yet. Create one to get started.</p>
                   </div>
                 ) : (
-                  <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
-                    <table className="min-w-full divide-y divide-gray-700">
-                      <thead className="bg-gray-750">
+                  <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                      <thead className="bg-gray-50 dark:bg-gray-700">
                         <tr>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Status</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Created By</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Created At</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Expires At</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Used By</th>
-                          <th className="px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
+                          <th className="px-4 md:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
+                          <th className="px-4 md:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Created By</th>
+                          <th className="px-4 md:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden sm:table-cell">Created At</th>
+                          <th className="px-4 md:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden sm:table-cell">Expires At</th>
+                          <th className="px-4 md:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden md:table-cell">Used By</th>
+                          <th className="px-4 md:px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-700">
+                      <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                         {invites.map((invite) => (
                           <tr key={invite.id} className={invite.is_used || isExpired(invite.expires_at) ? 'opacity-50' : ''}>
-                            <td className="px-6 py-4 whitespace-nowrap">
+                            <td className="px-4 md:px-6 py-4 whitespace-nowrap">
                               {invite.is_used ? (
-                                <span className="px-2 py-1 text-xs bg-gray-600 text-gray-300 rounded">Used</span>
+                                <span className="px-2 py-1 text-xs bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 rounded">Used</span>
                               ) : isExpired(invite.expires_at) ? (
                                 <span className="px-2 py-1 text-xs bg-red-600 text-white rounded">Expired</span>
                               ) : (
                                 <span className="px-2 py-1 text-xs bg-green-600 text-white rounded">Active</span>
                               )}
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{invite.created_by_username}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{formatDate(invite.created_at)}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{invite.expires_at ? formatDate(invite.expires_at) : 'Never'}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{invite.used_by_username || '-'}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm space-x-2">
+                            <td className="px-4 md:px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">{invite.created_by_username}</td>
+                            <td className="px-4 md:px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 hidden sm:table-cell">{formatDate(invite.created_at)}</td>
+                            <td className="px-4 md:px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 hidden sm:table-cell">{invite.expires_at ? formatDate(invite.expires_at) : 'Never'}</td>
+                            <td className="px-4 md:px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300 hidden md:table-cell">{invite.used_by_username || '-'}</td>
+                            <td className="px-4 md:px-6 py-4 whitespace-nowrap text-right text-sm space-x-2">
                               {!invite.is_used && !isExpired(invite.expires_at) && (
                                 <button
                                   onClick={() => copyInviteLink(invite)}
@@ -643,147 +635,22 @@ const SettingsPage: React.FC = () => {
               </div>
             )}
 
-            {/* Roles Section */}
-            {activeSection === 'roles' && viewMode === 'list' && (
+            {/* Permissions Section */}
+            {activeSection === 'permissions' && (
               <div className="space-y-6">
                 <div>
-                  <h3 className="text-2xl font-bold">Roles</h3>
-                  <p className="text-gray-400 text-sm mt-1">
-                    Manage roles and their app permissions. Users with a role can access the apps assigned to that role.
+                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Permissions</h3>
+                  <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
+                    Configure fine-grained access control for each role, including which applications users can access.
                   </p>
                 </div>
-
-                {/* Create new role form */}
-                <div className="bg-gray-800 rounded-lg border border-gray-700 p-6">
-                  <h4 className="text-lg font-medium mb-4">Create New Role</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">Role Name</label>
-                      <input
-                        type="text"
-                        value={newRoleName}
-                        onChange={(e) => setNewRoleName(e.target.value)}
-                        className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="e.g., media-viewer"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">Description</label>
-                      <input
-                        type="text"
-                        value={newRoleDescription}
-                        onChange={(e) => setNewRoleDescription(e.target.value)}
-                        className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="Description of this role"
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-4">
-                    <label className="block text-sm font-medium text-gray-300 mb-2">App Permissions</label>
-                    <div className="flex flex-wrap gap-2">
-                      {apps.map((app) => (
-                        <button
-                          key={app.name}
-                          type="button"
-                          onClick={() => toggleAppForNewRole(app.name)}
-                          className={`px-3 py-1 rounded-full text-sm transition-colors ${
-                            newRoleApps.includes(app.name)
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                          }`}
-                        >
-                          {app.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="mt-4">
-                    <button
-                      onClick={handleCreateRole}
-                      disabled={creatingRole || !newRoleName.trim()}
-                      className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-md font-medium transition-colors"
-                    >
-                      {creatingRole ? 'Creating...' : 'Create Role'}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Existing roles list */}
-                <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
-                  <table className="min-w-full divide-y divide-gray-700">
-                    <thead className="bg-gray-750">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Role</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Description</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Apps</th>
-                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-700">
-                      {roles.map((role) => (
-                        <tr key={role.id}>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="flex items-center">
-                              <span className="font-medium text-white">{role.name}</span>
-                              {role.is_system && (
-                                <span className="ml-2 px-2 py-1 text-xs bg-gray-600 text-gray-300 rounded">System</span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 text-sm text-gray-400">{role.description || '-'}</td>
-                          <td className="px-6 py-4">
-                            {editingRole?.id === role.id ? (
-                              <RoleAppEditor
-                                role={role}
-                                apps={apps}
-                                onSave={(appNames) => handleSaveRoleApps(role.id, appNames)}
-                                onCancel={() => setEditingRole(null)}
-                              />
-                            ) : (
-                              <div className="flex flex-wrap gap-1">
-                                {role.app_names.length === 0 ? (
-                                  <span className="text-gray-500 text-sm">
-                                    {role.name === 'admin' ? 'All apps' : 'No apps'}
-                                  </span>
-                                ) : (
-                                  role.app_names.map((appName) => (
-                                    <span key={appName} className="px-2 py-1 text-xs bg-gray-700 text-gray-300 rounded">
-                                      {appName}
-                                    </span>
-                                  ))
-                                )}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm space-x-2">
-                            {editingRole?.id !== role.id && (
-                              <button
-                                onClick={() => handleEditRoleApps(role)}
-                                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-white transition-colors"
-                              >
-                                Edit Apps
-                              </button>
-                            )}
-                            {!role.is_system && (
-                              <button
-                                onClick={() => handleDeleteRole(role)}
-                                className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-white transition-colors"
-                              >
-                                Delete
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <PermissionMatrix />
               </div>
             )}
 
             {/* Create/Edit User Forms */}
             {viewMode === 'create' && (
-              <div className="bg-gray-800 rounded-lg border border-gray-700 p-6">
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
                 <UserForm
                   roles={roles}
                   onSubmit={handleCreateUser}
@@ -794,7 +661,7 @@ const SettingsPage: React.FC = () => {
             )}
 
             {viewMode === 'edit' && selectedUser && (
-              <div className="bg-gray-800 rounded-lg border border-gray-700 p-6">
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
                 <UserForm
                   user={selectedUser}
                   roles={roles}

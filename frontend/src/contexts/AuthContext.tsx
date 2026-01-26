@@ -6,7 +6,9 @@ interface AuthContextType {
   loading: boolean;
   isAuthenticated: boolean;
   isAdmin: boolean;
+  permissions: Set<string>;
   allowedApps: Set<string> | null;
+  hasPermission: (permission: string) => boolean;
   canAccessApp: (appName: string) => boolean;
   checkAuth: () => Promise<void>;
   logout: () => void;
@@ -49,32 +51,41 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setUser(null);
     // Clear token from localStorage
     localStorage.removeItem('access_token');
-    // Redirect to oauth2-proxy sign_out to clear session and trigger re-auth
-    window.location.href = '/oauth2/sign_out';
   };
 
   useEffect(() => {
+    // Skip auth check on login page to prevent redirect loop
+    if (window.location.pathname === '/login') {
+      setLoading(false);
+      return;
+    }
     checkAuth();
   }, []);
 
-  // Compute allowed apps based on user roles
-  const isAdmin = user?.is_admin || user?.roles?.some(r => r.name === 'admin') || false;
+  // Check if user has admin role
+  const isAdmin = user?.roles?.some(r => r.name === 'admin') || false;
+
+  // Get user permissions from the backend response
+  const permissions = useMemo(() => {
+    if (!user?.permissions) return new Set<string>();
+    return new Set(user.permissions);
+  }, [user]);
 
   const allowedApps = useMemo(() => {
-    if (!user?.roles?.length) return new Set<string>();
+    if (!user) return new Set<string>();
     if (isAdmin) return null; // null means all apps
-
-    const apps = new Set<string>();
-    // Note: We don't have app_names in RoleInfo, so filtering will be done by the backend
-    // This is a placeholder for frontend-side filtering if needed
-    return apps;
+    return new Set(user.allowed_apps || []);
   }, [user, isAdmin]);
 
-  const canAccessApp = (_appName: string): boolean => {
+  const hasPermission = (permission: string): boolean => {
+    if (isAdmin) return true;
+    return permissions.has(permission);
+  };
+
+  const canAccessApp = (appName: string): boolean => {
     if (isAdmin) return true;
     if (allowedApps === null) return true;
-    // For now, trust backend filtering - return true and let API calls handle permissions
-    return true;
+    return allowedApps.has(appName);
   };
 
   const value: AuthContextType = {
@@ -82,7 +93,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     loading,
     isAuthenticated: user !== null,
     isAdmin,
+    permissions,
     allowedApps,
+    hasPermission,
     canAccessApp,
     checkAuth,
     logout,

@@ -125,5 +125,5 @@ networkPolicy:
     - nginx  # nginx reverse proxy
     - sonarr
     - radarr
-    - prometheus
+    - victoriametrics
   egressTo: []

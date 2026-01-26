@@ -1,10 +1,21 @@
-# Stage 1: Build Rust backend
+# syntax=docker/dockerfile:1.4
+# Stage 1: Build Rust backend (fully static with musl)
 FROM rust:alpine AS rust-builder
 
-# Install build dependencies
-RUN apk add --no-cache musl-dev pkgconf openssl-dev openssl-libs-static
+# Install build dependencies including static SSL libs
+RUN apk add --no-cache \
+    musl-dev \
+    pkgconf \
+    openssl-dev \
+    openssl-libs-static
 
 WORKDIR /app
+
+# Set static linking environment
+ENV OPENSSL_STATIC=1
+ENV OPENSSL_LIB_DIR=/usr/lib
+ENV OPENSSL_INCLUDE_DIR=/usr/include
+ENV CARGO_INCREMENTAL=1
 
 # Copy Cargo files first for dependency caching
 COPY kubarr-rs/Cargo.toml kubarr-rs/Cargo.lock* ./
@@ -13,9 +24,15 @@ COPY kubarr-rs/Cargo.toml kubarr-rs/Cargo.lock* ./
 RUN mkdir src && \
     echo 'fn main() { println!("dummy"); }' > src/main.rs
 
-# Build dependencies (this layer will be cached)
-RUN cargo build --release && \
-    rm -rf src target/release/deps/kubarr*
+# Build dependencies with cache mounts (this dramatically speeds up rebuilds)
+# - cargo registry: caches downloaded crates
+# - cargo git: caches git dependencies
+# - target: caches compiled artifacts for incremental builds
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
+    cargo build --release && \
+    rm -rf src
 
 # Copy actual source code
 COPY kubarr-rs/src ./src
@@ -25,52 +42,56 @@ ARG COMMIT_HASH=unknown
 ARG BUILD_TIME=unknown
 
 # Build the release binary with version info
-RUN COMMIT_HASH=${COMMIT_HASH} BUILD_TIME=${BUILD_TIME} cargo build --release
+# Touch main.rs to force rebuild after copying real source, clear cached binary
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
+    rm -f /app/target/release/kubarr /app/target/release/deps/kubarr* && \
+    touch src/main.rs && \
+    COMMIT_HASH=${COMMIT_HASH} BUILD_TIME=${BUILD_TIME} \
+    cargo build --release && \
+    cp target/release/kubarr /kubarr
 
-# Stage 2: Final runtime image
+# Stage 2: Download Helm and prepare assets
+FROM alpine:3.19 AS asset-builder
+
+ARG TARGETARCH=amd64
+
+RUN apk add --no-cache curl tar tzdata ca-certificates && \
+    curl -fsSL https://get.helm.sh/helm-v3.14.0-linux-${TARGETARCH}.tar.gz | tar xz && \
+    mv linux-${TARGETARCH}/helm /helm && \
+    chmod +x /helm
+
+# Stage 3: Final Alpine image (includes DNS resolution)
 FROM alpine:3.19
 
 # Build args for environment
 ARG COMMIT_HASH=unknown
 ARG BUILD_TIME=unknown
 
+# Install CA certificates for HTTPS
+RUN apk add --no-cache ca-certificates tzdata
+
 WORKDIR /app
 
-# Install runtime dependencies
-RUN apk add --no-cache \
-    ca-certificates \
-    curl \
-    libgcc \
-    openssl \
-    && curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | sh
-
 # Copy the Rust binary
-COPY --from=rust-builder /app/target/release/kubarr /app/kubarr
+COPY --from=rust-builder /kubarr /app/kubarr
+
+# Copy Helm binary (statically linked)
+COPY --from=asset-builder /helm /usr/local/bin/helm
 
 # Copy Helm charts
 COPY charts/ /app/charts/
-
-# Create non-root user
-RUN adduser -D -u 1000 kubarr && \
-    chown -R kubarr:kubarr /app
-
-USER kubarr
 
 # Set environment variables
 ENV CHARTS_DIR=/app/charts
 ENV DATABASE_URL=sqlite:///app/data/kubarr.db
 ENV COMMIT_HASH=${COMMIT_HASH}
 ENV BUILD_TIME=${BUILD_TIME}
-
-# Create data directory
-RUN mkdir -p /app/data
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
 # Expose API port
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/api/health || exit 1
-
 # Run the Rust binary
-CMD ["/app/kubarr"]
+ENTRYPOINT ["/app/kubarr"]

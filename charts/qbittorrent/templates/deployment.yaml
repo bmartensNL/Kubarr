@@ -130,7 +130,7 @@ spec:
               mountPath: /config-immutable
               readOnly: true
         {{- if .Values.exporter.enabled }}
-        # Prometheus exporter sidecar
+        # Metrics exporter sidecar
         - name: exporter
           image: "{{ .Values.exporter.image.repository }}:{{ .Values.exporter.image.tag }}"
           imagePullPolicy: {{ .Values.exporter.image.pullPolicy }}

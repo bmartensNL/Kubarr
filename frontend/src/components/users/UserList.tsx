@@ -20,12 +20,12 @@ const UserList: React.FC<UserListProps> = ({
 }) => {
   const getStatusBadge = (user: User) => {
     if (!user.is_approved) {
-      return <span className="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-900 text-yellow-300">Pending Approval</span>;
+      return <span className="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-100 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-300">Pending Approval</span>;
     }
     if (!user.is_active) {
-      return <span className="px-2 py-1 text-xs font-semibold rounded-full bg-gray-700 text-gray-300">Inactive</span>;
+      return <span className="px-2 py-1 text-xs font-semibold rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300">Inactive</span>;
     }
-    return <span className="px-2 py-1 text-xs font-semibold rounded-full bg-green-900 text-green-300">Active</span>;
+    return <span className="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300">Active</span>;
   };
 
   const getRoleBadges = (user: User) => {
@@ -38,12 +38,12 @@ const UserList: React.FC<UserListProps> = ({
               key={role.id}
               className={`px-2 py-1 text-xs font-semibold rounded-full ${
                 role.name === 'admin'
-                  ? 'bg-blue-900 text-blue-300'
+                  ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
                   : role.name === 'viewer'
-                  ? 'bg-purple-900 text-purple-300'
+                  ? 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300'
                   : role.name === 'downloader'
-                  ? 'bg-orange-900 text-orange-300'
-                  : 'bg-gray-700 text-gray-300'
+                  ? 'bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300'
+                  : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
               }`}
             >
               {role.name}
@@ -52,44 +52,42 @@ const UserList: React.FC<UserListProps> = ({
         </div>
       );
     }
-    // Fallback to is_admin flag
-    return user.is_admin ? (
-      <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-900 text-blue-300">Admin</span>
-    ) : (
-      <span className="px-2 py-1 text-xs font-semibold rounded-full bg-gray-700 text-gray-300">No roles</span>
+    // No roles assigned
+    return (
+      <span className="px-2 py-1 text-xs font-semibold rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300">No roles</span>
     );
   };
 
   return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full divide-y divide-gray-700">
-        <thead className="bg-gray-800">
+    <div className="overflow-x-auto bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+        <thead className="bg-gray-50 dark:bg-gray-700">
           <tr>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">ID</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Username</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Email</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Roles</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Status</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Created</th>
-            {showActions && <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Actions</th>}
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">ID</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Username</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Email</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Roles</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Created</th>
+            {showActions && <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>}
           </tr>
         </thead>
-        <tbody className="bg-gray-900 divide-y divide-gray-700">
+        <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
           {users.length === 0 ? (
             <tr>
-              <td colSpan={showActions ? 7 : 6} className="px-6 py-8 text-center text-gray-400">
+              <td colSpan={showActions ? 7 : 6} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
                 No users found
               </td>
             </tr>
           ) : (
             users.map((user) => (
-              <tr key={user.id} className="hover:bg-gray-800 transition-colors">
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{user.id}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{user.username}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{user.email}</td>
+              <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">{user.id}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{user.username}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">{user.email}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">{getRoleBadges(user)}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">{getStatusBadge(user)}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{new Date(user.created_at).toLocaleDateString()}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">{new Date(user.created_at).toLocaleDateString()}</td>
                 {showActions && (
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <div className="flex space-x-2">

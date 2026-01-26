@@ -131,14 +131,14 @@ const SetupPage: React.FC = () => {
   const currentStepIndex = steps.findIndex(s => s.id === currentStep);
 
   return (
-    <div className="min-h-screen bg-gray-900 flex items-center justify-center px-4 py-12">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center px-4 py-12">
       <div className="max-w-2xl w-full space-y-8">
         {/* Header */}
         <div className="text-center">
-          <h1 className="text-3xl font-extrabold text-white">
+          <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white">
             Welcome to Kubarr
           </h1>
-          <p className="mt-2 text-gray-400">
+          <p className="mt-2 text-gray-500 dark:text-gray-400">
             Let's set up your media management dashboard
           </p>
         </div>
@@ -152,7 +152,7 @@ const SetupPage: React.FC = () => {
                   className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
                     index <= currentStepIndex
                       ? 'bg-blue-600 text-white'
-                      : 'bg-gray-700 text-gray-400'
+                      : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
                   }`}
                 >
                   {step.number}
@@ -177,7 +177,7 @@ const SetupPage: React.FC = () => {
         </div>
 
         {/* Form Container */}
-        <div className="bg-gray-800 rounded-lg shadow-xl p-8">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-8">
           {error && (
             <div className="mb-6 rounded-md bg-red-900 p-4">
               <div className="text-sm text-red-200">{error}</div>
@@ -188,17 +188,17 @@ const SetupPage: React.FC = () => {
           {currentStep === 'storage' && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-xl font-semibold text-white mb-2">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
                   Storage Configuration
                 </h2>
-                <p className="text-gray-400 text-sm">
+                <p className="text-gray-500 dark:text-gray-400 text-sm">
                   Specify the root path where all media files and downloads will be stored.
                   This path must exist on the host machine and be writable.
                 </p>
               </div>
 
               <div>
-                <label htmlFor="storagePath" className="block text-sm font-medium text-gray-300">
+                <label htmlFor="storagePath" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Storage Path
                 </label>
                 <div className="mt-1 flex rounded-md shadow-sm">
@@ -211,14 +211,14 @@ const SetupPage: React.FC = () => {
                       setPathValid(null);
                       setPathError(null);
                     }}
-                    className="flex-1 block w-full px-3 py-2 border border-gray-700 bg-gray-900 text-white rounded-l-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    className="flex-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-l-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                     placeholder="/mnt/data/kubarr"
                   />
                   <button
                     type="button"
                     onClick={validateStoragePath}
                     disabled={validatingPath}
-                    className="inline-flex items-center px-4 py-2 border border-l-0 border-gray-700 bg-gray-700 text-sm font-medium text-gray-300 hover:bg-gray-600 rounded-r-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                    className="inline-flex items-center px-4 py-2 border border-l-0 border-gray-300 dark:border-gray-700 bg-gray-200 dark:bg-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-r-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
                   >
                     {validatingPath ? 'Checking...' : 'Validate'}
                   </button>
@@ -233,14 +233,14 @@ const SetupPage: React.FC = () => {
                 )}
               </div>
 
-              <div className="bg-gray-900 rounded-md p-4">
-                <h3 className="text-sm font-medium text-gray-300 mb-2">
+              <div className="bg-gray-100 dark:bg-gray-900 rounded-md p-4">
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Folder Structure
                 </h3>
                 <p className="text-xs text-gray-500 mb-2">
                   The following folders will be created automatically:
                 </p>
-                <pre className="text-xs text-gray-400 font-mono">
+                <pre className="text-xs text-gray-500 dark:text-gray-400 font-mono">
 {`${storagePath}/
 ├── downloads/
 │   ├── qbittorrent/
@@ -273,17 +273,17 @@ const SetupPage: React.FC = () => {
           {currentStep === 'admin' && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-xl font-semibold text-white mb-2">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
                   Admin User
                 </h2>
-                <p className="text-gray-400 text-sm">
+                <p className="text-gray-500 dark:text-gray-400 text-sm">
                   Create the initial administrator account.
                 </p>
               </div>
 
               <div className="space-y-4">
                 <div>
-                  <label htmlFor="adminUsername" className="block text-sm font-medium text-gray-300">
+                  <label htmlFor="adminUsername" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Username
                   </label>
                   <input
@@ -291,12 +291,12 @@ const SetupPage: React.FC = () => {
                     id="adminUsername"
                     value={adminUsername}
                     onChange={(e) => setAdminUsername(e.target.value)}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-700 bg-gray-900 text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="adminEmail" className="block text-sm font-medium text-gray-300">
+                  <label htmlFor="adminEmail" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Email
                   </label>
                   <input
@@ -304,13 +304,13 @@ const SetupPage: React.FC = () => {
                     id="adminEmail"
                     value={adminEmail}
                     onChange={(e) => setAdminEmail(e.target.value)}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-700 bg-gray-900 text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                     placeholder="admin@example.com"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="adminPassword" className="block text-sm font-medium text-gray-300">
+                  <label htmlFor="adminPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Password
                   </label>
                   <input
@@ -318,13 +318,13 @@ const SetupPage: React.FC = () => {
                     id="adminPassword"
                     value={adminPassword}
                     onChange={(e) => setAdminPassword(e.target.value)}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-700 bg-gray-900 text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                     placeholder="Minimum 8 characters"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-300">
+                  <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Confirm Password
                   </label>
                   <input
@@ -332,7 +332,7 @@ const SetupPage: React.FC = () => {
                     id="confirmPassword"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-700 bg-gray-900 text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                   />
                 </div>
               </div>
@@ -360,39 +360,39 @@ const SetupPage: React.FC = () => {
           {currentStep === 'summary' && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-xl font-semibold text-white mb-2">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
                   Review & Confirm
                 </h2>
-                <p className="text-gray-400 text-sm">
+                <p className="text-gray-500 dark:text-gray-400 text-sm">
                   Please review your configuration before completing setup.
                 </p>
               </div>
 
               <div className="space-y-4">
-                <div className="bg-gray-900 rounded-md p-4">
-                  <h3 className="text-sm font-medium text-gray-300 mb-3">
+                <div className="bg-gray-100 dark:bg-gray-900 rounded-md p-4">
+                  <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
                     Storage Configuration
                   </h3>
                   <dl className="space-y-2">
                     <div className="flex justify-between">
                       <dt className="text-sm text-gray-500">Root Path:</dt>
-                      <dd className="text-sm text-white font-mono">{storagePath}</dd>
+                      <dd className="text-sm text-gray-900 dark:text-white font-mono">{storagePath}</dd>
                     </div>
                   </dl>
                 </div>
 
-                <div className="bg-gray-900 rounded-md p-4">
-                  <h3 className="text-sm font-medium text-gray-300 mb-3">
+                <div className="bg-gray-100 dark:bg-gray-900 rounded-md p-4">
+                  <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
                     Admin User
                   </h3>
                   <dl className="space-y-2">
                     <div className="flex justify-between">
                       <dt className="text-sm text-gray-500">Username:</dt>
-                      <dd className="text-sm text-white">{adminUsername}</dd>
+                      <dd className="text-sm text-gray-900 dark:text-white">{adminUsername}</dd>
                     </div>
                     <div className="flex justify-between">
                       <dt className="text-sm text-gray-500">Email:</dt>
-                      <dd className="text-sm text-white">{adminEmail}</dd>
+                      <dd className="text-sm text-gray-900 dark:text-white">{adminEmail}</dd>
                     </div>
                   </dl>
                 </div>

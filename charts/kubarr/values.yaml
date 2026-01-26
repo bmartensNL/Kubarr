@@ -51,7 +51,7 @@ backend:
     - name: KUBARR_LOG_LEVEL
       value: "INFO"
     - name: KUBARR_OAUTH2_ISSUER_URL
-      value: "http://localhost:8080"
+      value: "http://kubarr.kubarr.svc.cluster.local:8000"
 
 # Frontend configuration (nginx Alpine serving static files with SPA routing)
 frontend:
@@ -218,3 +218,6 @@ networkPolicy:
     - jellyfin
     - jellyseerr
     - sabnzbd
+    - victoriametrics
+    - loki
+    - grafana

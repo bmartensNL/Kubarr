@@ -12,6 +12,7 @@ data:
       {{- if .Values.grafana.datasources.prometheus.enabled }}
       - name: Prometheus
         type: prometheus
+        uid: prometheus
         access: proxy
         url: {{ .Values.grafana.datasources.prometheus.url }}
         isDefault: true
@@ -22,6 +23,7 @@ data:
       {{- if .Values.grafana.datasources.loki.enabled }}
       - name: Loki
         type: loki
+        uid: loki
         access: proxy
         url: {{ .Values.grafana.datasources.loki.url }}
         editable: false

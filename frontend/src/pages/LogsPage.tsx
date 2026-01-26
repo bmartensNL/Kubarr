@@ -211,11 +211,11 @@ export default function LogsPage() {
     <div className="h-full flex flex-col">
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <FileText className="text-blue-400" />
+        <h1 className="text-2xl font-bold flex items-center gap-2 text-gray-900 dark:text-white">
+          <FileText className="text-blue-500 dark:text-blue-400" />
           Logs
         </h1>
-        <p className="text-gray-400 mt-1">View application logs from Loki</p>
+        <p className="text-gray-500 dark:text-gray-400 mt-1">View application logs from Loki</p>
       </div>
 
       {/* Filters Bar */}
@@ -224,7 +224,7 @@ export default function LogsPage() {
         <div className="relative">
           <button
             onClick={() => setShowAppDropdown(!showAppDropdown)}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg hover:bg-gray-750 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-750 transition-colors text-gray-900 dark:text-white"
           >
             <Filter size={16} />
             <span>{getSelectedAppsText()}</span>
@@ -232,18 +232,18 @@ export default function LogsPage() {
           </button>
 
           {showAppDropdown && (
-            <div className="absolute top-full left-0 mt-1 w-72 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 max-h-96 overflow-y-auto">
-              <div className="p-2 border-b border-gray-700">
+            <div className="absolute top-full left-0 mt-1 w-72 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-50 max-h-96 overflow-y-auto">
+              <div className="p-2 border-b border-gray-200 dark:border-gray-700">
                 <button
                   onClick={toggleAllApps}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-700 rounded transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors text-gray-900 dark:text-white"
                 >
                   <div className={`w-5 h-5 rounded border flex items-center justify-center ${
                     selectedApps.length === apps.length
                       ? 'bg-blue-600 border-blue-600'
-                      : 'border-gray-600'
+                      : 'border-gray-300 dark:border-gray-600'
                   }`}>
-                    {selectedApps.length === apps.length && <Check size={14} />}
+                    {selectedApps.length === apps.length && <Check size={14} className="text-white" />}
                   </div>
                   <span className="font-medium">
                     {selectedApps.length === apps.length ? 'Deselect All' : 'Select All'}
@@ -257,12 +257,12 @@ export default function LogsPage() {
                     <button
                       key={app}
                       onClick={() => toggleApp(app)}
-                      className="w-full flex items-center gap-3 px-3 py-2 hover:bg-gray-700 rounded transition-colors text-left"
+                      className="w-full flex items-center gap-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors text-left text-gray-900 dark:text-white"
                     >
                       <div className={`w-5 h-5 rounded border flex items-center justify-center ${
-                        isSelected ? 'bg-blue-600 border-blue-600' : 'border-gray-600'
+                        isSelected ? 'bg-blue-600 border-blue-600' : 'border-gray-300 dark:border-gray-600'
                       }`}>
-                        {isSelected && <Check size={14} />}
+                        {isSelected && <Check size={14} className="text-white" />}
                       </div>
                       <AppIcon appName={app} size={32} />
                       <span className="flex-1 font-medium">{getAppLabel(app)}</span>
@@ -278,7 +278,7 @@ export default function LogsPage() {
         <div className="relative">
           <button
             onClick={() => setShowTimeDropdown(!showTimeDropdown)}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg hover:bg-gray-750 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-750 transition-colors text-gray-900 dark:text-white"
           >
             <Clock size={16} />
             <span>{timeRange.label}</span>
@@ -286,7 +286,7 @@ export default function LogsPage() {
           </button>
 
           {showTimeDropdown && (
-            <div className="absolute top-full left-0 mt-1 w-48 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50">
+            <div className="absolute top-full left-0 mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-50">
               {TIME_RANGES.map(range => (
                 <button
                   key={range.value}
@@ -294,8 +294,8 @@ export default function LogsPage() {
                     setTimeRange(range)
                     setShowTimeDropdown(false)
                   }}
-                  className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-700 transition-colors first:rounded-t-lg last:rounded-b-lg ${
-                    timeRange.value === range.value ? 'bg-gray-700 text-blue-400' : ''
+                  className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors first:rounded-t-lg last:rounded-b-lg ${
+                    timeRange.value === range.value ? 'bg-gray-100 dark:bg-gray-700 text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-white'
                   }`}
                 >
                   {range.label}
@@ -314,7 +314,7 @@ export default function LogsPage() {
             onChange={(e) => setSearchText(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && fetchLogs()}
             placeholder="Search logs... (press Enter)"
-            className="w-full pl-10 pr-4 py-2 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:border-blue-500 transition-colors"
+            className="w-full pl-10 pr-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-blue-500 transition-colors text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
           />
         </div>
 
@@ -324,8 +324,8 @@ export default function LogsPage() {
             onClick={() => setAutoRefresh(!autoRefresh)}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
               autoRefresh
-                ? 'bg-green-600 hover:bg-green-700'
-                : 'bg-gray-800 border border-gray-700 hover:bg-gray-750'
+                ? 'bg-green-600 hover:bg-green-700 text-white'
+                : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-750 text-gray-900 dark:text-white'
             }`}
             title={autoRefresh ? 'Stop auto-refresh' : 'Start auto-refresh (5s)'}
           >
@@ -357,26 +357,26 @@ export default function LogsPage() {
 
       {/* Error */}
       {error && (
-        <div className="mb-4 p-4 bg-red-900/30 border border-red-700 rounded-lg flex items-center gap-3">
-          <AlertCircle className="text-red-400 flex-shrink-0" />
-          <span className="text-red-300">{error}</span>
+        <div className="mb-4 p-4 bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 rounded-lg flex items-center gap-3">
+          <AlertCircle className="text-red-500 dark:text-red-400 flex-shrink-0" />
+          <span className="text-red-600 dark:text-red-300">{error}</span>
         </div>
       )}
 
       {/* Stats */}
-      <div className="mb-2 text-sm text-gray-400">
+      <div className="mb-2 text-sm text-gray-500 dark:text-gray-400">
         {loading ? (
           <span>Loading...</span>
         ) : (
           <span>{entries.length.toLocaleString()} log entries</span>
         )}
-        {autoRefresh && <span className="ml-2 text-green-400">Auto-refreshing every 5s</span>}
+        {autoRefresh && <span className="ml-2 text-green-600 dark:text-green-400">Auto-refreshing every 5s</span>}
       </div>
 
       {/* Log Viewer */}
       <div
         ref={logsContainerRef}
-        className="flex-1 bg-gray-950 border border-gray-800 rounded-lg overflow-auto font-mono text-sm"
+        className="flex-1 bg-gray-100 dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg overflow-auto font-mono text-sm"
       >
         {entries.length === 0 && !loading ? (
           <div className="flex items-center justify-center h-full text-gray-500">
@@ -395,21 +395,21 @@ export default function LogsPage() {
                 return (
                   <tr
                     key={`${entry.timestamp}-${index}`}
-                    className="hover:bg-gray-900/50 border-b border-gray-800/50"
+                    className="hover:bg-gray-200 dark:hover:bg-gray-900/50 border-b border-gray-200 dark:border-gray-800/50"
                   >
                     <td className="px-3 py-1 text-gray-500 whitespace-nowrap align-top text-xs">
                       {formatTimestamp(entry.timestamp)}
                     </td>
                     <td className="px-2 py-1 whitespace-nowrap align-top">
-                      <div className="inline-flex items-center gap-1.5 px-1.5 py-0.5 text-xs rounded bg-gray-800">
+                      <div className="inline-flex items-center gap-1.5 px-1.5 py-0.5 text-xs rounded bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-200">
                         <AppIcon appName={appName} size={18} />
                         <span>{getAppLabel(appName)}</span>
                       </div>
                     </td>
-                    <td className="px-2 py-1 text-gray-400 whitespace-nowrap align-top text-xs max-w-[150px] truncate" title={entry.labels.pod || ''}>
+                    <td className="px-2 py-1 text-gray-500 dark:text-gray-400 whitespace-nowrap align-top text-xs max-w-[150px] truncate" title={entry.labels.pod || ''}>
                       {entry.labels.container || entry.labels.pod?.split('-').slice(0, -2).join('-') || ''}
                     </td>
-                    <td className="px-3 py-1 text-gray-200 whitespace-pre-wrap break-all">
+                    <td className="px-3 py-1 text-gray-700 dark:text-gray-200 whitespace-pre-wrap break-all">
                       {entry.line}
                     </td>
                   </tr>

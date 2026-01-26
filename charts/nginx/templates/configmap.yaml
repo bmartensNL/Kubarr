@@ -7,6 +7,9 @@ metadata:
     {{- include "nginx.labels" . | nindent 4 }}
 data:
   nginx.conf: |
+    # Load njs module for JWT validation
+    load_module modules/ngx_http_js_module.so;
+
     events {
         worker_connections 1024;
     }
@@ -18,6 +21,10 @@ data:
 
         # Use Kubernetes DNS resolver with short TTL to prevent IP caching
         resolver kube-dns.kube-system.svc.cluster.local valid=5s;
+
+        # njs module configuration for JWT validation
+        js_path /etc/nginx/njs/;
+        js_import jwt from jwt_auth.js;
 
         # Strip auth headers from responses (these are internal only)
         proxy_hide_header X-Auth-Request-Access-Token;
@@ -38,8 +45,30 @@ data:
                 add_header Content-Type text/plain;
             }
 
+            # JWT validation endpoint (internal) - called via auth_request
+            location = /jwt_validate {
+                internal;
+                js_content jwt.authorize;
+            }
+
+            # Error handler for 401 Unauthorized
+            location @error_401 {
+                default_type application/json;
+                return 401 '{"error":"unauthorized","message":"Authentication required"}';
+            }
+
+            # Error handler for 403 Forbidden
+            location @error_403 {
+                default_type application/json;
+                return 403 '{"error":"forbidden","message":"Access denied to this application"}';
+            }
+
             # Proxy qbittorrent - use variable to force dynamic DNS resolution
             location /qbittorrent/ {
+                auth_request /jwt_validate;
+                error_page 401 = @error_401;
+                error_page 403 = @error_403;
+
                 set $qbittorrent_upstream qbittorrent.qbittorrent.svc.cluster.local:8080;
                 rewrite ^/qbittorrent/(.*) /$1 break;
                 proxy_pass http://$qbittorrent_upstream;
@@ -53,6 +82,10 @@ data:
             # Proxy jackett - use variable to force dynamic DNS resolution
             # Note: Don't strip /jackett prefix - Jackett handles it with BasePathOverride
             location /jackett {
+                auth_request /jwt_validate;
+                error_page 401 = @error_401;
+                error_page 403 = @error_403;
+
                 set $jackett_upstream jackett.jackett.svc.cluster.local:9117;
                 proxy_pass http://$jackett_upstream;
                 proxy_set_header Host $http_host;
@@ -70,6 +103,10 @@ data:
 
             # Proxy sonarr - use variable to force dynamic DNS resolution
             location /sonarr {
+                auth_request /jwt_validate;
+                error_page 401 = @error_401;
+                error_page 403 = @error_403;
+
                 set $sonarr_upstream sonarr.sonarr.svc.cluster.local:8989;
                 proxy_pass http://$sonarr_upstream;
                 proxy_set_header Host $http_host;
@@ -82,6 +119,10 @@ data:
 
             # Proxy radarr - use variable to force dynamic DNS resolution
             location /radarr {
+                auth_request /jwt_validate;
+                error_page 401 = @error_401;
+                error_page 403 = @error_403;
+
                 set $radarr_upstream radarr.radarr.svc.cluster.local:7878;
                 proxy_pass http://$radarr_upstream;
                 proxy_set_header Host $http_host;
@@ -94,6 +135,10 @@ data:
 
             # Proxy transmission - use variable to force dynamic DNS resolution
             location /transmission/ {
+                auth_request /jwt_validate;
+                error_page 401 = @error_401;
+                error_page 403 = @error_403;
+
                 set $transmission_upstream transmission.transmission.svc.cluster.local:9091;
                 proxy_pass http://$transmission_upstream;
                 proxy_set_header Host $host;
@@ -104,6 +149,10 @@ data:
 
             # Proxy deluge - use variable to force dynamic DNS resolution
             location /deluge/ {
+                auth_request /jwt_validate;
+                error_page 401 = @error_401;
+                error_page 403 = @error_403;
+
                 set $deluge_upstream deluge.deluge.svc.cluster.local:8112;
                 rewrite ^/deluge/(.*) /$1 break;
                 proxy_pass http://$deluge_upstream;
@@ -126,6 +175,10 @@ data:
 
             # Proxy ruTorrent - use variable to force dynamic DNS resolution
             location /rutorrent/ {
+                auth_request /jwt_validate;
+                error_page 401 = @error_401;
+                error_page 403 = @error_403;
+
                 set $rutorrent_upstream rutorrent.rutorrent.svc.cluster.local:8080;
                 rewrite ^/rutorrent/(.*) /$1 break;
                 proxy_pass http://$rutorrent_upstream;
@@ -137,6 +190,10 @@ data:
 
             # Proxy jellyfin - use variable to force dynamic DNS resolution
             location /jellyfin/ {
+                auth_request /jwt_validate;
+                error_page 401 = @error_401;
+                error_page 403 = @error_403;
+
                 set $jellyfin_upstream jellyfin.jellyfin.svc.cluster.local:8096;
                 rewrite ^/jellyfin/(.*) /$1 break;
                 proxy_pass http://$jellyfin_upstream;
@@ -148,6 +205,10 @@ data:
 
             # Proxy plex - use variable to force dynamic DNS resolution
             location /plex/ {
+                auth_request /jwt_validate;
+                error_page 401 = @error_401;
+                error_page 403 = @error_403;
+
                 set $plex_upstream plex.plex.svc.cluster.local:32400;
                 proxy_pass http://$plex_upstream/;
                 proxy_set_header Host $host;
@@ -180,6 +241,10 @@ data:
             # Proxy jellyseerr - use variable to force dynamic DNS resolution
             # Jellyseerr doesn't support base path natively, so we rewrite URLs in responses
             location /jellyseerr/ {
+                auth_request /jwt_validate;
+                error_page 401 = @error_401;
+                error_page 403 = @error_403;
+
                 set $jellyseerr_upstream jellyseerr.jellyseerr.svc.cluster.local:5055;
                 rewrite ^/jellyseerr/(.*) /$1 break;
                 proxy_pass http://$jellyseerr_upstream;
@@ -229,6 +294,10 @@ data:
 
             # Proxy sabnzbd - use variable to force dynamic DNS resolution
             location /sabnzbd/ {
+                auth_request /jwt_validate;
+                error_page 401 = @error_401;
+                error_page 403 = @error_403;
+
                 set $sabnzbd_upstream sabnzbd.sabnzbd.svc.cluster.local:8080;
                 rewrite ^/sabnzbd/(.*) /$1 break;
                 proxy_pass http://$sabnzbd_upstream;
@@ -236,10 +305,37 @@ data:
                 proxy_set_header X-Real-IP $remote_addr;
                 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
                 proxy_set_header X-Forwarded-Proto $scheme;
+
+                # Disable gzip from upstream so sub_filter can work
+                proxy_set_header Accept-Encoding "";
+
+                # Rewrite redirects from SABnzbd to include /sabnzbd/ prefix
+                proxy_redirect / /sabnzbd/;
+                proxy_redirect ~^(https?://[^/]+)/(.*)$ $1/sabnzbd/$2;
+
+                # Rewrite absolute paths in HTML/JS responses
+                sub_filter_once off;
+                sub_filter_types text/html text/css application/javascript application/json;
+                sub_filter 'href="/' 'href="/sabnzbd/';
+                sub_filter "href='/" "href='/sabnzbd/";
+                sub_filter 'src="/' 'src="/sabnzbd/';
+                sub_filter "src='/" "src='/sabnzbd/";
+                sub_filter 'action="/' 'action="/sabnzbd/';
+                sub_filter "action='/" "action='/sabnzbd/";
+                sub_filter '"/api' '"/sabnzbd/api';
+                sub_filter "'/api" "'/sabnzbd/api";
+                sub_filter '"/wizard' '"/sabnzbd/wizard';
+                sub_filter "'/wizard" "'/sabnzbd/wizard";
+                sub_filter '"/config' '"/sabnzbd/config';
+                sub_filter "'/config" "'/sabnzbd/config";
             }
 
             # Proxy Grafana
             location /grafana/ {
+                auth_request /jwt_validate;
+                error_page 401 = @error_401;
+                error_page 403 = @error_403;
+
                 set $grafana_upstream grafana.grafana.svc.cluster.local:3000;
                 proxy_pass http://$grafana_upstream;
                 proxy_set_header Host $http_host;
@@ -253,24 +349,46 @@ data:
                 proxy_set_header Connection "upgrade";
             }
 
-            # Proxy Prometheus
-            location /prometheus/ {
-                set $prometheus_upstream prometheus.prometheus.svc.cluster.local:9090;
-                proxy_pass http://$prometheus_upstream;
-                proxy_set_header Host $http_host;
-                proxy_set_header X-Real-IP $remote_addr;
-                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                proxy_set_header X-Forwarded-Proto $scheme;
-            }
-
             # Proxy Loki API
             location /loki/ {
+                auth_request /jwt_validate;
+                error_page 401 = @error_401;
+                error_page 403 = @error_403;
+
                 set $loki_upstream loki.loki.svc.cluster.local:3100;
                 proxy_pass http://$loki_upstream;
                 proxy_set_header Host $http_host;
                 proxy_set_header X-Real-IP $remote_addr;
                 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
                 proxy_set_header X-Forwarded-Proto $scheme;
+            }
+
+            # Proxy Kubernetes Dashboard
+            location /kubernetes-dashboard/ {
+                auth_request /jwt_validate;
+                error_page 401 = @error_401;
+                error_page 403 = @error_403;
+
+                set $k8s_dashboard_upstream kubernetes-dashboard.kubernetes-dashboard.svc.cluster.local:9090;
+                rewrite ^/kubernetes-dashboard/(.*) /$1 break;
+                proxy_pass http://$k8s_dashboard_upstream;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+
+                # Disable Accept-Encoding so sub_filter can work
+                proxy_set_header Accept-Encoding "";
+
+                # Rewrite paths in responses to include /kubernetes-dashboard/ prefix
+                sub_filter_once off;
+                sub_filter_types text/html text/css application/javascript application/json;
+                sub_filter 'href="/' 'href="/kubernetes-dashboard/';
+                sub_filter "href='/" "href='/kubernetes-dashboard/";
+                sub_filter 'src="/' 'src="/kubernetes-dashboard/';
+                sub_filter "src='/" "src='/kubernetes-dashboard/";
+                sub_filter '"/api/' '"/kubernetes-dashboard/api/';
+                sub_filter "'/api/" "'/kubernetes-dashboard/api/";
             }
 
             # Kubarr API - route to backend
@@ -303,6 +421,7 @@ data:
             }
 
             # Default to kubarr frontend - use variable to force dynamic DNS resolution
+            # SPA routing: intercept 404s and serve index.html for client-side routing
             location / {
                 set $kubarr_frontend kubarr-frontend.kubarr.svc.cluster.local:80;
                 proxy_pass http://$kubarr_frontend;
@@ -310,6 +429,17 @@ data:
                 proxy_set_header X-Real-IP $remote_addr;
                 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
                 proxy_set_header X-Forwarded-Proto $scheme;
+
+                # Intercept 404 errors from upstream for SPA fallback
+                proxy_intercept_errors on;
+                error_page 404 = @spa_fallback;
+            }
+
+            # SPA fallback - serve index.html for 404s (enables client-side routing)
+            location @spa_fallback {
+                set $kubarr_frontend kubarr-frontend.kubarr.svc.cluster.local:80;
+                proxy_pass http://$kubarr_frontend/index.html;
+                proxy_set_header Host $host;
             }
         }
     }

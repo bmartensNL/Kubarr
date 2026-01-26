@@ -36,7 +36,7 @@ grafana:
   datasources:
     prometheus:
       enabled: true
-      url: "http://prometheus.prometheus.svc.cluster.local:9090/prometheus"
+      url: "http://victoriametrics.victoriametrics.svc.cluster.local:8428"
     loki:
       enabled: true
       url: "http://loki.loki.svc.cluster.local:3100"
@@ -90,5 +90,5 @@ networkPolicy:
   ingressFrom:
     - nginx  # nginx reverse proxy
   egressTo:
-    - prometheus
+    - victoriametrics
     - loki

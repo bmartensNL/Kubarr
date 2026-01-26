@@ -1,30 +1,36 @@
 import apiClient from './client';
 import { RoleInfo } from './roles';
 
+export type Theme = 'system' | 'light' | 'dark';
+
+export interface UserPreferences {
+  theme: Theme;
+}
+
 export interface User {
   id: number;
   username: string;
   email: string;
   is_active: boolean;
-  is_admin: boolean;
   is_approved: boolean;
   created_at: string;
   updated_at: string;
   roles: RoleInfo[];
+  preferences: UserPreferences;
+  permissions: string[];
+  allowed_apps: string[];
 }
 
 export interface CreateUserRequest {
   username: string;
   email: string;
   password: string;
-  is_admin?: boolean;
   role_ids?: number[];
 }
 
 export interface UpdateUserRequest {
   email?: string;
   is_active?: boolean;
-  is_admin?: boolean;
   is_approved?: boolean;
   role_ids?: number[];
 }
@@ -138,5 +144,27 @@ export const createInvite = async (data?: CreateInviteRequest): Promise<Invite> 
  */
 export const deleteInvite = async (inviteId: number): Promise<{ message: string }> => {
   const response = await apiClient.delete<{ message: string }>(`/users/invites/${inviteId}`);
+  return response.data;
+};
+
+// Preferences API functions
+
+export interface UpdatePreferencesRequest {
+  theme?: Theme;
+}
+
+/**
+ * Get current user's preferences
+ */
+export const getMyPreferences = async (): Promise<UserPreferences> => {
+  const response = await apiClient.get<UserPreferences>('/users/me/preferences');
+  return response.data;
+};
+
+/**
+ * Update current user's preferences
+ */
+export const updateMyPreferences = async (data: UpdatePreferencesRequest): Promise<UserPreferences> => {
+  const response = await apiClient.patch<UserPreferences>('/users/me/preferences', data);
   return response.data;
 };

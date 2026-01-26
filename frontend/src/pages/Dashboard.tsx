@@ -18,7 +18,7 @@ export default function Dashboard() {
   const {
     clusterMetrics,
     metricsLoading,
-    prometheusAvailable,
+    metricsAvailable,
     catalog,
     installedApps: installedAppNames,
     appStatuses,
@@ -39,21 +39,21 @@ export default function Dashboard() {
       <div>
         <h2 className="text-2xl font-bold mb-4">Overview</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-gray-800 rounded-lg p-6">
-            <div className="text-gray-400 text-sm">Installed Apps</div>
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-sm dark:shadow-none">
+            <div className="text-gray-500 dark:text-gray-400 text-sm">Installed Apps</div>
             <div className="text-3xl font-bold">{installedApps.length}</div>
           </div>
-          <div className="bg-gray-800 rounded-lg p-6">
-            <div className="text-gray-400 text-sm">Healthy</div>
-            <div className="text-3xl font-bold text-green-400">{healthyApps.length}</div>
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-sm dark:shadow-none">
+            <div className="text-gray-500 dark:text-gray-400 text-sm">Healthy</div>
+            <div className="text-3xl font-bold text-green-500 dark:text-green-400">{healthyApps.length}</div>
           </div>
-          <div className="bg-gray-800 rounded-lg p-6">
-            <div className="text-gray-400 text-sm">Unhealthy</div>
-            <div className="text-3xl font-bold text-red-400">{installedApps.length - healthyApps.length}</div>
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-sm dark:shadow-none">
+            <div className="text-gray-500 dark:text-gray-400 text-sm">Unhealthy</div>
+            <div className="text-3xl font-bold text-red-500 dark:text-red-400">{installedApps.length - healthyApps.length}</div>
           </div>
-          <div className="bg-gray-800 rounded-lg p-6">
-            <div className="text-gray-400 text-sm">Available</div>
-            <div className="text-3xl font-bold text-blue-400">{(catalog?.length || 0) - installedApps.length}</div>
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-sm dark:shadow-none">
+            <div className="text-gray-500 dark:text-gray-400 text-sm">Available</div>
+            <div className="text-3xl font-bold text-blue-500 dark:text-blue-400">{(catalog?.length || 0) - installedApps.length}</div>
           </div>
         </div>
       </div>
@@ -61,43 +61,37 @@ export default function Dashboard() {
       {/* System Resources */}
       <div>
         <div className="flex items-center gap-3 mb-4">
-          <Activity className="w-6 h-6 text-blue-400" />
+          <Activity className="w-6 h-6 text-blue-500 dark:text-blue-400" />
           <h2 className="text-2xl font-bold">System Resources</h2>
           {clusterMetrics && (
             <span className="text-xs text-gray-500 ml-auto">Live • Updates every 10s</span>
           )}
         </div>
 
-        {/* Prometheus not available message */}
-        {prometheusAvailable === false && (
-          <div className="bg-gray-800 rounded-lg p-6 flex items-center gap-4">
+        {/* Metrics not available message */}
+        {metricsAvailable === false && (
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 flex items-center gap-4 shadow-sm dark:shadow-none">
             <AlertCircle className="w-8 h-8 text-yellow-500 flex-shrink-0" />
             <div>
-              <p className="text-gray-300">Prometheus is not installed</p>
-              <p className="text-sm text-gray-500">Install Prometheus from the Apps page to see detailed system metrics</p>
+              <p className="text-gray-700 dark:text-gray-300">Metrics server is not available</p>
+              <p className="text-sm text-gray-500">VictoriaMetrics may be starting up or experiencing issues</p>
             </div>
-            <a
-              href="/apps"
-              className="ml-auto bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors"
-            >
-              Install
-            </a>
           </div>
         )}
 
         {/* Loading state */}
-        {prometheusAvailable && metricsLoading && !clusterMetrics && (
+        {metricsAvailable && metricsLoading && !clusterMetrics && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {[...Array(6)].map((_, i) => (
-              <div key={i} className="bg-gray-800 rounded-lg p-5 animate-pulse">
+              <div key={i} className="bg-white dark:bg-gray-800 rounded-lg p-5 animate-pulse shadow-sm dark:shadow-none">
                 <div className="flex items-center gap-3 mb-3">
-                  <div className="w-9 h-9 bg-gray-700 rounded-lg" />
+                  <div className="w-9 h-9 bg-gray-200 dark:bg-gray-700 rounded-lg" />
                   <div className="space-y-2">
-                    <div className="h-3 w-20 bg-gray-700 rounded" />
-                    <div className="h-5 w-16 bg-gray-700 rounded" />
+                    <div className="h-3 w-20 bg-gray-200 dark:bg-gray-700 rounded" />
+                    <div className="h-5 w-16 bg-gray-200 dark:bg-gray-700 rounded" />
                   </div>
                 </div>
-                <div className="h-2 bg-gray-700 rounded-full" />
+                <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full" />
               </div>
             ))}
           </div>
@@ -108,15 +102,15 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {/* CPU Usage */}
             <a
-              href="/monitoring"
-              className="bg-gray-800 rounded-lg p-5 hover:bg-gray-750 hover:ring-1 hover:ring-blue-500/50 transition-all cursor-pointer group"
+              href="/resources"
+              className="bg-white dark:bg-gray-800 rounded-lg p-5 shadow-sm dark:shadow-none hover:bg-gray-50 dark:hover:bg-gray-700 hover:ring-1 hover:ring-blue-500/50 transition-all cursor-pointer group"
             >
               <div className="flex items-center gap-3 mb-3">
                 <div className="p-2 bg-blue-500/20 rounded-lg group-hover:bg-blue-500/30 transition-colors">
                   <Cpu className="w-5 h-5 text-blue-400" />
                 </div>
                 <div className="flex-1">
-                  <div className="text-gray-400 text-sm">CPU Usage</div>
+                  <div className="text-gray-500 dark:text-gray-400 text-sm">CPU Usage</div>
                   <div className="text-xl font-semibold">
                     {clusterMetrics.cpu_usage_percent.toFixed(1)}%
                   </div>
@@ -130,7 +124,7 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
-              <div className="w-full bg-gray-700 rounded-full h-2">
+              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                 <div
                   className={`h-2 rounded-full transition-all duration-500 ${
                     clusterMetrics.cpu_usage_percent > 80 ? 'bg-red-500' :
@@ -143,15 +137,15 @@ export default function Dashboard() {
 
             {/* Memory Usage */}
             <a
-              href="/monitoring"
-              className="bg-gray-800 rounded-lg p-5 hover:bg-gray-750 hover:ring-1 hover:ring-purple-500/50 transition-all cursor-pointer group"
+              href="/resources"
+              className="bg-white dark:bg-gray-800 rounded-lg p-5 shadow-sm dark:shadow-none hover:bg-gray-50 dark:hover:bg-gray-700 hover:ring-1 hover:ring-purple-500/50 transition-all cursor-pointer group"
             >
               <div className="flex items-center gap-3 mb-3">
                 <div className="p-2 bg-purple-500/20 rounded-lg group-hover:bg-purple-500/30 transition-colors">
                   <MemoryStick className="w-5 h-5 text-purple-400" />
                 </div>
                 <div className="flex-1">
-                  <div className="text-gray-400 text-sm">Memory Usage</div>
+                  <div className="text-gray-500 dark:text-gray-400 text-sm">Memory Usage</div>
                   <div className="text-xl font-semibold">
                     {clusterMetrics.memory_usage_percent.toFixed(1)}%
                   </div>
@@ -165,7 +159,7 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
-              <div className="w-full bg-gray-700 rounded-full h-2">
+              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                 <div
                   className={`h-2 rounded-full transition-all duration-500 ${
                     clusterMetrics.memory_usage_percent > 80 ? 'bg-red-500' :
@@ -178,15 +172,15 @@ export default function Dashboard() {
 
             {/* Storage Usage */}
             <a
-              href="/system/storage"
-              className="bg-gray-800 rounded-lg p-5 hover:bg-gray-750 hover:ring-1 hover:ring-rose-500/50 transition-all cursor-pointer group"
+              href="/storage"
+              className="bg-white dark:bg-gray-800 rounded-lg p-5 shadow-sm dark:shadow-none hover:bg-gray-50 dark:hover:bg-gray-700 hover:ring-1 hover:ring-rose-500/50 transition-all cursor-pointer group"
             >
               <div className="flex items-center gap-3 mb-3">
                 <div className="p-2 bg-rose-500/20 rounded-lg group-hover:bg-rose-500/30 transition-colors">
                   <HardDrive className="w-5 h-5 text-rose-400" />
                 </div>
                 <div className="flex-1">
-                  <div className="text-gray-400 text-sm">Storage</div>
+                  <div className="text-gray-500 dark:text-gray-400 text-sm">Storage</div>
                   <div className="text-xl font-semibold">
                     {clusterMetrics.total_storage_bytes > 0
                       ? `${clusterMetrics.storage_usage_percent.toFixed(1)}%`
@@ -204,7 +198,7 @@ export default function Dashboard() {
                   </div>
                 )}
               </div>
-              <div className="w-full bg-gray-700 rounded-full h-2">
+              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                 <div
                   className={`h-2 rounded-full transition-all duration-500 ${
                     clusterMetrics.storage_usage_percent > 90 ? 'bg-red-500' :
@@ -217,15 +211,15 @@ export default function Dashboard() {
 
             {/* Network Traffic */}
             <a
-              href="/monitoring"
-              className="bg-gray-800 rounded-lg p-5 hover:bg-gray-750 hover:ring-1 hover:ring-green-500/50 transition-all cursor-pointer group"
+              href="/networking"
+              className="bg-white dark:bg-gray-800 rounded-lg p-5 shadow-sm dark:shadow-none hover:bg-gray-50 dark:hover:bg-gray-700 hover:ring-1 hover:ring-green-500/50 transition-all cursor-pointer group"
             >
               <div className="flex items-center gap-3 mb-3">
                 <div className="p-2 bg-green-500/20 rounded-lg group-hover:bg-green-500/30 transition-colors">
                   <Activity className="w-5 h-5 text-green-400" />
                 </div>
                 <div>
-                  <div className="text-gray-400 text-sm">Network I/O</div>
+                  <div className="text-gray-500 dark:text-gray-400 text-sm">Network I/O</div>
                   <div className="text-xl font-semibold">
                     {formatBytesPerSec(clusterMetrics.network_receive_bytes_per_sec + clusterMetrics.network_transmit_bytes_per_sec)}
                   </div>
@@ -234,12 +228,12 @@ export default function Dashboard() {
               <div className="flex justify-between text-sm mt-2">
                 <div className="flex items-center gap-2">
                   <ArrowDownToLine className="w-4 h-4 text-green-400" />
-                  <span className="text-gray-500">In:</span>
+                  <span className="text-gray-500 dark:text-gray-500">In:</span>
                   <span className="text-green-400 font-medium">{formatBytesPerSec(clusterMetrics.network_receive_bytes_per_sec)}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <ArrowUpFromLine className="w-4 h-4 text-orange-400" />
-                  <span className="text-gray-500">Out:</span>
+                  <span className="text-gray-500 dark:text-gray-500">Out:</span>
                   <span className="text-orange-400 font-medium">{formatBytesPerSec(clusterMetrics.network_transmit_bytes_per_sec)}</span>
                 </div>
               </div>
@@ -247,15 +241,15 @@ export default function Dashboard() {
 
             {/* Running Pods */}
             <a
-              href="/monitoring"
-              className="bg-gray-800 rounded-lg p-5 hover:bg-gray-750 hover:ring-1 hover:ring-cyan-500/50 transition-all cursor-pointer group"
+              href="/resources"
+              className="bg-white dark:bg-gray-800 rounded-lg p-5 shadow-sm dark:shadow-none hover:bg-gray-50 dark:hover:bg-gray-700 hover:ring-1 hover:ring-cyan-500/50 transition-all cursor-pointer group"
             >
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-cyan-500/20 rounded-lg group-hover:bg-cyan-500/30 transition-colors">
                   <Server className="w-5 h-5 text-cyan-400" />
                 </div>
                 <div className="flex-1">
-                  <div className="text-gray-400 text-sm">Running Pods</div>
+                  <div className="text-gray-500 dark:text-gray-400 text-sm">Running Pods</div>
                   <div className="text-xl font-semibold">{clusterMetrics.pod_count}</div>
                 </div>
                 <div className="text-cyan-400/20">
@@ -266,15 +260,15 @@ export default function Dashboard() {
 
             {/* Running Containers */}
             <a
-              href="/monitoring"
-              className="bg-gray-800 rounded-lg p-5 hover:bg-gray-750 hover:ring-1 hover:ring-yellow-500/50 transition-all cursor-pointer group"
+              href="/resources"
+              className="bg-white dark:bg-gray-800 rounded-lg p-5 shadow-sm dark:shadow-none hover:bg-gray-50 dark:hover:bg-gray-700 hover:ring-1 hover:ring-yellow-500/50 transition-all cursor-pointer group"
             >
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-yellow-500/20 rounded-lg group-hover:bg-yellow-500/30 transition-colors">
                   <Container className="w-5 h-5 text-yellow-400" />
                 </div>
                 <div className="flex-1">
-                  <div className="text-gray-400 text-sm">Running Containers</div>
+                  <div className="text-gray-500 dark:text-gray-400 text-sm">Running Containers</div>
                   <div className="text-xl font-semibold">{clusterMetrics.container_count}</div>
                 </div>
                 <div className="text-yellow-400/20">
@@ -285,15 +279,15 @@ export default function Dashboard() {
 
             {/* Cluster Health Summary */}
             <a
-              href="/monitoring"
-              className="bg-gray-800 rounded-lg p-5 hover:bg-gray-750 hover:ring-1 hover:ring-emerald-500/50 transition-all cursor-pointer group md:col-span-2 lg:col-span-1 xl:col-span-2"
+              href="/resources"
+              className="bg-white dark:bg-gray-800 rounded-lg p-5 shadow-sm dark:shadow-none hover:bg-gray-50 dark:hover:bg-gray-700 hover:ring-1 hover:ring-emerald-500/50 transition-all cursor-pointer group md:col-span-2 lg:col-span-1 xl:col-span-2"
             >
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-emerald-500/20 rounded-lg group-hover:bg-emerald-500/30 transition-colors">
                   <Activity className="w-5 h-5 text-emerald-400" />
                 </div>
                 <div className="flex-1">
-                  <div className="text-gray-400 text-sm">Cluster Status</div>
+                  <div className="text-gray-500 dark:text-gray-400 text-sm">Cluster Status</div>
                   <div className={`text-xl font-semibold ${
                     healthyApps.length === installedApps.length ? 'text-emerald-400' : 'text-yellow-400'
                   }`}>
@@ -316,7 +310,7 @@ export default function Dashboard() {
       {openableApps.length > 0 ? (
         <div>
           <h2 className="text-2xl font-bold mb-4">Installed Apps</h2>
-          <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-6">
+          <div className="grid grid-cols-3 xs:grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-4 sm:gap-6">
             {openableApps.map((app) => {
               const status = appStatuses[app.name]
               const isHealthy = status?.healthy ?? false
@@ -344,7 +338,7 @@ export default function Dashboard() {
                     {/* Health Indicator - only show when we have data */}
                     {hasData && !showLoading && (
                       <div
-                        className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-gray-900 ${
+                        className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-gray-100 dark:border-gray-900 ${
                           isHealthy ? 'bg-green-500' : 'bg-red-500'
                         }`}
                         title={isHealthy ? 'Running' : 'Not Ready'}
@@ -353,12 +347,12 @@ export default function Dashboard() {
 
                     {/* Loading indicator - show when loading or no data yet */}
                     {showLoading && (
-                      <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-gray-900 bg-gray-600 animate-pulse" />
+                      <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-gray-100 dark:border-gray-900 bg-gray-600 animate-pulse" />
                     )}
                   </div>
 
                   {/* App Name */}
-                  <span className="text-xs text-gray-300 group-hover:text-white transition-colors text-center truncate max-w-[72px]">
+                  <span className="text-xs text-gray-600 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white transition-colors text-center truncate max-w-[72px]">
                     {app.display_name}
                   </span>
                 </a>
@@ -368,7 +362,7 @@ export default function Dashboard() {
         </div>
       ) : (
         <div className="text-center py-12">
-          <p className="text-gray-400 mb-4">No apps installed yet.</p>
+          <p className="text-gray-500 dark:text-gray-400 mb-4">No apps installed yet.</p>
           <a
             href="/apps"
             className="inline-block bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 px-6 rounded-lg transition-colors"

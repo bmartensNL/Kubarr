@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "victoriametrics.fullname" . }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "victoriametrics.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.victoriametrics.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "victoriametrics.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "victoriametrics.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "victoriametrics.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: victoriametrics
+          image: "{{ .Values.victoriametrics.image.repository }}:{{ .Values.victoriametrics.image.tag }}"
+          imagePullPolicy: {{ .Values.victoriametrics.image.pullPolicy }}
+          args:
+            - "-promscrape.config=/etc/prometheus/prometheus.yml"
+            - "-storageDataPath=/victoria-metrics-data"
+            - "-retentionPeriod={{ .Values.victoriametrics.retention }}"
+            - "-httpListenAddr=:{{ .Values.victoriametrics.service.targetPort }}"
+            - "-promscrape.config.strictParse=false"
+          ports:
+            - name: http
+              containerPort: {{ .Values.victoriametrics.service.targetPort }}
+              protocol: TCP
+          {{- if .Values.victoriametrics.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: {{ .Values.victoriametrics.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.victoriametrics.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.victoriametrics.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.victoriametrics.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.victoriametrics.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: {{ .Values.victoriametrics.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.victoriametrics.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.victoriametrics.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.victoriametrics.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.victoriametrics.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+              readOnly: true
+            - name: data
+              mountPath: /victoria-metrics-data
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "victoriametrics.fullname" . }}-config
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "victoriametrics.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

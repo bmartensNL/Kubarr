@@ -288,7 +288,7 @@ export default function AppsPage() {
     return (
       <div
         key={app.name}
-        className="bg-gray-800 rounded-xl border border-gray-700 hover:border-gray-600 transition-all duration-200 overflow-hidden"
+        className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 shadow-sm dark:shadow-none transition-all duration-200 overflow-hidden"
       >
 
         <div className="p-5">
@@ -298,7 +298,7 @@ export default function AppsPage() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between gap-2">
-                <h3 className="text-lg font-semibold text-white truncate">{app.display_name}</h3>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white truncate">{app.display_name}</h3>
                 <div className="flex items-center gap-1">
                   {app.is_system && (
                     <span className="flex-shrink-0 inline-flex items-center gap-1 bg-purple-500/20 text-purple-400 text-xs px-2 py-0.5 rounded-full">
@@ -340,14 +340,14 @@ export default function AppsPage() {
                   )}
                 </div>
               </div>
-              <p className="text-sm text-gray-400 mt-1 line-clamp-2">{app.description}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">{app.description}</p>
             </div>
           </div>
 
           <div className="flex gap-2 mt-4">
             {app.is_system && app.is_hidden ? (
               // System hidden apps (oauth2-proxy, kubarr, loki, promtail) - no buttons
-              <div className="w-full bg-gray-700 text-gray-400 text-sm font-medium py-2 px-4 rounded-lg text-center">
+              <div className="w-full bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 text-sm font-medium py-2 px-4 rounded-lg text-center">
                 Background Service
               </div>
             ) : app.is_system ? (
@@ -364,7 +364,7 @@ export default function AppsPage() {
               // Loading state - show disabled button
               <button
                 disabled
-                className="w-full bg-gray-700 cursor-not-allowed text-gray-400 text-sm font-medium py-2 px-4 rounded-lg"
+                className="w-full bg-gray-200 dark:bg-gray-700 cursor-not-allowed text-gray-500 dark:text-gray-400 text-sm font-medium py-2 px-4 rounded-lg"
               >
                 Loading...
               </button>
@@ -383,7 +383,7 @@ export default function AppsPage() {
                 <button
                   onClick={() => deleteMutation.mutate(app.name)}
                   disabled={deleteMutation.isPending}
-                  className={`${app.is_hidden ? 'w-full' : ''} bg-gray-700 hover:bg-red-600 disabled:bg-gray-800 disabled:cursor-not-allowed text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors`}
+                  className={`${app.is_hidden ? 'w-full' : ''} bg-gray-200 dark:bg-gray-700 hover:bg-red-600 disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed text-gray-700 dark:text-white hover:text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors`}
                   title="Uninstall"
                 >
                   {app.is_hidden ? (
@@ -405,7 +405,7 @@ export default function AppsPage() {
             ) : (
               <button
                 disabled
-                className="w-full bg-gray-700 cursor-not-allowed text-gray-400 text-sm font-medium py-2 px-4 rounded-lg"
+                className="w-full bg-gray-200 dark:bg-gray-700 cursor-not-allowed text-gray-500 dark:text-gray-400 text-sm font-medium py-2 px-4 rounded-lg"
               >
                 {effectiveState === 'installing' ? 'Installing...' : 'Removing...'}
               </button>
@@ -422,8 +422,8 @@ export default function AppsPage() {
       {toast && (
         <div className={`fixed top-4 right-4 z-50 px-6 py-4 rounded-lg shadow-lg border ${
           toast.type === 'success'
-            ? 'bg-green-900 border-green-700 text-green-100'
-            : 'bg-red-900 border-red-700 text-red-100'
+            ? 'bg-green-100 dark:bg-green-900 border-green-300 dark:border-green-700 text-green-800 dark:text-green-100'
+            : 'bg-red-100 dark:bg-red-900 border-red-300 dark:border-red-700 text-red-800 dark:text-red-100'
         }`}>
           <div className="flex items-center gap-3">
             <div className="flex-shrink-0">
@@ -451,9 +451,9 @@ export default function AppsPage() {
       )}
 
       {/* Header */}
-      <div className="border-b border-gray-800 pb-6">
-        <h1 className="text-3xl font-bold text-white">App Marketplace</h1>
-        <p className="text-gray-400 mt-2">Browse and install applications for your media server</p>
+      <div className="border-b border-gray-200 dark:border-gray-800 pb-6">
+        <h1 className="text-3xl font-bold">App Marketplace</h1>
+        <p className="text-gray-500 dark:text-gray-400 mt-2">Browse and install applications for your media server</p>
       </div>
 
       {/* Category Sections */}
@@ -465,11 +465,11 @@ export default function AppsPage() {
           <section key={category} className="space-y-4">
             {/* Category Header */}
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-gray-800 rounded-lg text-blue-400">
+              <div className="p-2 bg-gray-100 dark:bg-gray-800 rounded-lg text-blue-500 dark:text-blue-400">
                 {info.icon}
               </div>
               <div>
-                <h2 className="text-xl font-semibold text-white">{info.label}</h2>
+                <h2 className="text-xl font-semibold">{info.label}</h2>
                 <p className="text-sm text-gray-500">{info.description}</p>
               </div>
               <div className="ml-auto">

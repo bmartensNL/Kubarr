@@ -1,0 +1,22 @@
+apiVersion: v2
+name: sabnzbd
+description: Free and open-source Usenet binary newsreader with web interface
+type: application
+version: 0.1.0
+appVersion: "4.2.1"
+keywords:
+  - sabnzbd
+  - usenet
+  - nzb
+  - download
+  - newsreader
+  - media
+home: https://sabnzbd.org/
+sources:
+  - https://github.com/sabnzbd/sabnzbd
+maintainers:
+  - name: Kubarr Team
+annotations:
+  kubarr.io/display-name: "SABnzbd"
+  kubarr.io/icon: "usenet"
+  kubarr.io/category: "download-client"

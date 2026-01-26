@@ -79,5 +79,5 @@ networkPolicy:
     - jellyseerr
     - sabnzbd
     - grafana
-    - prometheus
+    - victoriametrics
     - loki

@@ -1,0 +1,7 @@
+FROM nginx:alpine
+
+# Install nginx njs module for JWT validation
+RUN apk add --no-cache nginx-mod-http-js
+
+# Expose port 8080 (non-privileged)
+EXPOSE 8080

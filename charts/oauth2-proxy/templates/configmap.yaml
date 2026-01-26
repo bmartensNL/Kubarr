@@ -67,10 +67,11 @@ data:
     http_address = "0.0.0.0:4180"
 
     # Pass user info headers to upstream (nginx strips them from responses)
-    pass_access_token = false
-    pass_authorization_header = false
+    # Enable access token forwarding for nginx JWT validation
+    pass_access_token = true
+    pass_authorization_header = true
     pass_user_headers = true
-    set_authorization_header = false
+    set_authorization_header = true
     set_xauthrequest = true
 
     # Use email claim for X-Auth-Request-User header instead of sub
@@ -81,6 +82,12 @@ data:
       "^/ping$",
       "^/ready$",
       "^/auth/.*",
+      "^/login$",
+      "^/assets/.*",
+      "^/favicon\\.svg$",
       "^/api/apps/catalog/[^/]+/icon$",
       "^/api/setup/required$"
     ]
+
+    # Allow redirect to any path on same domain after sign out
+    whitelist_domains = [".localhost:8080", "localhost:8080"]

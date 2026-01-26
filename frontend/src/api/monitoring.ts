@@ -1,7 +1,7 @@
 import apiClient from './client';
 import type { AppHealth, PodMetrics, PodStatus, ServiceEndpoint } from '../types';
 
-export interface AppMetricsPrometheus {
+export interface AppMetrics {
   app_name: string;
   namespace: string;
   cpu_usage_cores: number;
@@ -30,7 +30,7 @@ export interface ClusterMetrics {
   storage_usage_percent: number;
 }
 
-export interface PrometheusAvailability {
+export interface MetricsAvailability {
   available: boolean;
   message: string;
 }
@@ -63,6 +63,8 @@ export interface PodStatusInfo {
   age: string;
   node: string;
   ip: string;
+  cpu_usage?: number;     // CPU usage in cores (from VictoriaMetrics)
+  memory_usage?: number;  // Memory usage in bytes (from VictoriaMetrics)
 }
 
 export interface AppDetailMetrics {
@@ -111,33 +113,27 @@ export const monitoringApi = {
     return response.data;
   },
 
-  // Check if metrics server is available
-  checkMetricsAvailable: async (): Promise<boolean> => {
-    const response = await apiClient.get<{ available: boolean }>('/monitoring/metrics-available');
-    return response.data.available;
-  },
-
-  // Check if Prometheus is available
-  checkPrometheusAvailable: async (): Promise<PrometheusAvailability> => {
-    const response = await apiClient.get<PrometheusAvailability>('/monitoring/prometheus/available');
+  // Check if VictoriaMetrics is available
+  checkMetricsAvailable: async (): Promise<MetricsAvailability> => {
+    const response = await apiClient.get<MetricsAvailability>('/monitoring/vm/available');
     return response.data;
   },
 
-  // Get metrics for all apps from Prometheus
-  getAppMetricsFromPrometheus: async (): Promise<AppMetricsPrometheus[]> => {
-    const response = await apiClient.get<AppMetricsPrometheus[]>('/monitoring/prometheus/apps');
+  // Get metrics for all apps from VictoriaMetrics
+  getAppMetrics: async (): Promise<AppMetrics[]> => {
+    const response = await apiClient.get<AppMetrics[]>('/monitoring/vm/apps');
     return response.data;
   },
 
-  // Get cluster-wide metrics from Prometheus
+  // Get cluster-wide metrics from VictoriaMetrics
   getClusterMetrics: async (): Promise<ClusterMetrics> => {
-    const response = await apiClient.get<ClusterMetrics>('/monitoring/prometheus/cluster');
+    const response = await apiClient.get<ClusterMetrics>('/monitoring/vm/cluster');
     return response.data;
   },
 
   // Get detailed metrics for a specific app
   getAppDetailMetrics: async (appName: string, duration: string = '1h'): Promise<AppDetailMetrics> => {
-    const response = await apiClient.get<AppDetailMetrics>(`/monitoring/prometheus/app/${appName}`, {
+    const response = await apiClient.get<AppDetailMetrics>(`/monitoring/vm/app/${appName}`, {
       params: { duration },
     });
     return response.data;

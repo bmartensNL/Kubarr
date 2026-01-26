@@ -109,7 +109,7 @@ networkPolicy:
   enabled: true
   ingressFrom:
     - nginx  # nginx reverse proxy
-    - prometheus     # metrics scraping
+    - victoriametrics  # metrics scraping
   egressTo:
     - qbittorrent
     - transmission
@@ -118,7 +118,7 @@ networkPolicy:
     - sabnzbd
     - jackett
 
-# Prometheus exporter (exportarr) - auto-scraped by Prometheus
+# Metrics exporter (exportarr) - auto-scraped by VictoriaMetrics
 # Note: Requires API key from Radarr (Settings > General > API Key)
 exporter:
   enabled: true

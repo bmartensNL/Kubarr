@@ -29,8 +29,8 @@ spec:
             - /bin/sh
             - -c
             - |
-              echo "Waiting for oauth2-proxy-credentials secret..."
-              while ! kubectl get secret oauth2-proxy-credentials -n {{ .Values.namespace.name }} 2>/dev/null; do
+              echo "Waiting for {{ include "oauth2-proxy.fullname" . }}-secret..."
+              while ! kubectl get secret {{ include "oauth2-proxy.fullname" . }}-secret -n {{ .Values.namespace.name }} 2>/dev/null; do
                 echo "Secret not found, waiting..."
                 sleep 5
               done
@@ -49,12 +49,12 @@ spec:
             - name: OAUTH2_PROXY_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: oauth2-proxy-credentials
+                  name: {{ include "oauth2-proxy.fullname" . }}-secret
                   key: client-secret
             - name: OAUTH2_PROXY_COOKIE_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: oauth2-proxy-credentials
+                  name: {{ include "oauth2-proxy.fullname" . }}-secret
                   key: cookie-secret
           volumeMounts:
             - name: config

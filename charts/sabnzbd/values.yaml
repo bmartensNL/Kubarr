@@ -1,0 +1,156 @@
+# Default values for sabnzbd
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Namespace configuration
+namespace:
+  create: true
+  name: sabnzbd
+
+# SABnzbd application configuration
+sabnzbd:
+  replicaCount: 1
+
+  image:
+    repository: linuxserver/sabnzbd
+    pullPolicy: IfNotPresent
+    tag: "latest"
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+    annotations: {}
+
+  # Resource limits and requests
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+
+  # Environment variables
+  env:
+    # User ID to run SABnzbd as
+    PUID: "1000"
+    # Group ID to run SABnzbd as
+    PGID: "1000"
+    # Timezone
+    TZ: "Etc/UTC"
+
+  # Probes configuration
+  livenessProbe:
+    enabled: true
+    httpGet:
+      path: /
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    httpGet:
+      path: /
+      port: 8080
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+# Persistent volumes configuration
+persistence:
+  # Config volume (keeps using PVC)
+  config:
+    enabled: true
+    size: 1Gi
+    storageClass: ""  # Use default storage class
+    accessMode: ReadWriteOnce
+    mountPath: /config
+
+# Security context
+securityContext:
+  runAsNonRoot: false  # linuxserver images run as root but switch to PUID/PGID
+
+# Pod security context
+podSecurityContext:
+  fsGroup: 1000
+
+# Service Account
+serviceAccount:
+  create: true
+  name: sabnzbd
+  annotations: {}
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+  hosts:
+    - host: sabnzbd.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Pod annotations
+podAnnotations: {}
+
+# Image pull secrets
+imagePullSecrets: []
+
+# VPN Configuration
+# When enabled, a Gluetun sidecar container is added to route all traffic through VPN
+vpn:
+  enabled: false
+  # Name of the Kubernetes secret containing VPN credentials
+  secretName: ""
+  # Gluetun container image
+  image:
+    repository: qmcgaw/gluetun
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  # Resource limits for Gluetun container
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  # Kill switch - block all traffic if VPN disconnects
+  killSwitch: true
+  # Subnets to allow even when VPN is active (for cluster internal communication)
+  firewallOutboundSubnets: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+
+# Storage configuration (hostPath for shared data with media apps)
+storage:
+  # HostPath configuration (set by Kubarr during deployment)
+  hostPath:
+    enabled: false
+    rootPath: ""  # e.g., /mnt/data/kubarr - set by Kubarr
+  mountPath: /data
+
+# Network policy configuration
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    - nginx  # nginx reverse proxy
+    - sonarr         # arr apps connecting to download client
+    - radarr
+    - victoriametrics  # metrics scraping
+  egressTo: []       # download clients mainly need outbound internet

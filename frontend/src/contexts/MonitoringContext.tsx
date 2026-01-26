@@ -15,7 +15,7 @@ interface MonitoringState {
   // Cluster metrics
   clusterMetrics: ClusterMetrics | null
   metricsLoading: boolean
-  prometheusAvailable: boolean | null
+  metricsAvailable: boolean | null
 
   // Apps data
   catalog: AppConfig[]
@@ -35,7 +35,7 @@ export function MonitoringProvider({ children }: { children: ReactNode }) {
   // Cluster metrics state
   const [clusterMetrics, setClusterMetrics] = useState<ClusterMetrics | null>(null)
   const [metricsLoading, setMetricsLoading] = useState(true)
-  const [prometheusAvailable, setPrometheusAvailable] = useState<boolean | null>(null)
+  const [metricsAvailable, setMetricsAvailable] = useState<boolean | null>(null)
 
   // Apps state
   const [catalog, setCatalog] = useState<AppConfig[]>([])
@@ -45,9 +45,9 @@ export function MonitoringProvider({ children }: { children: ReactNode }) {
   // Fetch cluster metrics
   const refreshMetrics = useCallback(async () => {
     try {
-      // Check Prometheus availability first
-      const status = await monitoringApi.checkPrometheusAvailable()
-      setPrometheusAvailable(status.available)
+      // Check VictoriaMetrics availability first
+      const status = await monitoringApi.checkMetricsAvailable()
+      setMetricsAvailable(status.available)
 
       if (status.available) {
         setMetricsLoading(true)
@@ -135,7 +135,7 @@ export function MonitoringProvider({ children }: { children: ReactNode }) {
   const value: MonitoringState = {
     clusterMetrics,
     metricsLoading,
-    prometheusAvailable,
+    metricsAvailable,
     catalog,
     installedApps,
     appStatuses,

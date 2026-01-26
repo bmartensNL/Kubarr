@@ -24,7 +24,7 @@ promtail:
   podLogPath: /var/log/pods
 
   # Namespaces to collect logs from (regex)
-  namespaceFilter: "(sonarr|radarr|qbittorrent|transmission|deluge|rutorrent|jellyfin|jellyseerr|jackett|sabnzbd|kubarr|nginx|oauth2-proxy|prometheus|loki|promtail|grafana)"
+  namespaceFilter: "(sonarr|radarr|qbittorrent|transmission|deluge|rutorrent|jellyfin|jellyseerr|jackett|sabnzbd|kubarr|nginx|oauth2-proxy|victoriametrics|loki|promtail|grafana)"
 
 rbac:
   create: true

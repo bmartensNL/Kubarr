@@ -1,0 +1,83 @@
+namespace:
+  create: false  # kubarr deployment manager creates the namespace
+  name: victoriametrics
+
+victoriametrics:
+  replicaCount: 1
+
+  image:
+    repository: victoriametrics/victoria-metrics
+    tag: "v1.96.0"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 8428
+    targetPort: 8428
+
+  # VictoriaMetrics uses significantly less resources than Prometheus
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  retention: "15d"
+
+  scrapeInterval: "30s"
+
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    timeoutSeconds: 10
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+# VictoriaMetrics has better compression, so less storage needed
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: ""
+  accessMode: ReadWriteOnce
+
+rbac:
+  create: true
+
+serviceAccount:
+  create: true
+  name: victoriametrics
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}
+
+# Network policy configuration
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    - grafana  # for queries
+    - kubarr  # kubarr backend for monitoring
+  # VictoriaMetrics needs to scrape all app namespaces
+  scrapeNamespaces:
+    - sonarr
+    - radarr
+    - qbittorrent
+    - transmission
+    - deluge
+    - rutorrent
+    - jackett
+    - jellyfin
+    - jellyseerr
+    - sabnzbd
+    - loki
+    - promtail

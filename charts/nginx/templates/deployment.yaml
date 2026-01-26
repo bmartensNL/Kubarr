@@ -16,6 +16,7 @@ spec:
         {{- include "nginx.selectorLabels" . | nindent 8 }}
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/njs: {{ include (print $.Template.BasePath "/configmap-njs.yaml") . | sha256sum }}
     spec:
       securityContext:
         runAsNonRoot: false
@@ -31,6 +32,9 @@ spec:
             - name: nginx-config
               mountPath: /etc/nginx/nginx.conf
               subPath: nginx.conf
+              readOnly: true
+            - name: njs-scripts
+              mountPath: /etc/nginx/njs
               readOnly: true
           livenessProbe:
             httpGet:
@@ -50,6 +54,9 @@ spec:
         - name: nginx-config
           configMap:
             name: {{ include "nginx.fullname" . }}-config
+        - name: njs-scripts
+          configMap:
+            name: {{ include "nginx.fullname" . }}-njs
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

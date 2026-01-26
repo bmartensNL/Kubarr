@@ -1,0 +1,147 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sabnzbd.fullname" . }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "sabnzbd.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.sabnzbd.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "sabnzbd.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "sabnzbd.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "sabnzbd.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        {{- if .Values.vpn.enabled }}
+        # Gluetun VPN sidecar - routes all pod traffic through VPN
+        - name: gluetun
+          image: "{{ .Values.vpn.image.repository }}:{{ .Values.vpn.image.tag }}"
+          imagePullPolicy: {{ .Values.vpn.image.pullPolicy }}
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+          envFrom:
+            - secretRef:
+                name: {{ .Values.vpn.secretName }}
+          env:
+            - name: FIREWALL_OUTBOUND_SUBNETS
+              value: "{{ .Values.vpn.firewallOutboundSubnets }}"
+            {{- if .Values.vpn.killSwitch }}
+            - name: FIREWALL
+              value: "on"
+            {{- else }}
+            - name: FIREWALL
+              value: "off"
+            {{- end }}
+            - name: HEALTH_SERVER_ADDRESS
+              value: ":9999"
+          ports:
+            - name: gluetun-http
+              containerPort: 8888
+              protocol: TCP
+            - name: gluetun-ctrl
+              containerPort: 8000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 9999
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 9999
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.vpn.resources | nindent 12 }}
+        {{- end }}
+        - name: sabnzbd
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.sabnzbd.image.repository }}:{{ .Values.sabnzbd.image.tag }}"
+          imagePullPolicy: {{ .Values.sabnzbd.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.sabnzbd.service.targetPort }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "sabnzbd.fullname" . }}-config
+          {{- if .Values.sabnzbd.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.sabnzbd.livenessProbe.httpGet.path }}
+              port: {{ .Values.sabnzbd.livenessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.sabnzbd.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.sabnzbd.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.sabnzbd.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.sabnzbd.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.sabnzbd.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.sabnzbd.readinessProbe.httpGet.path }}
+              port: {{ .Values.sabnzbd.readinessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.sabnzbd.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.sabnzbd.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.sabnzbd.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.sabnzbd.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.sabnzbd.resources | nindent 12 }}
+          volumeMounts:
+            {{- if .Values.persistence.config.enabled }}
+            - name: config
+              mountPath: {{ .Values.persistence.config.mountPath }}
+            {{- end }}
+            {{- if .Values.storage.hostPath.enabled }}
+            - name: downloads
+              mountPath: /downloads
+            {{- end }}
+      volumes:
+        {{- if .Values.persistence.config.enabled }}
+        - name: config
+          persistentVolumeClaim:
+            claimName: {{ include "sabnzbd.fullname" . }}-config
+        {{- end }}
+        {{- if .Values.storage.hostPath.enabled }}
+        - name: downloads
+          hostPath:
+            path: {{ .Values.storage.hostPath.rootPath }}/downloads/sabnzbd
+            type: DirectoryOrCreate
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

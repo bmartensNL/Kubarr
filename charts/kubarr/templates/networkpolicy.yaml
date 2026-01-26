@@ -74,12 +74,12 @@ spec:
       ports:
         - protocol: TCP
           port: 3100
-    # Allow access to Prometheus for metrics
+    # Allow access to VictoriaMetrics for metrics
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: prometheus
+              kubernetes.io/metadata.name: victoriametrics
       ports:
         - protocol: TCP
-          port: 9090
+          port: 8428
 {{- end }}

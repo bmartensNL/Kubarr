@@ -15,7 +15,6 @@ const UserForm: React.FC<UserFormProps> = ({ user, roles = [], onSubmit, onCance
     username: '',
     email: '',
     password: '',
-    is_admin: false,
     role_ids: [],
   });
   const [loading, setLoading] = useState(false);
@@ -27,7 +26,6 @@ const UserForm: React.FC<UserFormProps> = ({ user, roles = [], onSubmit, onCance
         username: user.username,
         email: user.email,
         password: '',
-        is_admin: user.is_admin,
         role_ids: user.roles?.map(r => r.id) || [],
       });
     }
@@ -42,7 +40,6 @@ const UserForm: React.FC<UserFormProps> = ({ user, roles = [], onSubmit, onCance
       if (isEdit) {
         // Only send fields that can be updated
         const updateData: UpdateUserRequest = {
-          is_admin: formData.is_admin,
           role_ids: formData.role_ids,
         };
         await onSubmit(updateData);
@@ -174,20 +171,6 @@ const UserForm: React.FC<UserFormProps> = ({ user, roles = [], onSubmit, onCance
             </div>
           </div>
         )}
-
-        <div className="flex items-center">
-          <input
-            type="checkbox"
-            className="h-4 w-4 bg-gray-700 border border-gray-600 rounded text-blue-600 focus:ring-2 focus:ring-blue-500"
-            id="is_admin"
-            name="is_admin"
-            checked={formData.is_admin}
-            onChange={handleChange}
-          />
-          <label className="ml-2 text-sm font-medium text-gray-300" htmlFor="is_admin">
-            Administrator (Legacy - prefer using admin role)
-          </label>
-        </div>
 
         <div className="flex space-x-3 pt-4">
           <button

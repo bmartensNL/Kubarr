@@ -15,7 +15,7 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Allow traffic from specified namespaces (nginx, prometheus)
+    # Allow traffic from specified namespaces (nginx, victoriametrics)
     {{- range .Values.networkPolicy.ingressFrom }}
     - from:
         - namespaceSelector:
