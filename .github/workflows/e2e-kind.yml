@@ -257,29 +257,54 @@ jobs:
 
       - name: Verify OAuth login flow
         run: |
-          echo "Testing OAuth login endpoint..."
+          echo "=========================================="
+          echo "Testing OAuth/OIDC endpoints..."
+          echo "=========================================="
 
-          # Test 1: Check that oauth2-proxy redirects to login page
-          REDIRECT=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/)
-          echo "OAuth2-proxy root redirect status: $REDIRECT"
-
-          # Test 2: Check that the auth login page is reachable via the backend
+          # Test 1: Check OIDC discovery endpoint
           echo ""
-          echo "Checking auth login page..."
+          echo "1. Checking OIDC discovery endpoint..."
+          DISCOVERY=$(curl -s http://localhost:8000/auth/.well-known/openid-configuration)
+          echo "OIDC Discovery: $DISCOVERY"
+
+          # Test 2: Check JWKS endpoint
+          echo ""
+          echo "2. Checking JWKS endpoint..."
+          JWKS=$(curl -s http://localhost:8000/auth/jwks)
+          echo "JWKS: $JWKS"
+
+          # Test 3: Check that oauth2-proxy redirects to login page
+          echo ""
+          echo "3. Checking oauth2-proxy redirect..."
+          curl -s -L -o /dev/null -w "oauth2-proxy redirect chain: %{url_effective} (HTTP %{http_code})\n" http://localhost:8080/ || true
+
+          # Test 4: Check that the auth login page is reachable
+          echo ""
+          echo "4. Checking auth login page..."
           curl -s http://localhost:8000/auth/login -o /dev/null -w "Auth login page HTTP status: %{http_code}\n" || true
 
-          # Test 3: Try to authenticate via the backend directly
+          # Test 5: Try to authenticate via the backend directly
           echo ""
-          echo "Testing direct authentication..."
+          echo "5. Testing direct authentication..."
           LOGIN_RESPONSE=$(curl -s -X POST http://localhost:8000/auth/login \
             -H "Content-Type: application/json" \
             -d '{"username":"admin","password":"admin"}' 2>&1) || true
           echo "Login response: $LOGIN_RESPONSE"
 
-          # Test 4: Check that oauth2-proxy can reach the backend
+          # Test 6: Check oauth2-proxy health
           echo ""
-          echo "Checking oauth2-proxy -> backend connectivity..."
-          curl -s -v http://localhost:8080/ 2>&1 | head -30 || true
+          echo "6. Checking oauth2-proxy health..."
+          curl -s http://localhost:8080/ping 2>&1 || echo "Ping endpoint not available"
+
+          # Test 7: Show oauth2-proxy logs
+          echo ""
+          echo "7. OAuth2-proxy recent logs..."
+          kubectl logs -l app.kubernetes.io/name=oauth2-proxy -n oauth2-proxy --tail=20 2>/dev/null || echo "No oauth2-proxy logs"
+
+          echo ""
+          echo "=========================================="
+          echo "Verification complete"
+          echo "==========================================""
 
       - name: Run Playwright tests
         run: npm test -- --project=chromium

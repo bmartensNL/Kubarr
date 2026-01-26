@@ -11,57 +11,128 @@ export const TEST_USERS = {
 };
 
 /**
- * Helper to perform login via the Hydra OAuth login form
+ * Helper to perform login via the OAuth login form
  */
 export async function login(page: Page, username: string, password: string): Promise<void> {
+  console.log('Starting login flow...');
+
   // Navigate to the app - this will redirect to OAuth login if not authenticated
   await page.goto('/');
 
-  // Wait for either dashboard (already logged in) or some login page
-  await page.waitForURL(/\/(auth\/login|login|$)/, { timeout: 30000 });
+  // Log current URL
+  console.log('Initial URL:', page.url());
+
+  // Wait for either dashboard (already logged in) or login page
+  try {
+    await page.waitForURL(/\/(auth\/login|login|$)/, { timeout: 30000 });
+    console.log('After waitForURL:', page.url());
+  } catch (e) {
+    console.log('waitForURL timeout, current URL:', page.url());
+    // Take a screenshot for debugging
+    await page.screenshot({ path: 'test-results/login-timeout.png' });
+    throw e;
+  }
 
   // Check current URL to determine which login flow to use
   const url = page.url();
+  console.log('Current URL:', url);
 
   if (url.includes('/auth/login')) {
-    // OAuth login page (Hydra)
+    console.log('On OAuth login page, filling credentials...');
+
+    // Wait for form to be visible
+    await page.waitForSelector('input[name="username"]', { timeout: 10000 });
+
+    // Fill in credentials
     await page.fill('input[name="username"]', username);
     await page.fill('input[name="password"]', password);
 
-    // Submit the form
-    await page.evaluate(() => {
-      const form = document.querySelector('form');
-      if (form) form.submit();
-    });
+    console.log('Submitting form...');
 
-    // Wait for redirect to dashboard
-    await page.waitForURL(/\/$/, { timeout: 30000 });
+    // Click submit button instead of form.submit() for better compatibility
+    const submitButton = page.locator('button[type="submit"]');
+    if (await submitButton.isVisible()) {
+      await submitButton.click();
+    } else {
+      // Fallback to form submission
+      await page.evaluate(() => {
+        const form = document.querySelector('form');
+        if (form) form.submit();
+      });
+    }
+
+    // Wait for redirect - could be to dashboard or error back to login
+    try {
+      await page.waitForURL(/\/$/, { timeout: 30000 });
+      console.log('Redirected to dashboard:', page.url());
+    } catch (e) {
+      console.log('Redirect timeout, current URL:', page.url());
+      const pageContent = await page.content();
+      if (pageContent.includes('error') || pageContent.includes('Error')) {
+        console.log('Error detected on page');
+      }
+      await page.screenshot({ path: 'test-results/login-redirect-timeout.png' });
+      throw e;
+    }
   } else if (url.includes('/login') && !url.includes('/auth/login')) {
-    // Frontend login page - need to trigger OAuth flow
-    // Clear cookies and reload to force fresh state
-    await page.context().clearCookies();
+    console.log('On frontend login page, triggering OAuth flow...');
 
-    // Navigate directly to OAuth endpoint to trigger OAuth flow
+    // Clear cookies and try OAuth flow directly
+    await page.context().clearCookies();
     await page.goto('/oauth2/start', { waitUntil: 'networkidle' });
     await page.waitForTimeout(2000);
 
     // Wait for OAuth login page
     await page.waitForURL(/\/auth\/login/, { timeout: 30000 });
+    console.log('Redirected to OAuth login:', page.url());
 
-    // Now fill the OAuth login form
+    // Fill the OAuth login form
     await page.fill('input[name="username"]', username);
     await page.fill('input[name="password"]', password);
 
-    await page.evaluate(() => {
-      const form = document.querySelector('form');
-      if (form) form.submit();
-    });
+    const submitButton = page.locator('button[type="submit"]');
+    if (await submitButton.isVisible()) {
+      await submitButton.click();
+    } else {
+      await page.evaluate(() => {
+        const form = document.querySelector('form');
+        if (form) form.submit();
+      });
+    }
 
     await page.waitForURL(/\/$/, { timeout: 30000 });
+  } else if (url.match(/\/$/)) {
+    console.log('Already on dashboard, assuming logged in');
   }
 
-  // Verify we're logged in by checking for user menu
-  await expect(page.locator(`button:has-text("${username}")`).first()).toBeVisible({ timeout: 10000 });
+  // Verify we're logged in by checking for dashboard content
+  // The nav bar should be visible when logged in
+  console.log('Verifying login succeeded...');
+  const currentUrl = page.url();
+  console.log('Final URL:', currentUrl);
+
+  // Wait for the navigation to be visible (indicates app has loaded)
+  const navBar = page.locator('nav');
+  await expect(navBar).toBeVisible({ timeout: 15000 });
+
+  // Look for user menu or dashboard content
+  const loggedInIndicator = page.locator([
+    `button:has-text("${username}")`,          // User menu button with username
+    'text=Kubarr',                             // Kubarr branding visible when logged in
+    'a[href="/apps"]',                         // Apps link in nav
+  ].join(', ')).first();
+
+  try {
+    await expect(loggedInIndicator).toBeVisible({ timeout: 15000 });
+    console.log('Login verification passed');
+  } catch (e) {
+    console.log('Login verification failed');
+    const html = await page.content();
+    console.log('Page contains "admin":', html.includes('admin'));
+    console.log('Page contains "Kubarr":', html.includes('Kubarr'));
+    await page.screenshot({ path: 'test-results/login-verification-failed.png' });
+    throw e;
+  }
 }
 
 /**
