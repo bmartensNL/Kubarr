@@ -13,8 +13,8 @@ env:
 jobs:
   e2e-tests:
     name: E2E Tests with Kind
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
+    runs-on: ubuntu-latest-4-core
+    timeout-minutes: 20
 
     steps:
       - name: Checkout code
@@ -39,20 +39,33 @@ jobs:
           cluster_name: ${{ env.KIND_CLUSTER_NAME }}
           wait: 120s
 
-      - name: Build Docker images
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker images (parallel)
         run: |
-          echo "Building backend image..."
+          # Build all images in parallel using background jobs
+          echo "Building all images in parallel..."
+
           docker build -f docker/Dockerfile.backend -t kubarr-backend:e2e \
             --build-arg COMMIT_HASH=${{ github.sha }} \
-            --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") .
+            --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") . &
+          PID1=$!
 
-          echo "Building frontend image..."
           docker build -f docker/Dockerfile.frontend -t kubarr-frontend:e2e \
             --build-arg COMMIT_HASH=${{ github.sha }} \
-            --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") .
+            --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") . &
+          PID2=$!
 
-          echo "Building nginx image..."
-          docker build -f docker/Dockerfile.nginx -t kubarr-nginx:e2e .
+          docker build -f docker/Dockerfile.nginx -t kubarr-nginx:e2e . &
+          PID3=$!
+
+          # Wait for all builds to complete
+          wait $PID1 && echo "Backend build done" || exit 1
+          wait $PID2 && echo "Frontend build done" || exit 1
+          wait $PID3 && echo "Nginx build done" || exit 1
+
+          echo "All images built successfully!"
 
       - name: Load images into Kind
         run: |
