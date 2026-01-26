@@ -689,7 +689,9 @@ async fn change_own_password(
 
     // Verify current password
     if !verify_password(&data.current_password, &user_record.hashed_password) {
-        return Err(AppError::BadRequest("Current password is incorrect".to_string()));
+        return Err(AppError::BadRequest(
+            "Current password is incorrect".to_string(),
+        ));
     }
 
     // Hash and update password
@@ -701,7 +703,9 @@ async fn change_own_password(
     user_model.updated_at = Set(now);
     user_model.update(&state.db).await?;
 
-    Ok(Json(serde_json::json!({"message": "Password changed successfully"})))
+    Ok(Json(
+        serde_json::json!({"message": "Password changed successfully"}),
+    ))
 }
 
 /// Admin reset password for another user (requires users.manage permission)
@@ -747,7 +751,9 @@ async fn admin_reset_password(
     user_model.updated_at = Set(now);
     user_model.update(&state.db).await?;
 
-    Ok(Json(serde_json::json!({"message": "Password reset successfully"})))
+    Ok(Json(
+        serde_json::json!({"message": "Password reset successfully"}),
+    ))
 }
 
 // ============================================================================
@@ -826,12 +832,16 @@ async fn enable_2fa(
 
     // Check if secret exists (user must call setup first)
     let secret = user_record.totp_secret.as_ref().ok_or_else(|| {
-        AppError::BadRequest("No 2FA setup in progress. Call /api/users/me/2fa/setup first.".to_string())
+        AppError::BadRequest(
+            "No 2FA setup in progress. Call /api/users/me/2fa/setup first.".to_string(),
+        )
     })?;
 
     // Verify the code
     if !verify_totp(secret, &data.code, &user_record.email)? {
-        return Err(AppError::BadRequest("Invalid verification code".to_string()));
+        return Err(AppError::BadRequest(
+            "Invalid verification code".to_string(),
+        ));
     }
 
     // Enable 2FA

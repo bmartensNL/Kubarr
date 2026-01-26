@@ -336,9 +336,9 @@ fn create_totp(secret: &str, account_name: &str) -> Result<totp_rs::TOTP> {
 
     TOTP::new(
         Algorithm::SHA1,
-        6,     // digits
-        1,     // skew (allow 1 step before/after for clock drift)
-        30,    // step (30 seconds)
+        6,  // digits
+        1,  // skew (allow 1 step before/after for clock drift)
+        30, // step (30 seconds)
         secret_bytes,
         Some(TOTP_ISSUER.to_string()),
         account_name.to_string(),

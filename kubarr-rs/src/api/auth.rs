@@ -13,9 +13,13 @@ use serde::{Deserialize, Serialize};
 use crate::api::extractors::{AdminUser, AuthUser};
 use crate::config::CONFIG;
 use crate::db::entities::prelude::*;
-use crate::db::entities::{oauth2_client, pending_2fa_challenge, role, system_setting, user, user_role};
+use crate::db::entities::{
+    oauth2_client, pending_2fa_challenge, role, system_setting, user, user_role,
+};
 use crate::error::{AppError, Result};
-use crate::services::{generate_2fa_challenge_token, get_jwks, verify_password, verify_totp, OAuth2Service};
+use crate::services::{
+    generate_2fa_challenge_token, get_jwks, verify_password, verify_totp, OAuth2Service,
+};
 use crate::state::AppState;
 
 /// Create auth routes
@@ -481,10 +485,7 @@ async fn user_requires_2fa(db: &sea_orm::DatabaseConnection, user_id: i64) -> bo
 }
 
 /// Complete login by setting session cookie
-async fn complete_session_login(
-    state: &AppState,
-    found_user: &user::Model,
-) -> Result<Response> {
+async fn complete_session_login(state: &AppState, found_user: &user::Model) -> Result<Response> {
     use crate::api::extractors::{get_user_app_access, get_user_permissions};
     use crate::services::create_access_token;
 
@@ -577,7 +578,9 @@ async fn session_login(
         };
         challenge.insert(&state.db).await?;
 
-        return Ok(Json(SessionLoginResponse::TwoFactorRequired { challenge_token }).into_response());
+        return Ok(
+            Json(SessionLoginResponse::TwoFactorRequired { challenge_token }).into_response(),
+        );
     }
 
     // Check if role requires 2FA but user hasn't set it up
@@ -615,13 +618,16 @@ async fn verify_2fa_challenge(
         .ok_or_else(|| AppError::BadRequest("User not found".to_string()))?;
 
     // Get the TOTP secret
-    let totp_secret = found_user.totp_secret.as_ref().ok_or_else(|| {
-        AppError::Internal("User has 2FA enabled but no secret".to_string())
-    })?;
+    let totp_secret = found_user
+        .totp_secret
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("User has 2FA enabled but no secret".to_string()))?;
 
     // Verify the TOTP code
     if !verify_totp(totp_secret, &request.code, &found_user.email)? {
-        return Err(AppError::BadRequest("Invalid verification code".to_string()));
+        return Err(AppError::BadRequest(
+            "Invalid verification code".to_string(),
+        ));
     }
 
     // Delete the challenge (it's been used)

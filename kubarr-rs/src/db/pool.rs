@@ -87,9 +87,7 @@ async fn run_alter_migrations(db: &DbConn) -> Result<()> {
                 format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, definition),
             ))
             .await
-            .map_err(|e| {
-                AppError::Internal(format!("Failed to add {} column: {}", column, e))
-            })?;
+            .map_err(|e| AppError::Internal(format!("Failed to add {} column: {}", column, e)))?;
         }
         Ok(())
     }

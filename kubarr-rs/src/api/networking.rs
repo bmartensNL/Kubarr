@@ -248,10 +248,8 @@ async fn discover_service_connections(
                     // Store both short name and FQDN
                     service_to_namespace.insert(name.clone(), ns.clone());
                     service_to_namespace.insert(format!("{}.{}", name, ns), ns.clone());
-                    service_to_namespace.insert(
-                        format!("{}.{}.svc.cluster.local", name, ns),
-                        ns.clone(),
-                    );
+                    service_to_namespace
+                        .insert(format!("{}.{}.svc.cluster.local", name, ns), ns.clone());
                 }
             }
         }
