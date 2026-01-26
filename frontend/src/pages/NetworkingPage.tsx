@@ -28,6 +28,18 @@ interface FlowVisualizationProps {
 function NetworkFlowVisualization({ topology, width, height }: FlowVisualizationProps) {
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
 
+  // Categorize nodes into tiers - sort by ID for stable positions across updates
+  // These hooks must be called unconditionally (before any early returns)
+  const nodeIds = topology.nodes.map(n => n.id).join(',')
+  const appNodes = useMemo(() =>
+    topology.nodes.filter(n => n.type === 'app').sort((a, b) => a.id.localeCompare(b.id)),
+    [nodeIds, topology.nodes]
+  )
+  const systemNodes = useMemo(() =>
+    topology.nodes.filter(n => n.type === 'system' || n.type === 'monitoring').sort((a, b) => a.id.localeCompare(b.id)),
+    [nodeIds, topology.nodes]
+  )
+
   // Get nodes connected to a given node
   const getConnectedNodes = (nodeId: string): Set<string> => {
     const connected = new Set<string>([nodeId])
@@ -61,16 +73,7 @@ function NetworkFlowVisualization({ topology, width, height }: FlowVisualization
     )
   }
 
-  // Categorize nodes into tiers - sort by ID for stable positions across updates
   const externalNode = topology.nodes.find(n => n.type === 'external')
-  const appNodes = useMemo(() =>
-    topology.nodes.filter(n => n.type === 'app').sort((a, b) => a.id.localeCompare(b.id)),
-    [topology.nodes.map(n => n.id).join(',')]
-  )
-  const systemNodes = useMemo(() =>
-    topology.nodes.filter(n => n.type === 'system' || n.type === 'monitoring').sort((a, b) => a.id.localeCompare(b.id)),
-    [topology.nodes.map(n => n.id).join(',')]
-  )
 
   // Layout constants
   const padding = 60
