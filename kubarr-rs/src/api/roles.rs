@@ -4,14 +4,12 @@ use axum::{
     Json, Router,
 };
 use chrono::Utc;
-use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, ModelTrait, QueryFilter, Set,
-};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, ModelTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 
-use crate::api::extractors::{AuthUser, user_has_permission};
-use crate::db::entities::{role, role_app_permission, role_permission};
+use crate::api::extractors::{user_has_permission, AuthUser};
 use crate::db::entities::prelude::*;
+use crate::db::entities::{role, role_app_permission, role_permission};
 use crate::error::{AppError, Result};
 use crate::state::AppState;
 
@@ -20,9 +18,15 @@ pub fn roles_routes(state: AppState) -> Router {
     Router::new()
         .route("/", get(list_roles).post(create_role))
         .route("/permissions", get(list_all_permissions))
-        .route("/:role_id", get(get_role).patch(update_role).delete(delete_role))
+        .route(
+            "/:role_id",
+            get(get_role).patch(update_role).delete(delete_role),
+        )
         .route("/:role_id/apps", put(set_role_apps))
-        .route("/:role_id/permissions", get(get_role_permissions).put(set_role_permissions))
+        .route(
+            "/:role_id/permissions",
+            get(get_role_permissions).put(set_role_permissions),
+        )
         .with_state(state)
 }
 
@@ -122,7 +126,9 @@ async fn list_roles(
     AuthUser(user): AuthUser,
 ) -> Result<Json<Vec<RoleWithAppsResponse>>> {
     if !user_has_permission(&state.db, user.id, "roles.view").await {
-        return Err(AppError::Forbidden("Permission denied: roles.view required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: roles.view required".to_string(),
+        ));
     }
     let roles = Role::find().all(&state.db).await?;
 
@@ -141,7 +147,9 @@ async fn get_role(
     AuthUser(user): AuthUser,
 ) -> Result<Json<RoleWithAppsResponse>> {
     if !user_has_permission(&state.db, user.id, "roles.view").await {
-        return Err(AppError::Forbidden("Permission denied: roles.view required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: roles.view required".to_string(),
+        ));
     }
     let response = get_role_with_apps(&state, role_id).await?;
     Ok(Json(response))
@@ -154,7 +162,9 @@ async fn create_role(
     Json(data): Json<CreateRoleRequest>,
 ) -> Result<Json<RoleWithAppsResponse>> {
     if !user_has_permission(&state.db, user.id, "roles.manage").await {
-        return Err(AppError::Forbidden("Permission denied: roles.manage required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: roles.manage required".to_string(),
+        ));
     }
     // Check if role name exists
     let existing = Role::find()
@@ -201,7 +211,9 @@ async fn update_role(
     Json(data): Json<UpdateRoleRequest>,
 ) -> Result<Json<RoleWithAppsResponse>> {
     if !user_has_permission(&state.db, user.id, "roles.manage").await {
-        return Err(AppError::Forbidden("Permission denied: roles.manage required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: roles.manage required".to_string(),
+        ));
     }
     let existing_role = Role::find_by_id(role_id)
         .one(&state.db)
@@ -209,7 +221,10 @@ async fn update_role(
         .ok_or_else(|| AppError::NotFound("Role not found".to_string()))?;
 
     // Prevent renaming system roles
-    if existing_role.is_system && data.name.is_some() && data.name.as_ref() != Some(&existing_role.name) {
+    if existing_role.is_system
+        && data.name.is_some()
+        && data.name.as_ref() != Some(&existing_role.name)
+    {
         return Err(AppError::BadRequest(
             "Cannot rename system roles".to_string(),
         ));
@@ -252,7 +267,9 @@ async fn delete_role(
     AuthUser(user): AuthUser,
 ) -> Result<Json<serde_json::Value>> {
     if !user_has_permission(&state.db, user.id, "roles.manage").await {
-        return Err(AppError::Forbidden("Permission denied: roles.manage required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: roles.manage required".to_string(),
+        ));
     }
     let existing_role = Role::find_by_id(role_id)
         .one(&state.db)
@@ -278,7 +295,9 @@ async fn set_role_apps(
     Json(data): Json<SetRoleApps>,
 ) -> Result<Json<RoleWithAppsResponse>> {
     if !user_has_permission(&state.db, user.id, "roles.manage").await {
-        return Err(AppError::Forbidden("Permission denied: roles.manage required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: roles.manage required".to_string(),
+        ));
     }
     // Verify role exists
     let _ = Role::find_by_id(role_id)
@@ -312,7 +331,9 @@ async fn list_all_permissions(
     AuthUser(user): AuthUser,
 ) -> Result<Json<Vec<PermissionInfo>>> {
     if !user_has_permission(&state.db, user.id, "roles.view").await {
-        return Err(AppError::Forbidden("Permission denied: roles.view required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: roles.view required".to_string(),
+        ));
     }
 
     let mut permissions = vec![
@@ -443,7 +464,9 @@ async fn get_role_permissions(
     AuthUser(user): AuthUser,
 ) -> Result<Json<Vec<String>>> {
     if !user_has_permission(&state.db, user.id, "roles.view").await {
-        return Err(AppError::Forbidden("Permission denied: roles.view required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: roles.view required".to_string(),
+        ));
     }
 
     // Verify role exists
@@ -471,7 +494,9 @@ async fn set_role_permissions(
     Json(data): Json<SetRolePermissions>,
 ) -> Result<Json<RoleWithAppsResponse>> {
     if !user_has_permission(&state.db, user.id, "roles.manage").await {
-        return Err(AppError::Forbidden("Permission denied: roles.manage required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: roles.manage required".to_string(),
+        ));
     }
 
     // Verify role exists

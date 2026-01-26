@@ -5,14 +5,16 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, ModelTrait, QueryFilter, QueryOrder,
-    QuerySelect, Set,
+    ActiveModelTrait, ColumnTrait, EntityTrait, ModelTrait, QueryFilter, QueryOrder, QuerySelect,
+    Set,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::api::extractors::{AuthUser, user_has_permission, get_user_permissions, get_user_app_access};
-use crate::db::entities::{invite, role, user, user_preferences, user_role};
+use crate::api::extractors::{
+    get_user_app_access, get_user_permissions, user_has_permission, AuthUser,
+};
 use crate::db::entities::prelude::*;
+use crate::db::entities::{invite, role, user, user_preferences, user_role};
 use crate::error::{AppError, Result};
 use crate::services::hash_password;
 use crate::state::AppState;
@@ -22,11 +24,17 @@ pub fn users_routes(state: AppState) -> Router {
     Router::new()
         .route("/", get(list_users).post(create_user))
         .route("/me", get(get_current_user_info))
-        .route("/me/preferences", get(get_my_preferences).patch(update_my_preferences))
+        .route(
+            "/me/preferences",
+            get(get_my_preferences).patch(update_my_preferences),
+        )
         .route("/pending", get(list_pending_users))
         .route("/invites", get(list_invites).post(create_invite))
         .route("/invites/:invite_id", delete(delete_invite))
-        .route("/:user_id", get(get_user).patch(update_user).delete(delete_user))
+        .route(
+            "/:user_id",
+            get(get_user).patch(update_user).delete(delete_user),
+        )
         .route("/:user_id/approve", post(approve_user))
         .route("/:user_id/reject", post(reject_user))
         .with_state(state)
@@ -131,9 +139,7 @@ async fn get_user_with_roles(state: &AppState, user_id: i64) -> Result<UserRespo
         .await?;
 
     // Fetch user preferences (or use defaults)
-    let preferences = UserPreferences::find_by_id(user_id)
-        .one(&state.db)
-        .await?;
+    let preferences = UserPreferences::find_by_id(user_id).one(&state.db).await?;
 
     let theme = preferences
         .map(|p| p.theme)
@@ -176,7 +182,9 @@ async fn list_users(
     AuthUser(user): AuthUser,
 ) -> Result<Json<Vec<UserResponse>>> {
     if !user_has_permission(&state.db, user.id, "users.view").await {
-        return Err(AppError::Forbidden("Permission denied: users.view required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: users.view required".to_string(),
+        ));
     }
     let skip = params.skip.unwrap_or(0);
     let limit = params.limit.unwrap_or(100);
@@ -279,7 +287,9 @@ async fn list_pending_users(
     AuthUser(user): AuthUser,
 ) -> Result<Json<Vec<UserResponse>>> {
     if !user_has_permission(&state.db, user.id, "users.view").await {
-        return Err(AppError::Forbidden("Permission denied: users.view required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: users.view required".to_string(),
+        ));
     }
     let users = User::find()
         .filter(user::Column::IsApproved.eq(false))
@@ -301,7 +311,9 @@ async fn create_user(
     Json(data): Json<CreateUserRequest>,
 ) -> Result<Json<UserResponse>> {
     if !user_has_permission(&state.db, user.id, "users.manage").await {
-        return Err(AppError::Forbidden("Permission denied: users.manage required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: users.manage required".to_string(),
+        ));
     }
     // Check if username exists
     let existing = User::find()
@@ -360,7 +372,9 @@ async fn get_user(
     AuthUser(user): AuthUser,
 ) -> Result<Json<UserResponse>> {
     if !user_has_permission(&state.db, user.id, "users.view").await {
-        return Err(AppError::Forbidden("Permission denied: users.view required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: users.view required".to_string(),
+        ));
     }
     let response = get_user_with_roles(&state, user_id).await?;
     Ok(Json(response))
@@ -374,7 +388,9 @@ async fn update_user(
     Json(data): Json<UpdateUserRequest>,
 ) -> Result<Json<UserResponse>> {
     if !user_has_permission(&state.db, user.id, "users.manage").await {
-        return Err(AppError::Forbidden("Permission denied: users.manage required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: users.manage required".to_string(),
+        ));
     }
     // Check user exists
     let existing_user = User::find_by_id(user_id)
@@ -428,7 +444,9 @@ async fn approve_user(
     AuthUser(user): AuthUser,
 ) -> Result<Json<UserResponse>> {
     if !user_has_permission(&state.db, user.id, "users.manage").await {
-        return Err(AppError::Forbidden("Permission denied: users.manage required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: users.manage required".to_string(),
+        ));
     }
     let existing_user = User::find_by_id(user_id)
         .one(&state.db)
@@ -454,7 +472,9 @@ async fn reject_user(
     AuthUser(user): AuthUser,
 ) -> Result<Json<serde_json::Value>> {
     if !user_has_permission(&state.db, user.id, "users.manage").await {
-        return Err(AppError::Forbidden("Permission denied: users.manage required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: users.manage required".to_string(),
+        ));
     }
     let existing_user = User::find_by_id(user_id)
         .one(&state.db)
@@ -463,7 +483,9 @@ async fn reject_user(
 
     existing_user.delete(&state.db).await?;
 
-    Ok(Json(serde_json::json!({"message": "User rejected and deleted"})))
+    Ok(Json(
+        serde_json::json!({"message": "User rejected and deleted"}),
+    ))
 }
 
 /// Delete a user (requires users.manage permission)
@@ -473,7 +495,9 @@ async fn delete_user(
     AuthUser(user): AuthUser,
 ) -> Result<Json<serde_json::Value>> {
     if !user_has_permission(&state.db, user.id, "users.manage").await {
-        return Err(AppError::Forbidden("Permission denied: users.manage required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: users.manage required".to_string(),
+        ));
     }
     if user_id == user.id {
         return Err(AppError::BadRequest("Cannot delete yourself".to_string()));
@@ -495,7 +519,9 @@ async fn list_invites(
     AuthUser(user): AuthUser,
 ) -> Result<Json<Vec<InviteResponse>>> {
     if !user_has_permission(&state.db, user.id, "users.manage").await {
-        return Err(AppError::Forbidden("Permission denied: users.manage required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: users.manage required".to_string(),
+        ));
     }
     let invites = Invite::find()
         .order_by_desc(invite::Column::CreatedAt)
@@ -504,14 +530,10 @@ async fn list_invites(
 
     let mut responses = Vec::new();
     for inv in invites {
-        let created_by = User::find_by_id(inv.created_by_id)
-            .one(&state.db)
-            .await?;
+        let created_by = User::find_by_id(inv.created_by_id).one(&state.db).await?;
 
         let used_by = if let Some(used_by_id) = inv.used_by_id {
-            User::find_by_id(used_by_id)
-                .one(&state.db)
-                .await?
+            User::find_by_id(used_by_id).one(&state.db).await?
         } else {
             None
         };
@@ -519,7 +541,9 @@ async fn list_invites(
         responses.push(InviteResponse {
             id: inv.id,
             code: inv.code,
-            created_by_username: created_by.map(|u| u.username).unwrap_or_else(|| "Unknown".to_string()),
+            created_by_username: created_by
+                .map(|u| u.username)
+                .unwrap_or_else(|| "Unknown".to_string()),
             used_by_username: used_by.map(|u| u.username),
             is_used: inv.is_used,
             expires_at: inv.expires_at,
@@ -538,7 +562,9 @@ async fn create_invite(
     Json(data): Json<CreateInviteRequest>,
 ) -> Result<Json<InviteResponse>> {
     if !user_has_permission(&state.db, user.id, "users.manage").await {
-        return Err(AppError::Forbidden("Permission denied: users.manage required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: users.manage required".to_string(),
+        ));
     }
     use crate::services::generate_random_string;
 
@@ -580,7 +606,9 @@ async fn delete_invite(
     AuthUser(user): AuthUser,
 ) -> Result<Json<serde_json::Value>> {
     if !user_has_permission(&state.db, user.id, "users.manage").await {
-        return Err(AppError::Forbidden("Permission denied: users.manage required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: users.manage required".to_string(),
+        ));
     }
     let existing_invite = Invite::find_by_id(invite_id)
         .one(&state.db)

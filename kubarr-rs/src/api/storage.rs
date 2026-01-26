@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio_util::io::ReaderStream;
 
-use crate::api::extractors::{AuthUser, user_has_permission};
+use crate::api::extractors::{user_has_permission, AuthUser};
 use crate::db::entities::prelude::*;
 use crate::error::{AppError, Result};
 use crate::state::{AppState, DbConn};
@@ -85,13 +85,10 @@ pub struct CreateDirectoryRequest {
 /// Get the configured storage path
 async fn get_storage_path(db: &DbConn) -> Result<PathBuf> {
     // Check if storage is configured in DB
-    let db_path = SystemSetting::find_by_id("storage_path")
-        .one(db)
-        .await?;
+    let db_path = SystemSetting::find_by_id("storage_path").one(db).await?;
 
     // Use environment variable for the actual path inside the container
-    let storage_path = std::env::var("KUBARR_STORAGE_PATH")
-        .unwrap_or_else(|_| "/data".to_string());
+    let storage_path = std::env::var("KUBARR_STORAGE_PATH").unwrap_or_else(|_| "/data".to_string());
 
     let path = PathBuf::from(&storage_path);
 
@@ -114,18 +111,18 @@ async fn get_storage_path(db: &DbConn) -> Result<PathBuf> {
 
 /// Validate and resolve a requested path to prevent directory traversal
 fn validate_path(requested_path: &str, storage_path: &PathBuf) -> Result<PathBuf> {
-    let base_path = storage_path.canonicalize().map_err(|e| {
-        AppError::Internal(format!("Failed to resolve storage path: {}", e))
-    })?;
+    let base_path = storage_path
+        .canonicalize()
+        .map_err(|e| AppError::Internal(format!("Failed to resolve storage path: {}", e)))?;
 
     // Normalize the requested path
     let clean_path = requested_path.trim_start_matches('/');
     let full_path = base_path.join(clean_path);
 
     // Resolve to absolute path
-    let resolved = full_path.canonicalize().map_err(|_| {
-        AppError::NotFound(format!("Path not found: {}", requested_path))
-    })?;
+    let resolved = full_path
+        .canonicalize()
+        .map_err(|_| AppError::NotFound(format!("Path not found: {}", requested_path)))?;
 
     // Ensure the resolved path is within the storage base
     if !resolved.starts_with(&base_path) {
@@ -139,9 +136,8 @@ fn validate_path(requested_path: &str, storage_path: &PathBuf) -> Result<PathBuf
 
 /// Get information about a file or directory
 fn get_file_info_internal(file_path: &PathBuf, base_path: &PathBuf) -> Result<FileInfo> {
-    let metadata = std::fs::metadata(file_path).map_err(|e| {
-        AppError::Internal(format!("Failed to get file metadata: {}", e))
-    })?;
+    let metadata = std::fs::metadata(file_path)
+        .map_err(|e| AppError::Internal(format!("Failed to get file metadata: {}", e)))?;
 
     let relative_path = file_path
         .strip_prefix(base_path)
@@ -183,7 +179,10 @@ fn get_file_info_internal(file_path: &PathBuf, base_path: &PathBuf) -> Result<Fi
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default(),
-        path: relative_path.to_string_lossy().to_string().replace('\\', "/"),
+        path: relative_path
+            .to_string_lossy()
+            .to_string()
+            .replace('\\', "/"),
         file_type: file_type.to_string(),
         size,
         modified,
@@ -202,12 +201,14 @@ async fn browse_directory(
     AuthUser(user): AuthUser,
 ) -> Result<Json<DirectoryListing>> {
     if !user_has_permission(&state.db, user.id, "storage.view").await {
-        return Err(AppError::Forbidden("Permission denied: storage.view required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: storage.view required".to_string(),
+        ));
     }
     let storage_path = get_storage_path(&state.db).await?;
-    let base_path = storage_path.canonicalize().map_err(|e| {
-        AppError::Internal(format!("Failed to resolve storage path: {}", e))
-    })?;
+    let base_path = storage_path
+        .canonicalize()
+        .map_err(|e| AppError::Internal(format!("Failed to resolve storage path: {}", e)))?;
 
     // Handle empty path as root
     let dir_path = if query.path.is_empty() || query.path == "/" {
@@ -217,7 +218,10 @@ async fn browse_directory(
     };
 
     if !dir_path.exists() {
-        return Err(AppError::NotFound(format!("Path not found: {}", query.path)));
+        return Err(AppError::NotFound(format!(
+            "Path not found: {}",
+            query.path
+        )));
     }
 
     if !dir_path.is_dir() {
@@ -229,9 +233,8 @@ async fn browse_directory(
 
     // List directory contents
     let mut items: Vec<FileInfo> = Vec::new();
-    let entries = std::fs::read_dir(&dir_path).map_err(|e| {
-        AppError::Forbidden(format!("Permission denied: {}", e))
-    })?;
+    let entries = std::fs::read_dir(&dir_path)
+        .map_err(|e| AppError::Forbidden(format!("Permission denied: {}", e)))?;
 
     let mut entries_vec: Vec<_> = entries.filter_map(|e| e.ok()).collect();
 
@@ -243,7 +246,10 @@ async fn browse_directory(
         match (a_is_dir, b_is_dir) {
             (true, false) => std::cmp::Ordering::Less,
             (false, true) => std::cmp::Ordering::Greater,
-            _ => a.file_name().to_ascii_lowercase().cmp(&b.file_name().to_ascii_lowercase()),
+            _ => a
+                .file_name()
+                .to_ascii_lowercase()
+                .cmp(&b.file_name().to_ascii_lowercase()),
         }
     });
 
@@ -295,7 +301,9 @@ async fn get_storage_stats(
     AuthUser(user): AuthUser,
 ) -> Result<Json<StorageStats>> {
     if !user_has_permission(&state.db, user.id, "storage.view").await {
-        return Err(AppError::Forbidden("Permission denied: storage.view required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: storage.view required".to_string(),
+        ));
     }
     let storage_path = get_storage_path(&state.db).await?;
 
@@ -364,17 +372,22 @@ async fn get_file_info(
     AuthUser(user): AuthUser,
 ) -> Result<Json<FileInfo>> {
     if !user_has_permission(&state.db, user.id, "storage.view").await {
-        return Err(AppError::Forbidden("Permission denied: storage.view required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: storage.view required".to_string(),
+        ));
     }
     let storage_path = get_storage_path(&state.db).await?;
-    let base_path = storage_path.canonicalize().map_err(|e| {
-        AppError::Internal(format!("Failed to resolve storage path: {}", e))
-    })?;
+    let base_path = storage_path
+        .canonicalize()
+        .map_err(|e| AppError::Internal(format!("Failed to resolve storage path: {}", e)))?;
 
     let file_path = validate_path(&query.path, &storage_path)?;
 
     if !file_path.exists() {
-        return Err(AppError::NotFound(format!("Path not found: {}", query.path)));
+        return Err(AppError::NotFound(format!(
+            "Path not found: {}",
+            query.path
+        )));
     }
 
     let info = get_file_info_internal(&file_path, &base_path)?;
@@ -388,12 +401,14 @@ async fn create_directory(
     Json(request): Json<CreateDirectoryRequest>,
 ) -> Result<Json<serde_json::Value>> {
     if !user_has_permission(&state.db, user.id, "storage.write").await {
-        return Err(AppError::Forbidden("Permission denied: storage.write required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: storage.write required".to_string(),
+        ));
     }
     let storage_path = get_storage_path(&state.db).await?;
-    let base_path = storage_path.canonicalize().map_err(|e| {
-        AppError::Internal(format!("Failed to resolve storage path: {}", e))
-    })?;
+    let base_path = storage_path
+        .canonicalize()
+        .map_err(|e| AppError::Internal(format!("Failed to resolve storage path: {}", e)))?;
 
     // Build the target path
     let clean_path = request.path.trim_start_matches('/');
@@ -413,9 +428,8 @@ async fn create_directory(
         )));
     }
 
-    std::fs::create_dir_all(&dir_path).map_err(|e| {
-        AppError::Internal(format!("Failed to create directory: {}", e))
-    })?;
+    std::fs::create_dir_all(&dir_path)
+        .map_err(|e| AppError::Internal(format!("Failed to create directory: {}", e)))?;
 
     // Set permissions on Unix
     #[cfg(unix)]
@@ -437,17 +451,22 @@ async fn delete_path(
     AuthUser(user): AuthUser,
 ) -> Result<Json<serde_json::Value>> {
     if !user_has_permission(&state.db, user.id, "storage.delete").await {
-        return Err(AppError::Forbidden("Permission denied: storage.delete required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: storage.delete required".to_string(),
+        ));
     }
     let storage_path = get_storage_path(&state.db).await?;
-    let base_path = storage_path.canonicalize().map_err(|e| {
-        AppError::Internal(format!("Failed to resolve storage path: {}", e))
-    })?;
+    let base_path = storage_path
+        .canonicalize()
+        .map_err(|e| AppError::Internal(format!("Failed to resolve storage path: {}", e)))?;
 
     let target_path = validate_path(&query.path, &storage_path)?;
 
     if !target_path.exists() {
-        return Err(AppError::NotFound(format!("Path not found: {}", query.path)));
+        return Err(AppError::NotFound(format!(
+            "Path not found: {}",
+            query.path
+        )));
     }
 
     // Check if trying to delete the root
@@ -487,13 +506,11 @@ async fn delete_path(
             ));
         }
 
-        std::fs::remove_dir(&target_path).map_err(|e| {
-            AppError::Internal(format!("Failed to delete directory: {}", e))
-        })?;
+        std::fs::remove_dir(&target_path)
+            .map_err(|e| AppError::Internal(format!("Failed to delete directory: {}", e)))?;
     } else {
-        std::fs::remove_file(&target_path).map_err(|e| {
-            AppError::Internal(format!("Failed to delete file: {}", e))
-        })?;
+        std::fs::remove_file(&target_path)
+            .map_err(|e| AppError::Internal(format!("Failed to delete file: {}", e)))?;
     }
 
     Ok(Json(serde_json::json!({
@@ -509,17 +526,24 @@ async fn download_file(
     AuthUser(user): AuthUser,
 ) -> Result<Response> {
     if !user_has_permission(&state.db, user.id, "storage.download").await {
-        return Err(AppError::Forbidden("Permission denied: storage.download required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: storage.download required".to_string(),
+        ));
     }
     let storage_path = get_storage_path(&state.db).await?;
     let file_path = validate_path(&query.path, &storage_path)?;
 
     if !file_path.exists() {
-        return Err(AppError::NotFound(format!("File not found: {}", query.path)));
+        return Err(AppError::NotFound(format!(
+            "File not found: {}",
+            query.path
+        )));
     }
 
     if file_path.is_dir() {
-        return Err(AppError::BadRequest("Cannot download a directory".to_string()));
+        return Err(AppError::BadRequest(
+            "Cannot download a directory".to_string(),
+        ));
     }
 
     let file_name = file_path
@@ -528,9 +552,9 @@ async fn download_file(
         .unwrap_or_else(|| "download".to_string());
 
     // Open file for streaming
-    let file = tokio::fs::File::open(&file_path).await.map_err(|e| {
-        AppError::Internal(format!("Failed to open file: {}", e))
-    })?;
+    let file = tokio::fs::File::open(&file_path)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to open file: {}", e)))?;
 
     let stream = ReaderStream::new(file);
     let body = Body::from_stream(stream);

@@ -26,7 +26,8 @@ impl K8sClient {
         } else if let Some(ref kubeconfig_path) = CONFIG.kubeconfig_path {
             // Explicit kubeconfig path
             let kubeconfig = Kubeconfig::read_from(kubeconfig_path)?;
-            let config = Config::from_custom_kubeconfig(kubeconfig, &KubeConfigOptions::default()).await?;
+            let config =
+                Config::from_custom_kubeconfig(kubeconfig, &KubeConfigOptions::default()).await?;
             Client::try_from(config)?
         } else {
             // Default kubeconfig
@@ -242,7 +243,10 @@ impl K8sClient {
                 target_port,
                 port_forward_command: port_forward_cmd,
                 url: external_url,
-                service_type: spec.type_.clone().unwrap_or_else(|| "ClusterIP".to_string()),
+                service_type: spec
+                    .type_
+                    .clone()
+                    .unwrap_or_else(|| "ClusterIP".to_string()),
             });
         }
 
@@ -294,7 +298,10 @@ impl K8sClient {
         };
 
         // Try to replace, if not exists create
-        match secrets.replace(secret_name, &Default::default(), &secret).await {
+        match secrets
+            .replace(secret_name, &Default::default(), &secret)
+            .await
+        {
             Ok(_) => Ok(true),
             Err(kube::Error::Api(ae)) if ae.code == 404 => {
                 // Create new secret
@@ -308,11 +315,7 @@ impl K8sClient {
     }
 
     /// List pods in a namespace, optionally filtered by app name
-    pub async fn list_pods(
-        &self,
-        namespace: &str,
-        app_name: Option<&str>,
-    ) -> Result<Vec<Pod>> {
+    pub async fn list_pods(&self, namespace: &str, app_name: Option<&str>) -> Result<Vec<Pod>> {
         let pods: Api<Pod> = Api::namespaced(self.client.clone(), namespace);
 
         let lp = if let Some(app) = app_name {
@@ -462,13 +465,31 @@ fn format_cpu(nanocores: i64) -> String {
 
 fn parse_memory(memory_str: &str) -> i64 {
     if memory_str.ends_with("Ki") {
-        memory_str[..memory_str.len() - 2].parse::<i64>().unwrap_or(0) * 1024
+        memory_str[..memory_str.len() - 2]
+            .parse::<i64>()
+            .unwrap_or(0)
+            * 1024
     } else if memory_str.ends_with("Mi") {
-        memory_str[..memory_str.len() - 2].parse::<i64>().unwrap_or(0) * 1024 * 1024
+        memory_str[..memory_str.len() - 2]
+            .parse::<i64>()
+            .unwrap_or(0)
+            * 1024
+            * 1024
     } else if memory_str.ends_with("Gi") {
-        memory_str[..memory_str.len() - 2].parse::<i64>().unwrap_or(0) * 1024 * 1024 * 1024
+        memory_str[..memory_str.len() - 2]
+            .parse::<i64>()
+            .unwrap_or(0)
+            * 1024
+            * 1024
+            * 1024
     } else if memory_str.ends_with("Ti") {
-        memory_str[..memory_str.len() - 2].parse::<i64>().unwrap_or(0) * 1024 * 1024 * 1024 * 1024
+        memory_str[..memory_str.len() - 2]
+            .parse::<i64>()
+            .unwrap_or(0)
+            * 1024
+            * 1024
+            * 1024
+            * 1024
     } else {
         memory_str.parse().unwrap_or(0)
     }

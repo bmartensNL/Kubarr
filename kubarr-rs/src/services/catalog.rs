@@ -107,10 +107,11 @@ impl AppCatalog {
             .unwrap_or_default();
 
         // Skip charts without kubarr category annotation
-        let category = match annotations.get(&serde_yaml::Value::String("kubarr.io/category".to_string())) {
-            Some(c) => c.as_str().unwrap_or("other").to_string(),
-            None => return Ok(None),
-        };
+        let category =
+            match annotations.get(&serde_yaml::Value::String("kubarr.io/category".to_string())) {
+                Some(c) => c.as_str().unwrap_or("other").to_string(),
+                None => return Ok(None),
+            };
 
         // Parse values.yaml
         let values: serde_yaml::Value = if values_yaml.exists() {
@@ -121,10 +122,16 @@ impl AppCatalog {
         };
 
         // Get app-specific config
-        let app_values = values.get(chart_name).cloned().unwrap_or(serde_yaml::Value::Null);
+        let app_values = values
+            .get(chart_name)
+            .cloned()
+            .unwrap_or(serde_yaml::Value::Null);
 
         // Extract image info
-        let image_config = app_values.get("image").cloned().unwrap_or(serde_yaml::Value::Null);
+        let image_config = app_values
+            .get("image")
+            .cloned()
+            .unwrap_or(serde_yaml::Value::Null);
         let default_image_repo = format!("linuxserver/{}", chart_name);
         let image_repo = image_config
             .get("repository")
@@ -137,22 +144,50 @@ impl AppCatalog {
         let container_image = format!("{}:{}", image_repo, image_tag);
 
         // Extract port
-        let service_config = app_values.get("service").cloned().unwrap_or(serde_yaml::Value::Null);
+        let service_config = app_values
+            .get("service")
+            .cloned()
+            .unwrap_or(serde_yaml::Value::Null);
         let default_port = service_config
             .get("port")
             .and_then(|p| p.as_i64())
             .unwrap_or(8080) as i32;
 
         // Extract resources
-        let resources_config = app_values.get("resources").cloned().unwrap_or(serde_yaml::Value::Null);
-        let requests = resources_config.get("requests").cloned().unwrap_or(serde_yaml::Value::Null);
-        let limits = resources_config.get("limits").cloned().unwrap_or(serde_yaml::Value::Null);
+        let resources_config = app_values
+            .get("resources")
+            .cloned()
+            .unwrap_or(serde_yaml::Value::Null);
+        let requests = resources_config
+            .get("requests")
+            .cloned()
+            .unwrap_or(serde_yaml::Value::Null);
+        let limits = resources_config
+            .get("limits")
+            .cloned()
+            .unwrap_or(serde_yaml::Value::Null);
 
         let resource_requirements = ResourceRequirements {
-            cpu_request: requests.get("cpu").and_then(|c| c.as_str()).unwrap_or("100m").to_string(),
-            cpu_limit: limits.get("cpu").and_then(|c| c.as_str()).unwrap_or("1000m").to_string(),
-            memory_request: requests.get("memory").and_then(|m| m.as_str()).unwrap_or("256Mi").to_string(),
-            memory_limit: limits.get("memory").and_then(|m| m.as_str()).unwrap_or("1Gi").to_string(),
+            cpu_request: requests
+                .get("cpu")
+                .and_then(|c| c.as_str())
+                .unwrap_or("100m")
+                .to_string(),
+            cpu_limit: limits
+                .get("cpu")
+                .and_then(|c| c.as_str())
+                .unwrap_or("1000m")
+                .to_string(),
+            memory_request: requests
+                .get("memory")
+                .and_then(|m| m.as_str())
+                .unwrap_or("256Mi")
+                .to_string(),
+            memory_limit: limits
+                .get("memory")
+                .and_then(|m| m.as_str())
+                .unwrap_or("1Gi")
+                .to_string(),
         };
 
         // Extract volumes
@@ -190,16 +225,16 @@ impl AppCatalog {
             .and_then(|e| e.as_mapping())
             .map(|m| {
                 m.iter()
-                    .filter_map(|(k, v)| {
-                        Some((k.as_str()?.to_string(), v.as_str()?.to_string()))
-                    })
+                    .filter_map(|(k, v)| Some((k.as_str()?.to_string(), v.as_str()?.to_string())))
                     .collect()
             })
             .unwrap_or_default();
 
         // Get display name and other annotations
         let display_name = annotations
-            .get(&serde_yaml::Value::String("kubarr.io/display-name".to_string()))
+            .get(&serde_yaml::Value::String(
+                "kubarr.io/display-name".to_string(),
+            ))
             .and_then(|d| d.as_str())
             .unwrap_or(chart_name)
             .to_string();
@@ -301,7 +336,8 @@ mod tests {
 
     /// Create a minimal Chart.yaml with kubarr annotations
     fn create_test_chart_yaml(dir: &Path, name: &str, category: &str) {
-        let chart_content = format!(r#"
+        let chart_content = format!(
+            r#"
 apiVersion: v2
 name: {}
 version: 1.0.0
@@ -310,13 +346,16 @@ annotations:
   kubarr.io/category: "{}"
   kubarr.io/display-name: "Test {}"
   kubarr.io/icon: "📦"
-"#, name, name, category, name);
+"#,
+            name, name, category, name
+        );
         fs::write(dir.join("Chart.yaml"), chart_content).unwrap();
     }
 
     /// Create a minimal values.yaml
     fn create_test_values_yaml(dir: &Path, name: &str) {
-        let values_content = format!(r#"
+        let values_content = format!(
+            r#"
 {}:
   image:
     repository: "linuxserver/{}"
@@ -335,7 +374,9 @@ persistence:
     enabled: true
     mountPath: /config
     size: 1Gi
-"#, name, name);
+"#,
+            name, name
+        );
         fs::write(dir.join("values.yaml"), values_content).unwrap();
     }
 
@@ -422,25 +463,28 @@ persistence:
     #[test]
     fn test_app_catalog_get_app() {
         let mut apps = HashMap::new();
-        apps.insert("testapp".to_string(), AppConfig {
-            name: "testapp".to_string(),
-            display_name: "Test App".to_string(),
-            description: "Test".to_string(),
-            icon: "📦".to_string(),
-            container_image: "test:latest".to_string(),
-            default_port: 8080,
-            resource_requirements: ResourceRequirements {
-                cpu_request: "100m".to_string(),
-                cpu_limit: "1000m".to_string(),
-                memory_request: "256Mi".to_string(),
-                memory_limit: "1Gi".to_string(),
+        apps.insert(
+            "testapp".to_string(),
+            AppConfig {
+                name: "testapp".to_string(),
+                display_name: "Test App".to_string(),
+                description: "Test".to_string(),
+                icon: "📦".to_string(),
+                container_image: "test:latest".to_string(),
+                default_port: 8080,
+                resource_requirements: ResourceRequirements {
+                    cpu_request: "100m".to_string(),
+                    cpu_limit: "1000m".to_string(),
+                    memory_request: "256Mi".to_string(),
+                    memory_limit: "1Gi".to_string(),
+                },
+                volumes: vec![],
+                environment_variables: HashMap::new(),
+                category: "media".to_string(),
+                is_system: false,
+                is_hidden: false,
             },
-            volumes: vec![],
-            environment_variables: HashMap::new(),
-            category: "media".to_string(),
-            is_system: false,
-            is_hidden: false,
-        });
+        );
 
         let catalog = AppCatalog { apps };
 
@@ -454,46 +498,52 @@ persistence:
         let mut apps = HashMap::new();
 
         // Add media app
-        apps.insert("sonarr".to_string(), AppConfig {
-            name: "sonarr".to_string(),
-            display_name: "Sonarr".to_string(),
-            description: "TV series manager".to_string(),
-            icon: "📺".to_string(),
-            container_image: "linuxserver/sonarr:latest".to_string(),
-            default_port: 8989,
-            resource_requirements: ResourceRequirements {
-                cpu_request: "100m".to_string(),
-                cpu_limit: "1000m".to_string(),
-                memory_request: "256Mi".to_string(),
-                memory_limit: "1Gi".to_string(),
+        apps.insert(
+            "sonarr".to_string(),
+            AppConfig {
+                name: "sonarr".to_string(),
+                display_name: "Sonarr".to_string(),
+                description: "TV series manager".to_string(),
+                icon: "📺".to_string(),
+                container_image: "linuxserver/sonarr:latest".to_string(),
+                default_port: 8989,
+                resource_requirements: ResourceRequirements {
+                    cpu_request: "100m".to_string(),
+                    cpu_limit: "1000m".to_string(),
+                    memory_request: "256Mi".to_string(),
+                    memory_limit: "1Gi".to_string(),
+                },
+                volumes: vec![],
+                environment_variables: HashMap::new(),
+                category: "media".to_string(),
+                is_system: false,
+                is_hidden: false,
             },
-            volumes: vec![],
-            environment_variables: HashMap::new(),
-            category: "media".to_string(),
-            is_system: false,
-            is_hidden: false,
-        });
+        );
 
         // Add download app
-        apps.insert("qbittorrent".to_string(), AppConfig {
-            name: "qbittorrent".to_string(),
-            display_name: "qBittorrent".to_string(),
-            description: "BitTorrent client".to_string(),
-            icon: "⬇️".to_string(),
-            container_image: "linuxserver/qbittorrent:latest".to_string(),
-            default_port: 8080,
-            resource_requirements: ResourceRequirements {
-                cpu_request: "100m".to_string(),
-                cpu_limit: "1000m".to_string(),
-                memory_request: "256Mi".to_string(),
-                memory_limit: "1Gi".to_string(),
+        apps.insert(
+            "qbittorrent".to_string(),
+            AppConfig {
+                name: "qbittorrent".to_string(),
+                display_name: "qBittorrent".to_string(),
+                description: "BitTorrent client".to_string(),
+                icon: "⬇️".to_string(),
+                container_image: "linuxserver/qbittorrent:latest".to_string(),
+                default_port: 8080,
+                resource_requirements: ResourceRequirements {
+                    cpu_request: "100m".to_string(),
+                    cpu_limit: "1000m".to_string(),
+                    memory_request: "256Mi".to_string(),
+                    memory_limit: "1Gi".to_string(),
+                },
+                volumes: vec![],
+                environment_variables: HashMap::new(),
+                category: "download".to_string(),
+                is_system: false,
+                is_hidden: false,
             },
-            volumes: vec![],
-            environment_variables: HashMap::new(),
-            category: "download".to_string(),
-            is_system: false,
-            is_hidden: false,
-        });
+        );
 
         let catalog = AppCatalog { apps };
 
@@ -513,65 +563,74 @@ persistence:
     fn test_app_catalog_get_categories() {
         let mut apps = HashMap::new();
 
-        apps.insert("app1".to_string(), AppConfig {
-            name: "app1".to_string(),
-            display_name: "App 1".to_string(),
-            description: "".to_string(),
-            icon: "".to_string(),
-            container_image: "".to_string(),
-            default_port: 8080,
-            resource_requirements: ResourceRequirements {
-                cpu_request: "100m".to_string(),
-                cpu_limit: "1000m".to_string(),
-                memory_request: "256Mi".to_string(),
-                memory_limit: "1Gi".to_string(),
+        apps.insert(
+            "app1".to_string(),
+            AppConfig {
+                name: "app1".to_string(),
+                display_name: "App 1".to_string(),
+                description: "".to_string(),
+                icon: "".to_string(),
+                container_image: "".to_string(),
+                default_port: 8080,
+                resource_requirements: ResourceRequirements {
+                    cpu_request: "100m".to_string(),
+                    cpu_limit: "1000m".to_string(),
+                    memory_request: "256Mi".to_string(),
+                    memory_limit: "1Gi".to_string(),
+                },
+                volumes: vec![],
+                environment_variables: HashMap::new(),
+                category: "media".to_string(),
+                is_system: false,
+                is_hidden: false,
             },
-            volumes: vec![],
-            environment_variables: HashMap::new(),
-            category: "media".to_string(),
-            is_system: false,
-            is_hidden: false,
-        });
+        );
 
-        apps.insert("app2".to_string(), AppConfig {
-            name: "app2".to_string(),
-            display_name: "App 2".to_string(),
-            description: "".to_string(),
-            icon: "".to_string(),
-            container_image: "".to_string(),
-            default_port: 8080,
-            resource_requirements: ResourceRequirements {
-                cpu_request: "100m".to_string(),
-                cpu_limit: "1000m".to_string(),
-                memory_request: "256Mi".to_string(),
-                memory_limit: "1Gi".to_string(),
+        apps.insert(
+            "app2".to_string(),
+            AppConfig {
+                name: "app2".to_string(),
+                display_name: "App 2".to_string(),
+                description: "".to_string(),
+                icon: "".to_string(),
+                container_image: "".to_string(),
+                default_port: 8080,
+                resource_requirements: ResourceRequirements {
+                    cpu_request: "100m".to_string(),
+                    cpu_limit: "1000m".to_string(),
+                    memory_request: "256Mi".to_string(),
+                    memory_limit: "1Gi".to_string(),
+                },
+                volumes: vec![],
+                environment_variables: HashMap::new(),
+                category: "download".to_string(),
+                is_system: false,
+                is_hidden: false,
             },
-            volumes: vec![],
-            environment_variables: HashMap::new(),
-            category: "download".to_string(),
-            is_system: false,
-            is_hidden: false,
-        });
+        );
 
-        apps.insert("app3".to_string(), AppConfig {
-            name: "app3".to_string(),
-            display_name: "App 3".to_string(),
-            description: "".to_string(),
-            icon: "".to_string(),
-            container_image: "".to_string(),
-            default_port: 8080,
-            resource_requirements: ResourceRequirements {
-                cpu_request: "100m".to_string(),
-                cpu_limit: "1000m".to_string(),
-                memory_request: "256Mi".to_string(),
-                memory_limit: "1Gi".to_string(),
+        apps.insert(
+            "app3".to_string(),
+            AppConfig {
+                name: "app3".to_string(),
+                display_name: "App 3".to_string(),
+                description: "".to_string(),
+                icon: "".to_string(),
+                container_image: "".to_string(),
+                default_port: 8080,
+                resource_requirements: ResourceRequirements {
+                    cpu_request: "100m".to_string(),
+                    cpu_limit: "1000m".to_string(),
+                    memory_request: "256Mi".to_string(),
+                    memory_limit: "1Gi".to_string(),
+                },
+                volumes: vec![],
+                environment_variables: HashMap::new(),
+                category: "media".to_string(), // Duplicate category
+                is_system: false,
+                is_hidden: false,
             },
-            volumes: vec![],
-            environment_variables: HashMap::new(),
-            category: "media".to_string(), // Duplicate category
-            is_system: false,
-            is_hidden: false,
-        });
+        );
 
         let catalog = AppCatalog { apps };
 
@@ -584,25 +643,28 @@ persistence:
     #[test]
     fn test_app_catalog_app_exists() {
         let mut apps = HashMap::new();
-        apps.insert("myapp".to_string(), AppConfig {
-            name: "myapp".to_string(),
-            display_name: "My App".to_string(),
-            description: "".to_string(),
-            icon: "".to_string(),
-            container_image: "".to_string(),
-            default_port: 8080,
-            resource_requirements: ResourceRequirements {
-                cpu_request: "100m".to_string(),
-                cpu_limit: "1000m".to_string(),
-                memory_request: "256Mi".to_string(),
-                memory_limit: "1Gi".to_string(),
+        apps.insert(
+            "myapp".to_string(),
+            AppConfig {
+                name: "myapp".to_string(),
+                display_name: "My App".to_string(),
+                description: "".to_string(),
+                icon: "".to_string(),
+                container_image: "".to_string(),
+                default_port: 8080,
+                resource_requirements: ResourceRequirements {
+                    cpu_request: "100m".to_string(),
+                    cpu_limit: "1000m".to_string(),
+                    memory_request: "256Mi".to_string(),
+                    memory_limit: "1Gi".to_string(),
+                },
+                volumes: vec![],
+                environment_variables: HashMap::new(),
+                category: "test".to_string(),
+                is_system: false,
+                is_hidden: false,
             },
-            volumes: vec![],
-            environment_variables: HashMap::new(),
-            category: "test".to_string(),
-            is_system: false,
-            is_hidden: false,
-        });
+        );
 
         let catalog = AppCatalog { apps };
 

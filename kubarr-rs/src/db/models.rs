@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::db::entities::{user, role};
+use crate::db::entities::{role, user};
 
 // ============================================================================
 // User Request/Response Models (DTOs)
@@ -265,7 +265,10 @@ mod tests {
 
         let role: CreateRole = serde_json::from_str(json).unwrap();
         assert_eq!(role.name, "custom_role");
-        assert_eq!(role.description, Some("A custom role description".to_string()));
+        assert_eq!(
+            role.description,
+            Some("A custom role description".to_string())
+        );
         assert_eq!(role.app_names, vec!["sonarr", "radarr"]);
     }
 
@@ -388,13 +391,11 @@ mod tests {
             is_approved: true,
             created_at: now,
             updated_at: now,
-            roles: vec![
-                RoleInfo {
-                    id: 1,
-                    name: "admin".to_string(),
-                    description: Some("Administrator".to_string()),
-                },
-            ],
+            roles: vec![RoleInfo {
+                id: 1,
+                name: "admin".to_string(),
+                description: Some("Administrator".to_string()),
+            }],
         };
 
         let json = serde_json::to_string(&response).unwrap();

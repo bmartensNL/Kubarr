@@ -26,16 +26,16 @@ static PUBLIC_KEY: Lazy<RwLock<Option<String>>> = Lazy::new(|| RwLock::new(None)
 /// JWT token claims
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
-    pub sub: String,           // Subject (user identifier)
-    pub iss: String,           // Issuer
+    pub sub: String, // Subject (user identifier)
+    pub iss: String, // Issuer
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub aud: Option<String>,   // Audience (client_id)
+    pub aud: Option<String>, // Audience (client_id)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email: Option<String>, // User email
-    pub exp: i64,              // Expiration time
-    pub iat: i64,              // Issued at
+    pub exp: i64,    // Expiration time
+    pub iat: i64,    // Issued at
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub jti: Option<String>,   // JWT ID for uniqueness
+    pub jti: Option<String>, // JWT ID for uniqueness
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_type: Option<String>, // "refresh" for refresh tokens
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -303,7 +303,8 @@ pub fn generate_cookie_secret() -> String {
 
 /// Generate a secure random password
 pub fn generate_secure_password(length: usize) -> String {
-    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()";
+    const CHARSET: &[u8] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()";
     let mut rng = rand::thread_rng();
     (0..length)
         .map(|_| {
@@ -570,7 +571,10 @@ mod tests {
 
         // Decoding should fail due to expiration
         let result = decode_token(&token);
-        assert!(result.is_err(), "Expected token to be expired but decode succeeded");
+        assert!(
+            result.is_err(),
+            "Expected token to be expired but decode succeeded"
+        );
     }
 
     #[test]
@@ -588,15 +592,7 @@ mod tests {
     #[test]
     fn test_access_token_minimal() {
         // Test with minimal parameters
-        let token = create_access_token(
-            "user123",
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        );
+        let token = create_access_token("user123", None, None, None, None, None, None);
 
         assert!(token.is_ok());
         let claims = decode_token(&token.unwrap()).unwrap();

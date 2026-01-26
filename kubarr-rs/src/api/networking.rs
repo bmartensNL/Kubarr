@@ -1,8 +1,4 @@
-use axum::{
-    extract::State,
-    routing::get,
-    Json, Router,
-};
+use axum::{extract::State, routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -126,8 +122,10 @@ async fn get_network_topology(
     allowed_namespaces.insert("grafana".to_string());
 
     // Query network metrics from VictoriaMetrics
-    let rx_query = r#"sum by (namespace) (rate(container_network_receive_bytes_total{interface!="lo"}[5m]))"#;
-    let tx_query = r#"sum by (namespace) (rate(container_network_transmit_bytes_total{interface!="lo"}[5m]))"#;
+    let rx_query =
+        r#"sum by (namespace) (rate(container_network_receive_bytes_total{interface!="lo"}[5m]))"#;
+    let tx_query =
+        r#"sum by (namespace) (rate(container_network_transmit_bytes_total{interface!="lo"}[5m]))"#;
     let pod_count_query = r#"count by (namespace) (kube_pod_info)"#;
 
     let rx_results = query_vm(rx_query).await;
@@ -145,7 +143,8 @@ async fn get_network_topology(
             }
             if let Some(value) = result["value"][1].as_str() {
                 let rx_val: f64 = value.parse().unwrap_or(0.0);
-                metrics_map.entry(namespace.to_string())
+                metrics_map
+                    .entry(namespace.to_string())
                     .or_insert((0.0, 0.0, 1))
                     .0 = rx_val;
             }
@@ -160,7 +159,8 @@ async fn get_network_topology(
             }
             if let Some(value) = result["value"][1].as_str() {
                 let tx_val: f64 = value.parse().unwrap_or(0.0);
-                metrics_map.entry(namespace.to_string())
+                metrics_map
+                    .entry(namespace.to_string())
                     .or_insert((0.0, 0.0, 1))
                     .1 = tx_val;
             }
@@ -245,7 +245,9 @@ async fn get_network_topology(
                     let svc_namespace = namespace.clone();
 
                     // Get service ports
-                    let ports: Vec<i32> = svc.spec.as_ref()
+                    let ports: Vec<i32> = svc
+                        .spec
+                        .as_ref()
                         .and_then(|s| s.ports.as_ref())
                         .map(|p| p.iter().map(|port| port.port).collect())
                         .unwrap_or_default();
@@ -253,14 +255,17 @@ async fn get_network_topology(
                     let port = ports.first().copied();
 
                     // Check service selector to see what it connects to
-                    let selector = svc.spec.as_ref()
+                    let selector = svc
+                        .spec
+                        .as_ref()
                         .and_then(|s| s.selector.as_ref())
                         .cloned()
                         .unwrap_or_default();
 
                     // If the service exists, infer connections from other namespaces
                     // For now, connect apps to kubarr-system (dashboard)
-                    if svc_namespace != "kubarr-system" && metrics_map.contains_key(&svc_namespace) {
+                    if svc_namespace != "kubarr-system" && metrics_map.contains_key(&svc_namespace)
+                    {
                         edges.push(NetworkEdge {
                             source: "kubarr-system".to_string(),
                             target: svc_namespace.clone(),
@@ -293,9 +298,7 @@ async fn get_network_topology(
     add_known_dependencies(&mut edges, &metrics_map);
 
     // Deduplicate edges
-    edges.sort_by(|a, b| {
-        (&a.source, &a.target).cmp(&(&b.source, &b.target))
-    });
+    edges.sort_by(|a, b| (&a.source, &a.target).cmp(&(&b.source, &b.target)));
     edges.dedup_by(|a, b| a.source == b.source && a.target == b.target);
 
     Ok(Json(NetworkTopology { nodes, edges }))
@@ -321,14 +324,38 @@ async fn get_network_stats(
 
     // Query all network metrics
     let queries = [
-        (r#"sum by (namespace) (rate(container_network_receive_bytes_total{interface!="lo"}[5m]))"#, "rx_bytes"),
-        (r#"sum by (namespace) (rate(container_network_transmit_bytes_total{interface!="lo"}[5m]))"#, "tx_bytes"),
-        (r#"sum by (namespace) (rate(container_network_receive_packets_total{interface!="lo"}[5m]))"#, "rx_packets"),
-        (r#"sum by (namespace) (rate(container_network_transmit_packets_total{interface!="lo"}[5m]))"#, "tx_packets"),
-        (r#"sum by (namespace) (rate(container_network_receive_errors_total{interface!="lo"}[5m]))"#, "rx_errors"),
-        (r#"sum by (namespace) (rate(container_network_transmit_errors_total{interface!="lo"}[5m]))"#, "tx_errors"),
-        (r#"sum by (namespace) (rate(container_network_receive_packets_dropped_total{interface!="lo"}[5m]))"#, "rx_dropped"),
-        (r#"sum by (namespace) (rate(container_network_transmit_packets_dropped_total{interface!="lo"}[5m]))"#, "tx_dropped"),
+        (
+            r#"sum by (namespace) (rate(container_network_receive_bytes_total{interface!="lo"}[5m]))"#,
+            "rx_bytes",
+        ),
+        (
+            r#"sum by (namespace) (rate(container_network_transmit_bytes_total{interface!="lo"}[5m]))"#,
+            "tx_bytes",
+        ),
+        (
+            r#"sum by (namespace) (rate(container_network_receive_packets_total{interface!="lo"}[5m]))"#,
+            "rx_packets",
+        ),
+        (
+            r#"sum by (namespace) (rate(container_network_transmit_packets_total{interface!="lo"}[5m]))"#,
+            "tx_packets",
+        ),
+        (
+            r#"sum by (namespace) (rate(container_network_receive_errors_total{interface!="lo"}[5m]))"#,
+            "rx_errors",
+        ),
+        (
+            r#"sum by (namespace) (rate(container_network_transmit_errors_total{interface!="lo"}[5m]))"#,
+            "tx_errors",
+        ),
+        (
+            r#"sum by (namespace) (rate(container_network_receive_packets_dropped_total{interface!="lo"}[5m]))"#,
+            "rx_dropped",
+        ),
+        (
+            r#"sum by (namespace) (rate(container_network_transmit_packets_dropped_total{interface!="lo"}[5m]))"#,
+            "tx_dropped",
+        ),
         (r#"count by (namespace) (kube_pod_info)"#, "pod_count"),
     ];
 
@@ -343,7 +370,8 @@ async fn get_network_stats(
                 }
                 if let Some(value) = result["value"][1].as_str() {
                     let val: f64 = value.parse().unwrap_or(0.0);
-                    metrics_map.entry(namespace.to_string())
+                    metrics_map
+                        .entry(namespace.to_string())
                         .or_insert_with(HashMap::new)
                         .insert(metric_name.to_string(), val);
                 }
@@ -352,21 +380,20 @@ async fn get_network_stats(
     }
 
     // Build stats list
-    let stats: Vec<NetworkStats> = metrics_map.into_iter()
-        .map(|(namespace, metrics)| {
-            NetworkStats {
-                namespace: namespace.clone(),
-                app_name: capitalize_first(&namespace),
-                rx_bytes_per_sec: (metrics.get("rx_bytes").unwrap_or(&0.0) * 100.0).round() / 100.0,
-                tx_bytes_per_sec: (metrics.get("tx_bytes").unwrap_or(&0.0) * 100.0).round() / 100.0,
-                rx_packets_per_sec: (metrics.get("rx_packets").unwrap_or(&0.0) * 100.0).round() / 100.0,
-                tx_packets_per_sec: (metrics.get("tx_packets").unwrap_or(&0.0) * 100.0).round() / 100.0,
-                rx_errors_per_sec: (metrics.get("rx_errors").unwrap_or(&0.0) * 100.0).round() / 100.0,
-                tx_errors_per_sec: (metrics.get("tx_errors").unwrap_or(&0.0) * 100.0).round() / 100.0,
-                rx_dropped_per_sec: (metrics.get("rx_dropped").unwrap_or(&0.0) * 100.0).round() / 100.0,
-                tx_dropped_per_sec: (metrics.get("tx_dropped").unwrap_or(&0.0) * 100.0).round() / 100.0,
-                pod_count: metrics.get("pod_count").unwrap_or(&1.0).round() as i32,
-            }
+    let stats: Vec<NetworkStats> = metrics_map
+        .into_iter()
+        .map(|(namespace, metrics)| NetworkStats {
+            namespace: namespace.clone(),
+            app_name: capitalize_first(&namespace),
+            rx_bytes_per_sec: (metrics.get("rx_bytes").unwrap_or(&0.0) * 100.0).round() / 100.0,
+            tx_bytes_per_sec: (metrics.get("tx_bytes").unwrap_or(&0.0) * 100.0).round() / 100.0,
+            rx_packets_per_sec: (metrics.get("rx_packets").unwrap_or(&0.0) * 100.0).round() / 100.0,
+            tx_packets_per_sec: (metrics.get("tx_packets").unwrap_or(&0.0) * 100.0).round() / 100.0,
+            rx_errors_per_sec: (metrics.get("rx_errors").unwrap_or(&0.0) * 100.0).round() / 100.0,
+            tx_errors_per_sec: (metrics.get("tx_errors").unwrap_or(&0.0) * 100.0).round() / 100.0,
+            rx_dropped_per_sec: (metrics.get("rx_dropped").unwrap_or(&0.0) * 100.0).round() / 100.0,
+            tx_dropped_per_sec: (metrics.get("tx_dropped").unwrap_or(&0.0) * 100.0).round() / 100.0,
+            pod_count: metrics.get("pod_count").unwrap_or(&1.0).round() as i32,
         })
         .collect();
 
@@ -382,8 +409,8 @@ async fn list_services(
     client: &crate::services::K8sClient,
     namespace: &str,
 ) -> Result<Vec<k8s_openapi::api::core::v1::Service>> {
-    use kube::api::{Api, ListParams};
     use k8s_openapi::api::core::v1::Service;
+    use kube::api::{Api, ListParams};
 
     let services: Api<Service> = Api::namespaced(client.client().clone(), namespace);
     let svc_list = services.list(&ListParams::default()).await?;
@@ -400,7 +427,10 @@ fn capitalize_first(s: &str) -> String {
 }
 
 /// Add known dependencies based on common media server patterns
-fn add_known_dependencies(edges: &mut Vec<NetworkEdge>, namespaces: &HashMap<String, (f64, f64, i32)>) {
+fn add_known_dependencies(
+    edges: &mut Vec<NetworkEdge>,
+    namespaces: &HashMap<String, (f64, f64, i32)>,
+) {
     // Define known service relationships
     let relationships = [
         // Sonarr/Radarr typically connect to download clients

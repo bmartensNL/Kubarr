@@ -60,7 +60,10 @@ impl<'a> DeploymentManager<'a> {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(AppError::Internal(format!("Helm command failed: {}", stderr)));
+            return Err(AppError::Internal(format!(
+                "Helm command failed: {}",
+                stderr
+            )));
         }
 
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -73,15 +76,17 @@ impl<'a> DeploymentManager<'a> {
         storage_path: Option<&str>,
     ) -> Result<DeploymentStatus> {
         // Get app config from catalog
-        let app_config = self
-            .catalog
-            .get_app(&request.app_name)
-            .ok_or_else(|| AppError::NotFound(format!("App '{}' not found in catalog", request.app_name)))?;
+        let app_config = self.catalog.get_app(&request.app_name).ok_or_else(|| {
+            AppError::NotFound(format!("App '{}' not found in catalog", request.app_name))
+        })?;
 
         // Check if Helm chart exists
-        let chart_path = self
-            .get_chart_path(&request.app_name)
-            .ok_or_else(|| AppError::NotFound(format!("No Helm chart found for app '{}'", request.app_name)))?;
+        let chart_path = self.get_chart_path(&request.app_name).ok_or_else(|| {
+            AppError::NotFound(format!(
+                "No Helm chart found for app '{}'",
+                request.app_name
+            ))
+        })?;
 
         let namespace = &request.app_name;
 
@@ -142,7 +147,10 @@ impl<'a> DeploymentManager<'a> {
         match namespaces.delete(namespace, &DeleteParams::default()).await {
             Ok(_) => Ok(true),
             Err(kube::Error::Api(ae)) if ae.code == 404 => Ok(true),
-            Err(e) => Err(AppError::Internal(format!("Failed to delete namespace: {}", e))),
+            Err(e) => Err(AppError::Internal(format!(
+                "Failed to delete namespace: {}",
+                e
+            ))),
         }
     }
 
@@ -185,10 +193,7 @@ impl<'a> DeploymentManager<'a> {
     }
 
     /// Check if all deployments in a namespace are healthy
-    pub async fn check_namespace_health(
-        &self,
-        namespace: &str,
-    ) -> Result<serde_json::Value> {
+    pub async fn check_namespace_health(&self, namespace: &str) -> Result<serde_json::Value> {
         let namespaces: Api<Namespace> = Api::all(self.k8s.client().clone());
 
         // Check if namespace exists

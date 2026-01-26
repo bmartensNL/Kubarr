@@ -49,7 +49,10 @@ async fn main() -> anyhow::Result<()> {
             Arc::new(RwLock::new(Some(client)))
         }
         Err(e) => {
-            tracing::warn!("Failed to initialize Kubernetes client: {}. Some features will be unavailable.", e);
+            tracing::warn!(
+                "Failed to initialize Kubernetes client: {}. Some features will be unavailable.",
+                e
+            );
             Arc::new(RwLock::new(None))
         }
     };
@@ -87,10 +90,11 @@ fn create_app(state: AppState) -> Router {
     let api_router = api::create_router(state.clone());
 
     // Static file serving (frontend)
-    let static_service = ServeDir::new(&CONFIG.static_files_dir)
-        .not_found_service(ServeDir::new(&CONFIG.static_files_dir).fallback(
-            tower_http::services::ServeFile::new(CONFIG.static_files_dir.join("index.html")),
-        ));
+    let static_service = ServeDir::new(&CONFIG.static_files_dir).not_found_service(
+        ServeDir::new(&CONFIG.static_files_dir).fallback(tower_http::services::ServeFile::new(
+            CONFIG.static_files_dir.join("index.html"),
+        )),
+    );
 
     Router::new()
         .merge(api_router)

@@ -1,12 +1,12 @@
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectOptions, ConnectionTrait, Database,
-    DatabaseBackend, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, Set, Statement,
+    ActiveModelTrait, ColumnTrait, ConnectOptions, ConnectionTrait, Database, DatabaseBackend,
+    DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, Set, Statement,
 };
 use std::time::Duration;
 
 use crate::config::CONFIG;
-use crate::error::{AppError, Result};
 use crate::db::entities::{role, role_app_permission, role_permission, system_setting};
+use crate::error::{AppError, Result};
 
 pub type DbConn = DatabaseConnection;
 
@@ -447,27 +447,33 @@ mod tests {
         let db = create_test_db().await;
 
         // Verify we can query the tables
-        use sea_orm::{EntityTrait, ConnectionTrait, DatabaseBackend, Statement};
+        use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
 
         // Check users table exists by attempting a query
-        let result = db.execute(Statement::from_string(
-            DatabaseBackend::Sqlite,
-            "SELECT COUNT(*) FROM users".to_string(),
-        )).await;
+        let result = db
+            .execute(Statement::from_string(
+                DatabaseBackend::Sqlite,
+                "SELECT COUNT(*) FROM users".to_string(),
+            ))
+            .await;
         assert!(result.is_ok());
 
         // Check roles table exists
-        let result = db.execute(Statement::from_string(
-            DatabaseBackend::Sqlite,
-            "SELECT COUNT(*) FROM roles".to_string(),
-        )).await;
+        let result = db
+            .execute(Statement::from_string(
+                DatabaseBackend::Sqlite,
+                "SELECT COUNT(*) FROM roles".to_string(),
+            ))
+            .await;
         assert!(result.is_ok());
 
         // Check oauth2 tables exist
-        let result = db.execute(Statement::from_string(
-            DatabaseBackend::Sqlite,
-            "SELECT COUNT(*) FROM oauth2_clients".to_string(),
-        )).await;
+        let result = db
+            .execute(Statement::from_string(
+                DatabaseBackend::Sqlite,
+                "SELECT COUNT(*) FROM oauth2_clients".to_string(),
+            ))
+            .await;
         assert!(result.is_ok());
     }
 
@@ -586,7 +592,10 @@ mod tests {
             .await
             .unwrap();
 
-        let app_names: Vec<&str> = downloader_apps.iter().map(|a| a.app_name.as_str()).collect();
+        let app_names: Vec<&str> = downloader_apps
+            .iter()
+            .map(|a| a.app_name.as_str())
+            .collect();
         assert!(app_names.contains(&"qbittorrent"));
         assert!(app_names.contains(&"transmission"));
     }
@@ -620,10 +629,12 @@ mod tests {
 
         // Tables should still exist and be usable
         use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
-        let result = db.execute(Statement::from_string(
-            DatabaseBackend::Sqlite,
-            "SELECT 1 FROM users LIMIT 1".to_string(),
-        )).await;
+        let result = db
+            .execute(Statement::from_string(
+                DatabaseBackend::Sqlite,
+                "SELECT 1 FROM users LIMIT 1".to_string(),
+            ))
+            .await;
         assert!(result.is_ok());
     }
 

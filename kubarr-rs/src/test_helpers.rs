@@ -3,7 +3,7 @@
 //! This module provides common utilities for setting up test environments,
 //! creating mock data, and testing database operations.
 
-use sea_orm::{Database, DatabaseConnection, ConnectionTrait, DatabaseBackend, Statement};
+use sea_orm::{ConnectionTrait, Database, DatabaseBackend, DatabaseConnection, Statement};
 
 /// Create an in-memory SQLite database for testing
 pub async fn create_test_db() -> DatabaseConnection {
@@ -34,7 +34,7 @@ pub async fn create_test_db_with_seed() -> DatabaseConnection {
 
 /// Seed default test data into the database
 pub async fn seed_test_data(db: &DatabaseConnection) {
-    use crate::db::entities::{role, role_permission, role_app_permission};
+    use crate::db::entities::{role, role_app_permission, role_permission};
     use sea_orm::{ActiveModelTrait, Set};
 
     let now = chrono::Utc::now();
@@ -69,10 +69,22 @@ pub async fn seed_test_data(db: &DatabaseConnection) {
 
     // Add admin permissions
     let admin_permissions = [
-        "apps.view", "apps.install", "apps.delete", "apps.restart",
-        "storage.view", "storage.write", "storage.delete", "storage.download",
-        "logs.view", "monitoring.view", "users.view", "users.manage",
-        "roles.view", "roles.manage", "settings.view", "settings.manage",
+        "apps.view",
+        "apps.install",
+        "apps.delete",
+        "apps.restart",
+        "storage.view",
+        "storage.write",
+        "storage.delete",
+        "storage.download",
+        "logs.view",
+        "monitoring.view",
+        "users.view",
+        "users.manage",
+        "roles.view",
+        "roles.manage",
+        "settings.view",
+        "settings.manage",
     ];
     for perm in admin_permissions {
         let permission = role_permission::ActiveModel {
@@ -84,7 +96,13 @@ pub async fn seed_test_data(db: &DatabaseConnection) {
     }
 
     // Add viewer permissions
-    let viewer_permissions = ["apps.view", "logs.view", "monitoring.view", "storage.view", "storage.download"];
+    let viewer_permissions = [
+        "apps.view",
+        "logs.view",
+        "monitoring.view",
+        "storage.view",
+        "storage.download",
+    ];
     for perm in viewer_permissions {
         let permission = role_permission::ActiveModel {
             role_id: Set(viewer.id),
@@ -105,7 +123,12 @@ pub async fn seed_test_data(db: &DatabaseConnection) {
     }
 
     // Add downloader permissions
-    let downloader_permissions = ["apps.view", "apps.restart", "storage.view", "storage.download"];
+    let downloader_permissions = [
+        "apps.view",
+        "apps.restart",
+        "storage.view",
+        "storage.download",
+    ];
     for perm in downloader_permissions {
         let permission = role_permission::ActiveModel {
             role_id: Set(downloader.id),
@@ -368,11 +391,18 @@ mod tests {
     async fn test_create_test_user_with_role() {
         use crate::db::entities::prelude::*;
         use crate::db::entities::user_role;
-        use sea_orm::{EntityTrait, ColumnTrait, QueryFilter};
+        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
         let db = create_test_db_with_seed().await;
 
-        let user = create_test_user_with_role(&db, "admin_user", "admin@example.com", "password123", "admin").await;
+        let user = create_test_user_with_role(
+            &db,
+            "admin_user",
+            "admin@example.com",
+            "password123",
+            "admin",
+        )
+        .await;
 
         // Verify user has admin role
         let user_roles = UserRole::find()

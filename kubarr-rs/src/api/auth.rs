@@ -12,12 +12,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::extractors::{AdminUser, AuthUser};
 use crate::config::CONFIG;
-use crate::db::entities::{oauth2_client, system_setting, user};
 use crate::db::entities::prelude::*;
+use crate::db::entities::{oauth2_client, system_setting, user};
 use crate::error::{AppError, Result};
-use crate::services::{
-    get_jwks, verify_password, OAuth2Service,
-};
+use crate::services::{get_jwks, verify_password, OAuth2Service};
 use crate::state::AppState;
 
 /// Create auth routes
@@ -32,7 +30,10 @@ pub fn auth_routes(state: AppState) -> Router {
         .route("/userinfo", get(userinfo))
         .route("/revoke", post(revoke))
         .route("/jwks", get(jwks))
-        .route("/.well-known/openid-configuration", get(openid_configuration))
+        .route(
+            "/.well-known/openid-configuration",
+            get(openid_configuration),
+        )
         // Direct API login (returns token in body - legacy)
         .route("/api/login", post(api_login))
         // Session-based login (sets HttpOnly cookie)
@@ -40,7 +41,10 @@ pub fn auth_routes(state: AppState) -> Router {
         .route("/session/verify", get(session_verify))
         .route("/session/logout", post(session_logout))
         // Admin endpoints
-        .route("/admin/regenerate-client-secret", post(regenerate_client_secret))
+        .route(
+            "/admin/regenerate-client-secret",
+            post(regenerate_client_secret),
+        )
         .with_state(state)
 }
 
@@ -168,7 +172,9 @@ fn extract_client_credentials(
     if let Some(auth_header) = headers.get(axum::http::header::AUTHORIZATION) {
         if let Ok(auth_str) = auth_header.to_str() {
             if let Some(basic_creds) = auth_str.strip_prefix("Basic ") {
-                if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(basic_creds.trim()) {
+                if let Ok(decoded) =
+                    base64::engine::general_purpose::STANDARD.decode(basic_creds.trim())
+                {
                     if let Ok(creds_str) = String::from_utf8(decoded) {
                         if let Some((id, secret)) = creds_str.split_once(':') {
                             return Ok((id.to_string(), Some(secret.to_string())));
@@ -193,17 +199,22 @@ fn extract_client_credentials(
 // ============================================================================
 
 /// Login page - serves HTML login form directly
-async fn login_page(
-    Query(params): Query<LoginPageQuery>,
-) -> Response {
-    let error_html = params.error.as_ref().map(|err| format!(
-        r#"<div class="rounded-md bg-red-900 p-4 mb-4">
+async fn login_page(Query(params): Query<LoginPageQuery>) -> Response {
+    let error_html = params
+        .error
+        .as_ref()
+        .map(|err| {
+            format!(
+                r#"<div class="rounded-md bg-red-900 p-4 mb-4">
             <div class="text-sm text-red-200">{}</div>
         </div>"#,
-        html_escape(err)
-    )).unwrap_or_default();
+                html_escape(err)
+            )
+        })
+        .unwrap_or_default();
 
-    let html = format!(r#"<!DOCTYPE html>
+    let html = format!(
+        r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -376,8 +387,8 @@ async fn api_login(
     State(state): State<AppState>,
     Json(login): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>> {
+    use crate::api::extractors::{get_user_app_access, get_user_permissions};
     use crate::services::create_access_token;
-    use crate::api::extractors::{get_user_permissions, get_user_app_access};
 
     // Find user
     let found_user = User::find()
@@ -444,8 +455,8 @@ async fn session_login(
     State(state): State<AppState>,
     Json(login): Json<LoginRequest>,
 ) -> Result<Response> {
+    use crate::api::extractors::{get_user_app_access, get_user_permissions};
     use crate::services::create_access_token;
-    use crate::api::extractors::{get_user_permissions, get_user_app_access};
 
     // Find user
     let found_user = User::find()
@@ -507,10 +518,7 @@ async fn session_login(
 }
 
 /// Verify session - for Caddy forward_auth
-async fn session_verify(
-    headers: HeaderMap,
-    State(_state): State<AppState>,
-) -> Result<Response> {
+async fn session_verify(headers: HeaderMap, State(_state): State<AppState>) -> Result<Response> {
     use crate::services::decode_token;
 
     // Get cookie
@@ -542,9 +550,15 @@ async fn session_verify(
 
     // Return user info in headers for Caddy to forward
     let mut response_headers = HeaderMap::new();
-    response_headers.insert("X-Auth-User-Id", HeaderValue::from_str(&claims.sub).unwrap_or(HeaderValue::from_static("")));
+    response_headers.insert(
+        "X-Auth-User-Id",
+        HeaderValue::from_str(&claims.sub).unwrap_or(HeaderValue::from_static("")),
+    );
     if let Some(email) = &claims.email {
-        response_headers.insert("X-Auth-User-Email", HeaderValue::from_str(email).unwrap_or(HeaderValue::from_static("")));
+        response_headers.insert(
+            "X-Auth-User-Email",
+            HeaderValue::from_str(email).unwrap_or(HeaderValue::from_static("")),
+        );
     }
 
     Ok((response_headers, "OK").into_response())
@@ -588,7 +602,10 @@ async fn authorize(
 
     if let Some(found_user) = session_user {
         // User is already logged in - create auth code and redirect to callback
-        tracing::info!("User {} already logged in via session, creating auth code", found_user.email);
+        tracing::info!(
+            "User {} already logged in via session, creating auth code",
+            found_user.email
+        );
 
         let code = oauth2_service
             .create_authorization_code(
@@ -604,9 +621,19 @@ async fn authorize(
 
         // Redirect to callback with authorization code
         let callback_url = if params.redirect_uri.contains('?') {
-            format!("{}&code={}&state={}", params.redirect_uri, code, params.state.unwrap_or_default())
+            format!(
+                "{}&code={}&state={}",
+                params.redirect_uri,
+                code,
+                params.state.unwrap_or_default()
+            )
         } else {
-            format!("{}?code={}&state={}", params.redirect_uri, code, params.state.unwrap_or_default())
+            format!(
+                "{}?code={}&state={}",
+                params.redirect_uri,
+                code,
+                params.state.unwrap_or_default()
+            )
         };
 
         return Ok(Redirect::to(&callback_url).into_response());
@@ -635,12 +662,12 @@ async fn extract_session_user(headers: &HeaderMap, state: &AppState) -> Option<u
     let cookies = cookie_header.to_str().ok()?;
 
     // Find kubarr_session cookie
-    let token = cookies
-        .split(';')
-        .find_map(|cookie| {
-            let cookie = cookie.trim();
-            cookie.strip_prefix("kubarr_session=").map(|v| v.to_string())
-        })?;
+    let token = cookies.split(';').find_map(|cookie| {
+        let cookie = cookie.trim();
+        cookie
+            .strip_prefix("kubarr_session=")
+            .map(|v| v.to_string())
+    })?;
 
     // Decode and validate the token
     let claims = decode_token(&token).ok()?;
@@ -691,7 +718,10 @@ async fn token(
                 &code[..std::cmp::min(16, code.len())],
                 &client_id,
                 &redirect_uri,
-                params.code_verifier.as_ref().map(|v| &v[..std::cmp::min(8, v.len())])
+                params
+                    .code_verifier
+                    .as_ref()
+                    .map(|v| &v[..std::cmp::min(8, v.len())])
             );
 
             // Validate authorization code
@@ -707,10 +737,13 @@ async fn token(
             let auth_code = match auth_code {
                 Some(ac) => ac,
                 None => {
-                    tracing::warn!("Authorization code validation failed for code: {}", &code[..std::cmp::min(16, code.len())]);
+                    tracing::warn!(
+                        "Authorization code validation failed for code: {}",
+                        &code[..std::cmp::min(16, code.len())]
+                    );
                     return Err(AppError::BadRequest(
                         "Invalid authorization code".to_string(),
-                    ))
+                    ));
                 }
             };
 
@@ -745,9 +778,7 @@ async fn token(
 
             let tokens = match tokens {
                 Some(t) => t,
-                None => {
-                    return Err(AppError::BadRequest("Invalid refresh token".to_string()))
-                }
+                None => return Err(AppError::BadRequest("Invalid refresh token".to_string())),
             };
 
             Ok(Json(TokenResponse {
@@ -809,7 +840,10 @@ async fn revoke(
 
     // Validate client if credentials provided
     if let (Some(ref client_id), Some(ref secret)) = (&request.client_id, &request.client_secret) {
-        if !oauth2_service.validate_client(client_id, Some(secret)).await? {
+        if !oauth2_service
+            .validate_client(client_id, Some(secret))
+            .await?
+        {
             return Err(AppError::Unauthorized(
                 "Invalid client credentials".to_string(),
             ));
@@ -894,7 +928,9 @@ async fn regenerate_client_secret(
         let new_setting = system_setting::ActiveModel {
             key: Set("oauth2_client_secret".to_string()),
             value: Set(new_secret.clone()),
-            description: Set(Some("OAuth2-proxy client secret (for syncing to Kubernetes)".to_string())),
+            description: Set(Some(
+                "OAuth2-proxy client secret (for syncing to Kubernetes)".to_string(),
+            )),
             updated_at: Set(now),
         };
         new_setting.insert(&state.db).await?;

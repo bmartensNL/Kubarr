@@ -3,10 +3,10 @@ use axum::{
     extract::FromRequestParts,
     http::{header::AUTHORIZATION, request::Parts},
 };
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, JoinType, QuerySelect, RelationTrait};
+use sea_orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationTrait};
 
-use crate::db::entities::{user, user_role, role, role_permission, role_app_permission};
 use crate::db::entities::prelude::*;
+use crate::db::entities::{role, role_app_permission, role_permission, user, user_role};
 use crate::error::AppError;
 use crate::services::security::decode_token;
 use crate::state::{AppState, DbConn};
@@ -24,12 +24,17 @@ pub struct OptionalUser(pub Option<user::Model>);
 impl FromRequestParts<AppState> for AuthUser {
     type Rejection = AppError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
         let user = extract_user_from_token(parts, &state.db).await?;
 
         match user {
             Some(u) => Ok(AuthUser(u)),
-            None => Err(AppError::Unauthorized("Authentication required".to_string())),
+            None => Err(AppError::Unauthorized(
+                "Authentication required".to_string(),
+            )),
         }
     }
 }
@@ -38,7 +43,10 @@ impl FromRequestParts<AppState> for AuthUser {
 impl FromRequestParts<AppState> for AdminUser {
     type Rejection = AppError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
         let user = extract_user_from_token(parts, &state.db).await?;
 
         match user {
@@ -59,7 +67,9 @@ impl FromRequestParts<AppState> for AdminUser {
                     Err(AppError::Forbidden("Admin access required".to_string()))
                 }
             }
-            None => Err(AppError::Unauthorized("Authentication required".to_string())),
+            None => Err(AppError::Unauthorized(
+                "Authentication required".to_string(),
+            )),
         }
     }
 }
@@ -68,14 +78,20 @@ impl FromRequestParts<AppState> for AdminUser {
 impl FromRequestParts<AppState> for OptionalUser {
     type Rejection = AppError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
         let user = extract_user_from_token(parts, &state.db).await?;
         Ok(OptionalUser(user))
     }
 }
 
 /// Extract user from auth proxy headers, Authorization header, or cookie
-async fn extract_user_from_token(parts: &Parts, db: &DbConn) -> Result<Option<user::Model>, AppError> {
+async fn extract_user_from_token(
+    parts: &Parts,
+    db: &DbConn,
+) -> Result<Option<user::Model>, AppError> {
     // First, try oauth2-proxy headers (X-Auth-Request-Email, X-Auth-Request-User)
     let email_from_proxy = parts
         .headers
@@ -122,18 +138,16 @@ async fn extract_user_from_token(parts: &Parts, db: &DbConn) -> Result<Option<us
             .get(axum::http::header::COOKIE)
             .and_then(|c| c.to_str().ok())
             .and_then(|cookies| {
-                cookies
-                    .split(';')
-                    .find_map(|cookie| {
-                        let cookie = cookie.trim();
-                        if let Some(value) = cookie.strip_prefix("kubarr_session=") {
-                            Some(value.to_string())
-                        } else if let Some(value) = cookie.strip_prefix("access_token=") {
-                            Some(value.to_string())
-                        } else {
-                            None
-                        }
-                    })
+                cookies.split(';').find_map(|cookie| {
+                    let cookie = cookie.trim();
+                    if let Some(value) = cookie.strip_prefix("kubarr_session=") {
+                        Some(value.to_string())
+                    } else if let Some(value) = cookie.strip_prefix("access_token=") {
+                        Some(value.to_string())
+                    } else {
+                        None
+                    }
+                })
             })
     };
 
@@ -366,7 +380,9 @@ pub async fn get_user_app_access(db: &DbConn, user_id: i64) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{create_test_db_with_seed, create_test_user, create_test_user_with_role};
+    use crate::test_helpers::{
+        create_test_db_with_seed, create_test_user, create_test_user_with_role,
+    };
 
     // ==========================================================================
     // Permission Checking Tests
@@ -375,7 +391,9 @@ mod tests {
     #[tokio::test]
     async fn test_admin_has_all_permissions() {
         let db = create_test_db_with_seed().await;
-        let user = create_test_user_with_role(&db, "admin_user", "admin@test.com", "password", "admin").await;
+        let user =
+            create_test_user_with_role(&db, "admin_user", "admin@test.com", "password", "admin")
+                .await;
 
         // Admin should have all permissions
         assert!(user_has_permission(&db, user.id, "apps.view").await);
@@ -388,7 +406,9 @@ mod tests {
     #[tokio::test]
     async fn test_viewer_has_limited_permissions() {
         let db = create_test_db_with_seed().await;
-        let user = create_test_user_with_role(&db, "viewer_user", "viewer@test.com", "password", "viewer").await;
+        let user =
+            create_test_user_with_role(&db, "viewer_user", "viewer@test.com", "password", "viewer")
+                .await;
 
         // Viewer should have view permissions
         assert!(user_has_permission(&db, user.id, "apps.view").await);
@@ -404,7 +424,9 @@ mod tests {
     #[tokio::test]
     async fn test_downloader_has_download_permissions() {
         let db = create_test_db_with_seed().await;
-        let user = create_test_user_with_role(&db, "dl_user", "dl@test.com", "password", "downloader").await;
+        let user =
+            create_test_user_with_role(&db, "dl_user", "dl@test.com", "password", "downloader")
+                .await;
 
         // Downloader should have specific permissions
         assert!(user_has_permission(&db, user.id, "apps.view").await);
@@ -434,7 +456,9 @@ mod tests {
     #[tokio::test]
     async fn test_admin_has_all_app_access() {
         let db = create_test_db_with_seed().await;
-        let user = create_test_user_with_role(&db, "admin_user", "admin@test.com", "password", "admin").await;
+        let user =
+            create_test_user_with_role(&db, "admin_user", "admin@test.com", "password", "admin")
+                .await;
 
         // Admin should have wildcard access
         let apps = get_user_app_access(&db, user.id).await;
@@ -449,7 +473,9 @@ mod tests {
     #[tokio::test]
     async fn test_viewer_has_limited_app_access() {
         let db = create_test_db_with_seed().await;
-        let user = create_test_user_with_role(&db, "viewer_user", "viewer@test.com", "password", "viewer").await;
+        let user =
+            create_test_user_with_role(&db, "viewer_user", "viewer@test.com", "password", "viewer")
+                .await;
 
         // Viewer should have access to jellyfin and jellyseerr (as seeded)
         assert!(user_has_app_access(&db, user.id, "jellyfin").await);
@@ -463,7 +489,9 @@ mod tests {
     #[tokio::test]
     async fn test_downloader_has_download_app_access() {
         let db = create_test_db_with_seed().await;
-        let user = create_test_user_with_role(&db, "dl_user", "dl@test.com", "password", "downloader").await;
+        let user =
+            create_test_user_with_role(&db, "dl_user", "dl@test.com", "password", "downloader")
+                .await;
 
         // Downloader should have access to download clients
         assert!(user_has_app_access(&db, user.id, "qbittorrent").await);
@@ -494,7 +522,9 @@ mod tests {
     #[tokio::test]
     async fn test_get_admin_permissions() {
         let db = create_test_db_with_seed().await;
-        let user = create_test_user_with_role(&db, "admin_user", "admin@test.com", "password", "admin").await;
+        let user =
+            create_test_user_with_role(&db, "admin_user", "admin@test.com", "password", "admin")
+                .await;
 
         let permissions = get_user_permissions(&db, user.id).await;
 
@@ -508,7 +538,9 @@ mod tests {
     #[tokio::test]
     async fn test_get_viewer_permissions() {
         let db = create_test_db_with_seed().await;
-        let user = create_test_user_with_role(&db, "viewer_user", "viewer@test.com", "password", "viewer").await;
+        let user =
+            create_test_user_with_role(&db, "viewer_user", "viewer@test.com", "password", "viewer")
+                .await;
 
         let permissions = get_user_permissions(&db, user.id).await;
 

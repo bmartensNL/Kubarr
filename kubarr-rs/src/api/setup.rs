@@ -5,14 +5,14 @@ use axum::{
 };
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, JoinType, QueryFilter, QuerySelect,
-    RelationTrait, Set,
+    ActiveModelTrait, ColumnTrait, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationTrait,
+    Set,
 };
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-use crate::db::entities::{oauth2_client, role, system_setting, user, user_role};
 use crate::db::entities::prelude::*;
+use crate::db::entities::{oauth2_client, role, system_setting, user, user_role};
 use crate::error::{AppError, Result};
 use crate::state::AppState;
 
@@ -82,9 +82,7 @@ async fn check_setup_required(
 }
 
 /// Get detailed setup status
-async fn get_setup_status(
-    State(state): State<AppState>,
-) -> Result<Json<SetupStatusResponse>> {
+async fn get_setup_status(State(state): State<AppState>) -> Result<Json<SetupStatusResponse>> {
     // Check for admin user (user with admin role)
     let admin_exists = admin_user_exists(&state).await?;
 
@@ -145,7 +143,9 @@ async fn initialize_setup(
         ..Default::default()
     };
 
-    let created_user = new_user.insert(&state.db).await
+    let created_user = new_user
+        .insert(&state.db)
+        .await
         .map_err(|e| AppError::Internal(format!("Failed to create admin user: {}", e)))?;
 
     // Check if admin role exists
@@ -165,7 +165,9 @@ async fn initialize_setup(
                 created_at: Set(now),
                 ..Default::default()
             };
-            new_role.insert(&state.db).await
+            new_role
+                .insert(&state.db)
+                .await
                 .map_err(|e| AppError::Internal(format!("Failed to create admin role: {}", e)))?
         }
     };
@@ -175,7 +177,9 @@ async fn initialize_setup(
         user_id: Set(created_user.id),
         role_id: Set(admin_role.id),
     };
-    user_role_model.insert(&state.db).await
+    user_role_model
+        .insert(&state.db)
+        .await
         .map_err(|e| AppError::Internal(format!("Failed to assign admin role: {}", e)))?;
 
     // Save storage path
@@ -185,13 +189,17 @@ async fn initialize_setup(
         description: Set(Some("Root storage path for media apps".to_string())),
         updated_at: Set(now),
     };
-    storage_setting.insert(&state.db).await
+    storage_setting
+        .insert(&state.db)
+        .await
         .map_err(|e| AppError::Internal(format!("Failed to save storage path: {}", e)))?;
 
     // Create oauth2-proxy client if base_url is provided
     let mut oauth2_result = serde_json::Value::Null;
     if let Some(base_url) = &request.base_url {
-        let client_secret = request.oauth2_client_secret.clone()
+        let client_secret = request
+            .oauth2_client_secret
+            .clone()
             .unwrap_or_else(|| crate::services::security::generate_random_string(32));
 
         let secret_hash = crate::services::security::hash_client_secret(&client_secret)?;
@@ -207,7 +215,9 @@ async fn initialize_setup(
             redirect_uris: Set(redirect_uris.to_string()),
             created_at: Set(now),
         };
-        client_model.insert(&state.db).await
+        client_model
+            .insert(&state.db)
+            .await
             .map_err(|e| AppError::Internal(format!("Failed to create OAuth2 client: {}", e)))?;
 
         // Store the plain secret in system settings
@@ -217,7 +227,9 @@ async fn initialize_setup(
             description: Set(Some("OAuth2-proxy client secret".to_string())),
             updated_at: Set(now),
         };
-        secret_setting.insert(&state.db).await
+        secret_setting
+            .insert(&state.db)
+            .await
             .map_err(|e| AppError::Internal(format!("Failed to save client secret: {}", e)))?;
 
         // Sync credentials to Kubernetes secret for oauth2-proxy
@@ -225,12 +237,14 @@ async fn initialize_setup(
         let cookie_secret = crate::services::security::generate_cookie_secret();
         let k8s_guard = state.k8s_client.read().await;
         if let Some(ref k8s) = *k8s_guard {
-            let _ = k8s.sync_oauth2_proxy_secret(
-                "oauth2-proxy",
-                &client_secret,
-                &cookie_secret,
-                "kubarr-system",
-            ).await;
+            let _ = k8s
+                .sync_oauth2_proxy_secret(
+                    "oauth2-proxy",
+                    &client_secret,
+                    &cookie_secret,
+                    "kubarr-system",
+                )
+                .await;
         }
         drop(k8s_guard);
 
@@ -309,16 +323,28 @@ async fn validate_path(
             // Try to check if writable by checking metadata
             match std::fs::metadata(path) {
                 Ok(_) => (true, true, "Path is valid and accessible".to_string()),
-                Err(e) => (false, false, format!("Path exists but is not accessible: {}", e)),
+                Err(e) => (
+                    false,
+                    false,
+                    format!("Path exists but is not accessible: {}", e),
+                ),
             }
         } else {
-            (false, false, "Path exists but is not a directory".to_string())
+            (
+                false,
+                false,
+                "Path exists but is not a directory".to_string(),
+            )
         }
     } else {
         // Path doesn't exist, check if parent exists and is writable
         if let Some(parent) = path.parent() {
             if parent.exists() && parent.is_dir() {
-                (true, true, "Path does not exist but can be created".to_string())
+                (
+                    true,
+                    true,
+                    "Path does not exist but can be created".to_string(),
+                )
             } else {
                 (false, false, "Parent directory does not exist".to_string())
             }

@@ -1,16 +1,14 @@
 use chrono::{Duration, Utc};
-use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set,
-};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 
-use crate::db::entities::{oauth2_authorization_code, oauth2_client, oauth2_token, user};
+use crate::api::extractors::{get_user_app_access, get_user_permissions};
 use crate::db::entities::prelude::*;
+use crate::db::entities::{oauth2_authorization_code, oauth2_client, oauth2_token, user};
 use crate::error::{AppError, Result};
 use crate::services::security::{
-    create_access_token, create_refresh_token, generate_authorization_code,
-    verify_client_secret, verify_pkce,
+    create_access_token, create_refresh_token, generate_authorization_code, verify_client_secret,
+    verify_pkce,
 };
-use crate::api::extractors::{get_user_permissions, get_user_app_access};
 
 /// OAuth2 service for handling authorization and token operations
 pub struct OAuth2Service<'a> {
@@ -24,9 +22,7 @@ impl<'a> OAuth2Service<'a> {
 
     /// Get OAuth2 client by ID
     pub async fn get_client(&self, client_id: &str) -> Result<Option<oauth2_client::Model>> {
-        let client = OAuth2Client::find_by_id(client_id)
-            .one(self.db)
-            .await?;
+        let client = OAuth2Client::find_by_id(client_id).one(self.db).await?;
         Ok(client)
     }
 
@@ -125,13 +121,21 @@ impl<'a> OAuth2Service<'a> {
 
         // Check client ID
         if auth_code.client_id != client_id {
-            tracing::warn!("Client ID mismatch: stored={}, provided={}", auth_code.client_id, client_id);
+            tracing::warn!(
+                "Client ID mismatch: stored={}, provided={}",
+                auth_code.client_id,
+                client_id
+            );
             return Ok(None);
         }
 
         // Check redirect URI
         if auth_code.redirect_uri != redirect_uri {
-            tracing::warn!("Redirect URI mismatch: stored={}, provided={}", auth_code.redirect_uri, redirect_uri);
+            tracing::warn!(
+                "Redirect URI mismatch: stored={}, provided={}",
+                auth_code.redirect_uri,
+                redirect_uri
+            );
             return Ok(None);
         }
 
@@ -230,7 +234,10 @@ impl<'a> OAuth2Service<'a> {
     }
 
     /// Validate an access token
-    pub async fn validate_access_token(&self, access_token: &str) -> Result<Option<oauth2_token::Model>> {
+    pub async fn validate_access_token(
+        &self,
+        access_token: &str,
+    ) -> Result<Option<oauth2_token::Model>> {
         let token = OAuth2Token::find()
             .filter(oauth2_token::Column::AccessToken.eq(access_token))
             .one(self.db)
@@ -345,9 +352,7 @@ impl<'a> OAuth2Service<'a> {
         };
 
         // Get user
-        let found_user = User::find_by_id(token_record.user_id)
-            .one(self.db)
-            .await?;
+        let found_user = User::find_by_id(token_record.user_id).one(self.db).await?;
 
         let found_user = match found_user {
             Some(u) if u.is_active && u.is_approved => u,
@@ -646,7 +651,8 @@ mod tests {
             .await
             .unwrap();
 
-        let user = create_test_user_with_role(&db, "authuser", "auth@test.com", "password", "admin").await;
+        let user =
+            create_test_user_with_role(&db, "authuser", "auth@test.com", "password", "admin").await;
 
         // Create authorization code
         let code = service
@@ -682,7 +688,8 @@ mod tests {
             .await
             .unwrap();
 
-        let user = create_test_user_with_role(&db, "valuser", "val@test.com", "password", "admin").await;
+        let user =
+            create_test_user_with_role(&db, "valuser", "val@test.com", "password", "admin").await;
 
         // Create authorization code
         let code = service
@@ -722,11 +729,17 @@ mod tests {
         let service = OAuth2Service::new(&db);
 
         service
-            .create_client("client-a", "secret", "Client A", &["http://a/cb".to_string()])
+            .create_client(
+                "client-a",
+                "secret",
+                "Client A",
+                &["http://a/cb".to_string()],
+            )
             .await
             .unwrap();
 
-        let user = create_test_user_with_role(&db, "user1", "user1@test.com", "password", "admin").await;
+        let user =
+            create_test_user_with_role(&db, "user1", "user1@test.com", "password", "admin").await;
 
         let code = service
             .create_authorization_code("client-a", user.id, "http://a/cb", None, None, None, 300)
@@ -747,14 +760,28 @@ mod tests {
         let service = OAuth2Service::new(&db);
 
         service
-            .create_client("redir-client", "secret", "Redirect Client", &["http://correct/cb".to_string()])
+            .create_client(
+                "redir-client",
+                "secret",
+                "Redirect Client",
+                &["http://correct/cb".to_string()],
+            )
             .await
             .unwrap();
 
-        let user = create_test_user_with_role(&db, "user2", "user2@test.com", "password", "admin").await;
+        let user =
+            create_test_user_with_role(&db, "user2", "user2@test.com", "password", "admin").await;
 
         let code = service
-            .create_authorization_code("redir-client", user.id, "http://correct/cb", None, None, None, 300)
+            .create_authorization_code(
+                "redir-client",
+                user.id,
+                "http://correct/cb",
+                None,
+                None,
+                None,
+                300,
+            )
             .await
             .unwrap();
 
@@ -772,14 +799,27 @@ mod tests {
         let service = OAuth2Service::new(&db);
 
         service
-            .create_client("token-client", "secret", "Token Client", &["http://localhost/cb".to_string()])
+            .create_client(
+                "token-client",
+                "secret",
+                "Token Client",
+                &["http://localhost/cb".to_string()],
+            )
             .await
             .unwrap();
 
-        let user = create_test_user_with_role(&db, "tokenuser", "token@test.com", "password", "admin").await;
+        let user =
+            create_test_user_with_role(&db, "tokenuser", "token@test.com", "password", "admin")
+                .await;
 
         let tokens = service
-            .create_tokens("token-client", user.id, Some("openid profile"), 3600, 604800)
+            .create_tokens(
+                "token-client",
+                user.id,
+                Some("openid profile"),
+                3600,
+                604800,
+            )
             .await
             .unwrap();
 
@@ -796,11 +836,18 @@ mod tests {
         let service = OAuth2Service::new(&db);
 
         service
-            .create_client("access-client", "secret", "Access Client", &["http://localhost/cb".to_string()])
+            .create_client(
+                "access-client",
+                "secret",
+                "Access Client",
+                &["http://localhost/cb".to_string()],
+            )
             .await
             .unwrap();
 
-        let user = create_test_user_with_role(&db, "accessuser", "access@test.com", "password", "admin").await;
+        let user =
+            create_test_user_with_role(&db, "accessuser", "access@test.com", "password", "admin")
+                .await;
 
         let tokens = service
             .create_tokens("access-client", user.id, None, 3600, 604800)
@@ -808,11 +855,17 @@ mod tests {
             .unwrap();
 
         // Validate the access token
-        let validated = service.validate_access_token(&tokens.access_token).await.unwrap();
+        let validated = service
+            .validate_access_token(&tokens.access_token)
+            .await
+            .unwrap();
         assert!(validated.is_some());
 
         // Invalid token should return None
-        let invalid = service.validate_access_token("invalid-token").await.unwrap();
+        let invalid = service
+            .validate_access_token("invalid-token")
+            .await
+            .unwrap();
         assert!(invalid.is_none());
     }
 
@@ -822,11 +875,18 @@ mod tests {
         let service = OAuth2Service::new(&db);
 
         service
-            .create_client("revoke-client", "secret", "Revoke Client", &["http://localhost/cb".to_string()])
+            .create_client(
+                "revoke-client",
+                "secret",
+                "Revoke Client",
+                &["http://localhost/cb".to_string()],
+            )
             .await
             .unwrap();
 
-        let user = create_test_user_with_role(&db, "revokeuser", "revoke@test.com", "password", "admin").await;
+        let user =
+            create_test_user_with_role(&db, "revokeuser", "revoke@test.com", "password", "admin")
+                .await;
 
         let tokens = service
             .create_tokens("revoke-client", user.id, None, 3600, 604800)
@@ -834,7 +894,10 @@ mod tests {
             .unwrap();
 
         // Validate before revoke
-        let valid_before = service.validate_access_token(&tokens.access_token).await.unwrap();
+        let valid_before = service
+            .validate_access_token(&tokens.access_token)
+            .await
+            .unwrap();
         assert!(valid_before.is_some());
 
         // Revoke the token
@@ -842,7 +905,10 @@ mod tests {
         assert!(revoked);
 
         // Validate after revoke
-        let valid_after = service.validate_access_token(&tokens.access_token).await.unwrap();
+        let valid_after = service
+            .validate_access_token(&tokens.access_token)
+            .await
+            .unwrap();
         assert!(valid_after.is_none());
     }
 
@@ -861,11 +927,18 @@ mod tests {
         let service = OAuth2Service::new(&db);
 
         service
-            .create_client("intro-client", "secret", "Introspect Client", &["http://localhost/cb".to_string()])
+            .create_client(
+                "intro-client",
+                "secret",
+                "Introspect Client",
+                &["http://localhost/cb".to_string()],
+            )
             .await
             .unwrap();
 
-        let user = create_test_user_with_role(&db, "introuser", "intro@test.com", "password", "admin").await;
+        let user =
+            create_test_user_with_role(&db, "introuser", "intro@test.com", "password", "admin")
+                .await;
 
         let tokens = service
             .create_tokens("intro-client", user.id, Some("openid"), 3600, 604800)
@@ -873,7 +946,10 @@ mod tests {
             .unwrap();
 
         // Introspect the token
-        let introspection = service.introspect_token(&tokens.access_token).await.unwrap();
+        let introspection = service
+            .introspect_token(&tokens.access_token)
+            .await
+            .unwrap();
 
         assert!(introspection.active);
         assert_eq!(introspection.sub, Some(user.id.to_string()));
@@ -898,11 +974,18 @@ mod tests {
         let service = OAuth2Service::new(&db);
 
         service
-            .create_client("refresh-client", "secret", "Refresh Client", &["http://localhost/cb".to_string()])
+            .create_client(
+                "refresh-client",
+                "secret",
+                "Refresh Client",
+                &["http://localhost/cb".to_string()],
+            )
             .await
             .unwrap();
 
-        let user = create_test_user_with_role(&db, "refreshuser", "refresh@test.com", "password", "admin").await;
+        let user =
+            create_test_user_with_role(&db, "refreshuser", "refresh@test.com", "password", "admin")
+                .await;
 
         let original_tokens = service
             .create_tokens("refresh-client", user.id, Some("openid"), 3600, 604800)
@@ -921,7 +1004,10 @@ mod tests {
         assert_ne!(new_pair.access_token, original_tokens.access_token);
 
         // Original access token should be revoked
-        let old_valid = service.validate_access_token(&original_tokens.access_token).await.unwrap();
+        let old_valid = service
+            .validate_access_token(&original_tokens.access_token)
+            .await
+            .unwrap();
         assert!(old_valid.is_none());
     }
 
@@ -931,11 +1017,17 @@ mod tests {
         let service = OAuth2Service::new(&db);
 
         service
-            .create_client("orig-client", "secret", "Original Client", &["http://localhost/cb".to_string()])
+            .create_client(
+                "orig-client",
+                "secret",
+                "Original Client",
+                &["http://localhost/cb".to_string()],
+            )
             .await
             .unwrap();
 
-        let user = create_test_user_with_role(&db, "origuser", "orig@test.com", "password", "admin").await;
+        let user =
+            create_test_user_with_role(&db, "origuser", "orig@test.com", "password", "admin").await;
 
         let tokens = service
             .create_tokens("orig-client", user.id, None, 3600, 604800)

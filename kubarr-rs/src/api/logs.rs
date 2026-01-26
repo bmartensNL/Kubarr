@@ -7,7 +7,7 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::api::extractors::{AuthUser, user_has_permission};
+use crate::api::extractors::{user_has_permission, AuthUser};
 use crate::error::{AppError, Result};
 use crate::state::AppState;
 
@@ -103,7 +103,9 @@ async fn get_pod_logs(
     AuthUser(user): AuthUser,
 ) -> Result<Json<Vec<LogEntry>>> {
     if !user_has_permission(&state.db, user.id, "logs.view").await {
-        return Err(AppError::Forbidden("Permission denied: logs.view required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: logs.view required".to_string(),
+        ));
     }
     let k8s = state.k8s_client.read().await;
     let client = k8s
@@ -111,7 +113,12 @@ async fn get_pod_logs(
         .ok_or_else(|| AppError::Internal("Kubernetes client not available".to_string()))?;
 
     let logs = client
-        .get_pod_logs(&pod_name, &params.namespace, params.container.as_deref(), params.tail)
+        .get_pod_logs(
+            &pod_name,
+            &params.namespace,
+            params.container.as_deref(),
+            params.tail,
+        )
         .await?;
 
     let entries: Vec<LogEntry> = logs
@@ -135,7 +142,9 @@ async fn get_app_logs(
     AuthUser(user): AuthUser,
 ) -> Result<Json<Vec<LogEntry>>> {
     if !user_has_permission(&state.db, user.id, "logs.view").await {
-        return Err(AppError::Forbidden("Permission denied: logs.view required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: logs.view required".to_string(),
+        ));
     }
     let k8s = state.k8s_client.read().await;
     let client = k8s
@@ -150,7 +159,12 @@ async fn get_app_logs(
     for pod in pods {
         if let Some(pod_name) = pod.metadata.name {
             match client
-                .get_pod_logs(&pod_name, &params.namespace, params.container.as_deref(), params.tail)
+                .get_pod_logs(
+                    &pod_name,
+                    &params.namespace,
+                    params.container.as_deref(),
+                    params.tail,
+                )
                 .await
             {
                 Ok(logs) => {
@@ -181,7 +195,9 @@ async fn get_raw_pod_logs(
     AuthUser(user): AuthUser,
 ) -> Result<String> {
     if !user_has_permission(&state.db, user.id, "logs.view").await {
-        return Err(AppError::Forbidden("Permission denied: logs.view required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: logs.view required".to_string(),
+        ));
     }
     let k8s = state.k8s_client.read().await;
     let client = k8s
@@ -189,7 +205,12 @@ async fn get_raw_pod_logs(
         .ok_or_else(|| AppError::Internal("Kubernetes client not available".to_string()))?;
 
     let logs = client
-        .get_pod_logs(&pod_name, &params.namespace, params.container.as_deref(), params.tail)
+        .get_pod_logs(
+            &pod_name,
+            &params.namespace,
+            params.container.as_deref(),
+            params.tail,
+        )
         .await?;
 
     Ok(logs)
@@ -203,7 +224,9 @@ async fn get_loki_namespaces(
     AuthUser(user): AuthUser,
 ) -> Result<Json<Vec<String>>> {
     if !user_has_permission(&state.db, user.id, "logs.view").await {
-        return Err(AppError::Forbidden("Permission denied: logs.view required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: logs.view required".to_string(),
+        ));
     }
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
@@ -247,7 +270,9 @@ async fn get_loki_labels(
     AuthUser(user): AuthUser,
 ) -> Result<Json<Vec<String>>> {
     if !user_has_permission(&state.db, user.id, "logs.view").await {
-        return Err(AppError::Forbidden("Permission denied: logs.view required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: logs.view required".to_string(),
+        ));
     }
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
@@ -292,7 +317,9 @@ async fn get_loki_label_values(
     AuthUser(user): AuthUser,
 ) -> Result<Json<Vec<String>>> {
     if !user_has_permission(&state.db, user.id, "logs.view").await {
-        return Err(AppError::Forbidden("Permission denied: logs.view required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: logs.view required".to_string(),
+        ));
     }
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
@@ -337,7 +364,9 @@ async fn query_loki_logs(
     AuthUser(user): AuthUser,
 ) -> Result<Json<LokiQueryResponse>> {
     if !user_has_permission(&state.db, user.id, "logs.view").await {
-        return Err(AppError::Forbidden("Permission denied: logs.view required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: logs.view required".to_string(),
+        ));
     }
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(60))
@@ -346,9 +375,9 @@ async fn query_loki_logs(
 
     // Default to last hour if no time range specified
     let now = Utc::now();
-    let end = params.end.unwrap_or_else(|| {
-        format!("{}", now.timestamp_nanos_opt().unwrap_or(0))
-    });
+    let end = params
+        .end
+        .unwrap_or_else(|| format!("{}", now.timestamp_nanos_opt().unwrap_or(0)));
     let start = params.start.unwrap_or_else(|| {
         let start_time = now - Duration::hours(1);
         format!("{}", start_time.timestamp_nanos_opt().unwrap_or(0))

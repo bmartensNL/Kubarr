@@ -107,7 +107,10 @@ impl IntoResponse for AppError {
             AppError::Yaml(e) => (StatusCode::BAD_REQUEST, format!("YAML error: {}", e)),
             AppError::Io(e) => {
                 tracing::error!("IO error: {}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("IO error: {}", e))
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("IO error: {}", e),
+                )
             }
             AppError::Jwt(e) => (StatusCode::UNAUTHORIZED, format!("JWT error: {}", e)),
             AppError::Bcrypt(e) => {

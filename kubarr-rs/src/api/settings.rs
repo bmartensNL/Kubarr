@@ -10,9 +10,9 @@ use once_cell::sync::Lazy;
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde::{Deserialize, Serialize};
 
-use crate::api::extractors::{AuthUser, user_has_permission};
-use crate::db::entities::system_setting;
+use crate::api::extractors::{user_has_permission, AuthUser};
 use crate::db::entities::prelude::*;
+use crate::db::entities::system_setting;
 use crate::error::{AppError, Result};
 use crate::state::{AppState, DbConn};
 
@@ -73,12 +73,12 @@ async fn list_settings(
     AuthUser(user): AuthUser,
 ) -> Result<Json<SettingsResponse>> {
     if !user_has_permission(&state.db, user.id, "settings.view").await {
-        return Err(AppError::Forbidden("Permission denied: settings.view required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: settings.view required".to_string(),
+        ));
     }
     // Get all settings from database
-    let db_settings = SystemSetting::find()
-        .all(&state.db)
-        .await?;
+    let db_settings = SystemSetting::find().all(&state.db).await?;
 
     let db_map: HashMap<String, system_setting::Model> = db_settings
         .into_iter()
@@ -117,11 +117,11 @@ async fn get_setting(
     AuthUser(user): AuthUser,
 ) -> Result<Json<SettingResponse>> {
     if !user_has_permission(&state.db, user.id, "settings.view").await {
-        return Err(AppError::Forbidden("Permission denied: settings.view required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: settings.view required".to_string(),
+        ));
     }
-    let db_setting = SystemSetting::find_by_id(&key)
-        .one(&state.db)
-        .await?;
+    let db_setting = SystemSetting::find_by_id(&key).one(&state.db).await?;
 
     if let Some(setting) = db_setting {
         return Ok(Json(SettingResponse {
@@ -151,7 +151,9 @@ async fn update_setting(
     Json(data): Json<SettingUpdate>,
 ) -> Result<Json<SettingResponse>> {
     if !user_has_permission(&state.db, user.id, "settings.manage").await {
-        return Err(AppError::Forbidden("Permission denied: settings.manage required".to_string()));
+        return Err(AppError::Forbidden(
+            "Permission denied: settings.manage required".to_string(),
+        ));
     }
     // Validate key exists in defaults
     let (_, description) = DEFAULT_SETTINGS
@@ -161,9 +163,7 @@ async fn update_setting(
     let now = Utc::now();
 
     // Check if setting exists
-    let existing = SystemSetting::find_by_id(&key)
-        .one(&state.db)
-        .await?;
+    let existing = SystemSetting::find_by_id(&key).one(&state.db).await?;
 
     let setting = if let Some(existing_setting) = existing {
         // Update existing
@@ -191,9 +191,7 @@ async fn update_setting(
 
 /// Get a setting value from the database (helper for other modules)
 pub async fn get_setting_value(db: &DbConn, key: &str) -> Result<Option<String>> {
-    let setting = SystemSetting::find_by_id(key)
-        .one(db)
-        .await?;
+    let setting = SystemSetting::find_by_id(key).one(db).await?;
 
     if let Some(s) = setting {
         return Ok(Some(s.value));
