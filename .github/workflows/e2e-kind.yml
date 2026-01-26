@@ -1,0 +1,235 @@
+name: E2E Tests (Kind)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  KIND_CLUSTER_NAME: kubarr-e2e
+  KUBARR_NAMESPACE: kubarr
+  NGINX_NAMESPACE: nginx
+  OAUTH2_PROXY_NAMESPACE: oauth2-proxy
+
+jobs:
+  e2e-tests:
+    name: E2E Tests with Kind
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install Playwright dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Create Kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: ${{ env.KIND_CLUSTER_NAME }}
+          wait: 120s
+
+      - name: Build Docker images
+        run: |
+          echo "Building backend image..."
+          docker build -f docker/Dockerfile.backend -t kubarr-backend:e2e \
+            --build-arg COMMIT_HASH=${{ github.sha }} \
+            --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") .
+
+          echo "Building frontend image..."
+          docker build -f docker/Dockerfile.frontend -t kubarr-frontend:e2e \
+            --build-arg COMMIT_HASH=${{ github.sha }} \
+            --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") .
+
+      - name: Load images into Kind
+        run: |
+          kind load docker-image kubarr-backend:e2e --name ${{ env.KIND_CLUSTER_NAME }}
+          kind load docker-image kubarr-frontend:e2e --name ${{ env.KIND_CLUSTER_NAME }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Create namespaces
+        run: |
+          kubectl create namespace ${{ env.KUBARR_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create namespace ${{ env.NGINX_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create namespace ${{ env.OAUTH2_PROXY_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Generate secrets
+        run: |
+          # Generate JWT keys for Kubarr
+          openssl genrsa -out /tmp/jwt-private.pem 2048
+          openssl rsa -in /tmp/jwt-private.pem -pubout -out /tmp/jwt-public.pem
+
+          # Create JWT secret
+          kubectl create secret generic jwt-keys \
+            --from-file=private.pem=/tmp/jwt-private.pem \
+            --from-file=public.pem=/tmp/jwt-public.pem \
+            -n ${{ env.KUBARR_NAMESPACE }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          # Generate OAuth2-proxy secrets
+          COOKIE_SECRET=$(openssl rand -base64 32 | tr -d '\n')
+          kubectl create secret generic oauth2-proxy-secrets \
+            --from-literal=cookie-secret=$COOKIE_SECRET \
+            --from-literal=client-secret=e2e-test-secret \
+            -n ${{ env.OAUTH2_PROXY_NAMESPACE }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy Kubarr
+        run: |
+          helm upgrade --install kubarr ./charts/kubarr \
+            --namespace ${{ env.KUBARR_NAMESPACE }} \
+            --set backend.image.repository=kubarr-backend \
+            --set backend.image.tag=e2e \
+            --set backend.image.pullPolicy=Never \
+            --set frontend.image.repository=kubarr-frontend \
+            --set frontend.image.tag=e2e \
+            --set frontend.image.pullPolicy=Never \
+            --set networkPolicy.enabled=false \
+            --wait --timeout=5m
+
+      - name: Deploy Nginx
+        run: |
+          helm upgrade --install nginx ./charts/nginx \
+            --namespace ${{ env.NGINX_NAMESPACE }} \
+            --set networkPolicy.enabled=false \
+            --wait --timeout=3m
+
+      - name: Deploy OAuth2-Proxy
+        run: |
+          helm upgrade --install oauth2-proxy ./charts/oauth2-proxy \
+            --namespace ${{ env.OAUTH2_PROXY_NAMESPACE }} \
+            --set config.clientId=oauth2-proxy \
+            --set config.clientSecret=e2e-test-secret \
+            --set config.cookieSecret="" \
+            --set provider.issuerUrl=http://kubarr-backend.${{ env.KUBARR_NAMESPACE }}.svc.cluster.local:8000/auth \
+            --set config.redirectUrl=http://localhost:8080/oauth2/callback \
+            --set networkPolicy.enabled=false \
+            --wait --timeout=3m
+
+      - name: Wait for pods to be ready
+        run: |
+          echo "Waiting for Kubarr pods..."
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kubarr -n ${{ env.KUBARR_NAMESPACE }} --timeout=120s || true
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kubarr-frontend -n ${{ env.KUBARR_NAMESPACE }} --timeout=120s || true
+
+          echo "Waiting for Nginx pods..."
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=nginx -n ${{ env.NGINX_NAMESPACE }} --timeout=120s || true
+
+          echo "Waiting for OAuth2-Proxy pods..."
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=oauth2-proxy -n ${{ env.OAUTH2_PROXY_NAMESPACE }} --timeout=120s || true
+
+          echo "All pods status:"
+          kubectl get pods -A
+
+      - name: Debug - Show pod logs on failure
+        if: failure()
+        run: |
+          echo "=== Kubarr Backend Logs ==="
+          kubectl logs -l app.kubernetes.io/name=kubarr -n ${{ env.KUBARR_NAMESPACE }} --tail=100 || true
+
+          echo "=== Kubarr Frontend Logs ==="
+          kubectl logs -l app.kubernetes.io/name=kubarr-frontend -n ${{ env.KUBARR_NAMESPACE }} --tail=100 || true
+
+          echo "=== Nginx Logs ==="
+          kubectl logs -l app.kubernetes.io/name=nginx -n ${{ env.NGINX_NAMESPACE }} --tail=100 || true
+
+          echo "=== OAuth2-Proxy Logs ==="
+          kubectl logs -l app.kubernetes.io/name=oauth2-proxy -n ${{ env.OAUTH2_PROXY_NAMESPACE }} --tail=100 || true
+
+          echo "=== Pod Descriptions ==="
+          kubectl describe pods -A
+
+      - name: Setup port-forward
+        run: |
+          # Port-forward oauth2-proxy
+          kubectl port-forward svc/oauth2-proxy 8080:80 -n ${{ env.OAUTH2_PROXY_NAMESPACE }} &
+          PF_PID=$!
+          echo "PF_PID=$PF_PID" >> $GITHUB_ENV
+
+          # Wait for port-forward to be ready
+          sleep 5
+
+          # Verify port-forward is working
+          for i in {1..30}; do
+            if curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/system/health 2>/dev/null | grep -q "200\|302\|401"; then
+              echo "Port-forward is ready"
+              break
+            fi
+            echo "Waiting for port-forward... attempt $i"
+            sleep 2
+          done
+
+      - name: Initialize Kubarr setup
+        run: |
+          # Wait for backend to be fully ready
+          echo "Waiting for backend health endpoint..."
+          for i in {1..30}; do
+            # Try direct backend access first
+            HEALTH=$(kubectl exec -n ${{ env.KUBARR_NAMESPACE }} deploy/kubarr -- curl -s http://localhost:8000/api/system/health 2>/dev/null || echo "")
+            if echo "$HEALTH" | grep -q "ok"; then
+              echo "Backend is healthy"
+              break
+            fi
+            echo "Waiting for backend... attempt $i"
+            sleep 2
+          done
+
+          # Run setup via kubectl exec to bypass auth
+          echo "Running setup..."
+          kubectl exec -n ${{ env.KUBARR_NAMESPACE }} deploy/kubarr -- curl -s -X POST \
+            http://localhost:8000/api/setup/initialize \
+            -H "Content-Type: application/json" \
+            -d '{
+              "admin_username": "admin",
+              "admin_email": "admin@test.local",
+              "admin_password": "admin",
+              "storage_path": "/data",
+              "base_url": "http://localhost:8080"
+            }' || echo "Setup may have already been completed"
+
+          echo "Setup complete"
+
+      - name: Run Playwright tests
+        run: npm test -- --project=chromium
+        env:
+          BASE_URL: http://localhost:8080
+          CI: true
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-results
+          path: test-results/
+          retention-days: 14
+
+      - name: Cleanup
+        if: always()
+        run: |
+          # Kill port-forward
+          if [ -n "$PF_PID" ]; then
+            kill $PF_PID 2>/dev/null || true
+          fi
