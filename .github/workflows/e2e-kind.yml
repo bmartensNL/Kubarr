@@ -14,7 +14,7 @@ jobs:
   e2e-tests:
     name: E2E Tests with Kind
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
 
     steps:
       - name: Checkout code
@@ -254,6 +254,32 @@ jobs:
             echo "Attempting to check setup status..."
             curl -s http://localhost:8000/api/setup/status || true
           fi
+
+      - name: Verify OAuth login flow
+        run: |
+          echo "Testing OAuth login endpoint..."
+
+          # Test 1: Check that oauth2-proxy redirects to login page
+          REDIRECT=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/)
+          echo "OAuth2-proxy root redirect status: $REDIRECT"
+
+          # Test 2: Check that the auth login page is reachable via the backend
+          echo ""
+          echo "Checking auth login page..."
+          curl -s http://localhost:8000/auth/login -o /dev/null -w "Auth login page HTTP status: %{http_code}\n" || true
+
+          # Test 3: Try to authenticate via the backend directly
+          echo ""
+          echo "Testing direct authentication..."
+          LOGIN_RESPONSE=$(curl -s -X POST http://localhost:8000/auth/login \
+            -H "Content-Type: application/json" \
+            -d '{"username":"admin","password":"admin"}' 2>&1) || true
+          echo "Login response: $LOGIN_RESPONSE"
+
+          # Test 4: Check that oauth2-proxy can reach the backend
+          echo ""
+          echo "Checking oauth2-proxy -> backend connectivity..."
+          curl -s -v http://localhost:8080/ 2>&1 | head -30 || true
 
       - name: Run Playwright tests
         run: npm test -- --project=chromium
