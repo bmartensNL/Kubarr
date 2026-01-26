@@ -3,6 +3,7 @@ pub mod auth;
 pub mod extractors;
 pub mod logs;
 pub mod monitoring;
+pub mod networking;
 pub mod roles;
 pub mod settings;
 pub mod setup;
@@ -31,6 +32,7 @@ fn api_routes(state: AppState) -> Router {
         .nest("/roles", roles::roles_routes(state.clone()))
         .nest("/settings", settings::settings_routes(state.clone()))
         .nest("/monitoring", monitoring::monitoring_routes(state.clone()))
+        .nest("/networking", networking::networking_routes(state.clone()))
         .nest("/apps", apps::apps_routes(state.clone()))
         .nest("/storage", storage::storage_routes(state.clone()))
         .nest("/logs", logs::logs_routes(state.clone()))

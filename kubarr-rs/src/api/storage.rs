@@ -6,14 +6,15 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use sea_orm::EntityTrait;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio_util::io::ReaderStream;
 
-use crate::api::extractors::AuthUser;
-use crate::db::DbPool;
+use crate::api::extractors::{AuthUser, user_has_permission};
+use crate::db::entities::prelude::*;
 use crate::error::{AppError, Result};
-use crate::state::AppState;
+use crate::state::{AppState, DbConn};
 
 /// Protected top-level folders that cannot be deleted
 const PROTECTED_FOLDERS: &[&str] = &["downloads", "media"];
@@ -82,13 +83,11 @@ pub struct CreateDirectoryRequest {
 // ============================================================================
 
 /// Get the configured storage path
-async fn get_storage_path(pool: &DbPool) -> Result<PathBuf> {
+async fn get_storage_path(db: &DbConn) -> Result<PathBuf> {
     // Check if storage is configured in DB
-    let db_path: Option<String> = sqlx::query_scalar(
-        "SELECT value FROM system_settings WHERE key = 'storage_path'",
-    )
-    .fetch_optional(pool)
-    .await?;
+    let db_path = SystemSetting::find_by_id("storage_path")
+        .one(db)
+        .await?;
 
     // Use environment variable for the actual path inside the container
     let storage_path = std::env::var("KUBARR_STORAGE_PATH")
@@ -200,9 +199,12 @@ fn get_file_info_internal(file_path: &PathBuf, base_path: &PathBuf) -> Result<Fi
 async fn browse_directory(
     State(state): State<AppState>,
     Query(query): Query<BrowseQuery>,
-    AuthUser(_): AuthUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<DirectoryListing>> {
-    let storage_path = get_storage_path(&state.pool).await?;
+    if !user_has_permission(&state.db, user.id, "storage.view").await {
+        return Err(AppError::Forbidden("Permission denied: storage.view required".to_string()));
+    }
+    let storage_path = get_storage_path(&state.db).await?;
     let base_path = storage_path.canonicalize().map_err(|e| {
         AppError::Internal(format!("Failed to resolve storage path: {}", e))
     })?;
@@ -290,9 +292,12 @@ async fn browse_directory(
 /// Get storage usage statistics
 async fn get_storage_stats(
     State(state): State<AppState>,
-    AuthUser(_): AuthUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<StorageStats>> {
-    let storage_path = get_storage_path(&state.pool).await?;
+    if !user_has_permission(&state.db, user.id, "storage.view").await {
+        return Err(AppError::Forbidden("Permission denied: storage.view required".to_string()));
+    }
+    let storage_path = get_storage_path(&state.db).await?;
 
     if !storage_path.exists() {
         return Err(AppError::NotFound("Storage path not found".to_string()));
@@ -356,9 +361,12 @@ async fn get_storage_stats(
 async fn get_file_info(
     State(state): State<AppState>,
     Query(query): Query<PathQuery>,
-    AuthUser(_): AuthUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<FileInfo>> {
-    let storage_path = get_storage_path(&state.pool).await?;
+    if !user_has_permission(&state.db, user.id, "storage.view").await {
+        return Err(AppError::Forbidden("Permission denied: storage.view required".to_string()));
+    }
+    let storage_path = get_storage_path(&state.db).await?;
     let base_path = storage_path.canonicalize().map_err(|e| {
         AppError::Internal(format!("Failed to resolve storage path: {}", e))
     })?;
@@ -373,20 +381,16 @@ async fn get_file_info(
     Ok(Json(info))
 }
 
-/// Create a new directory (admin only)
+/// Create a new directory (requires storage.write permission)
 async fn create_directory(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
     Json(request): Json<CreateDirectoryRequest>,
 ) -> Result<Json<serde_json::Value>> {
-    // Check admin permission
-    if !user.is_admin {
-        return Err(AppError::Forbidden(
-            "Only administrators can create directories".to_string(),
-        ));
+    if !user_has_permission(&state.db, user.id, "storage.write").await {
+        return Err(AppError::Forbidden("Permission denied: storage.write required".to_string()));
     }
-
-    let storage_path = get_storage_path(&state.pool).await?;
+    let storage_path = get_storage_path(&state.db).await?;
     let base_path = storage_path.canonicalize().map_err(|e| {
         AppError::Internal(format!("Failed to resolve storage path: {}", e))
     })?;
@@ -426,20 +430,16 @@ async fn create_directory(
     })))
 }
 
-/// Delete a file or empty directory (admin only)
+/// Delete a file or empty directory (requires storage.delete permission)
 async fn delete_path(
     State(state): State<AppState>,
     Query(query): Query<PathQuery>,
     AuthUser(user): AuthUser,
 ) -> Result<Json<serde_json::Value>> {
-    // Check admin permission
-    if !user.is_admin {
-        return Err(AppError::Forbidden(
-            "Only administrators can delete files".to_string(),
-        ));
+    if !user_has_permission(&state.db, user.id, "storage.delete").await {
+        return Err(AppError::Forbidden("Permission denied: storage.delete required".to_string()));
     }
-
-    let storage_path = get_storage_path(&state.pool).await?;
+    let storage_path = get_storage_path(&state.db).await?;
     let base_path = storage_path.canonicalize().map_err(|e| {
         AppError::Internal(format!("Failed to resolve storage path: {}", e))
     })?;
@@ -506,9 +506,12 @@ async fn delete_path(
 async fn download_file(
     State(state): State<AppState>,
     Query(query): Query<PathQuery>,
-    AuthUser(_): AuthUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Response> {
-    let storage_path = get_storage_path(&state.pool).await?;
+    if !user_has_permission(&state.db, user.id, "storage.download").await {
+        return Err(AppError::Forbidden("Permission denied: storage.download required".to_string()));
+    }
+    let storage_path = get_storage_path(&state.db).await?;
     let file_path = validate_path(&query.path, &storage_path)?;
 
     if !file_path.exists() {

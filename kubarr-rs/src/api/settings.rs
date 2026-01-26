@@ -5,13 +5,16 @@ use axum::{
     routing::{get, put},
     Json, Router,
 };
+use chrono::Utc;
 use once_cell::sync::Lazy;
+use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde::{Deserialize, Serialize};
 
-use crate::api::extractors::AdminUser;
-use crate::db::{DbPool, SystemSetting};
+use crate::api::extractors::{AuthUser, user_has_permission};
+use crate::db::entities::system_setting;
+use crate::db::entities::prelude::*;
 use crate::error::{AppError, Result};
-use crate::state::AppState;
+use crate::state::{AppState, DbConn};
 
 /// Default settings values
 static DEFAULT_SETTINGS: Lazy<HashMap<&'static str, (&'static str, &'static str)>> =
@@ -64,17 +67,20 @@ pub struct SettingsResponse {
 // Endpoint Handlers
 // ============================================================================
 
-/// List all system settings (admin only)
+/// List all system settings (requires settings.view permission)
 async fn list_settings(
     State(state): State<AppState>,
-    AdminUser(_): AdminUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<SettingsResponse>> {
+    if !user_has_permission(&state.db, user.id, "settings.view").await {
+        return Err(AppError::Forbidden("Permission denied: settings.view required".to_string()));
+    }
     // Get all settings from database
-    let db_settings: Vec<SystemSetting> = sqlx::query_as("SELECT * FROM system_settings")
-        .fetch_all(&state.pool)
+    let db_settings = SystemSetting::find()
+        .all(&state.db)
         .await?;
 
-    let db_map: HashMap<String, SystemSetting> = db_settings
+    let db_map: HashMap<String, system_setting::Model> = db_settings
         .into_iter()
         .map(|s| (s.key.clone(), s))
         .collect();
@@ -104,17 +110,18 @@ async fn list_settings(
     Ok(Json(SettingsResponse { settings }))
 }
 
-/// Get a specific setting (admin only)
+/// Get a specific setting (requires settings.view permission)
 async fn get_setting(
     State(state): State<AppState>,
     Path(key): Path<String>,
-    AdminUser(_): AdminUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<SettingResponse>> {
-    let db_setting: Option<SystemSetting> =
-        sqlx::query_as("SELECT * FROM system_settings WHERE key = ?")
-            .bind(&key)
-            .fetch_optional(&state.pool)
-            .await?;
+    if !user_has_permission(&state.db, user.id, "settings.view").await {
+        return Err(AppError::Forbidden("Permission denied: settings.view required".to_string()));
+    }
+    let db_setting = SystemSetting::find_by_id(&key)
+        .one(&state.db)
+        .await?;
 
     if let Some(setting) = db_setting {
         return Ok(Json(SettingResponse {
@@ -136,38 +143,44 @@ async fn get_setting(
     Err(AppError::NotFound(format!("Setting '{}' not found", key)))
 }
 
-/// Update a system setting (admin only)
+/// Update a system setting (requires settings.manage permission)
 async fn update_setting(
     State(state): State<AppState>,
     Path(key): Path<String>,
-    AdminUser(_): AdminUser,
+    AuthUser(user): AuthUser,
     Json(data): Json<SettingUpdate>,
 ) -> Result<Json<SettingResponse>> {
+    if !user_has_permission(&state.db, user.id, "settings.manage").await {
+        return Err(AppError::Forbidden("Permission denied: settings.manage required".to_string()));
+    }
     // Validate key exists in defaults
     let (_, description) = DEFAULT_SETTINGS
         .get(key.as_str())
         .ok_or_else(|| AppError::BadRequest(format!("Unknown setting key '{}'", key)))?;
 
-    // Upsert setting
-    sqlx::query(
-        r#"
-        INSERT INTO system_settings (key, value, description, updated_at)
-        VALUES (?, ?, ?, datetime('now'))
-        ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')
-        "#,
-    )
-    .bind(&key)
-    .bind(&data.value)
-    .bind(*description)
-    .bind(&data.value)
-    .execute(&state.pool)
-    .await?;
+    let now = Utc::now();
 
-    let setting: SystemSetting =
-        sqlx::query_as("SELECT * FROM system_settings WHERE key = ?")
-            .bind(&key)
-            .fetch_one(&state.pool)
-            .await?;
+    // Check if setting exists
+    let existing = SystemSetting::find_by_id(&key)
+        .one(&state.db)
+        .await?;
+
+    let setting = if let Some(existing_setting) = existing {
+        // Update existing
+        let mut setting_model: system_setting::ActiveModel = existing_setting.into();
+        setting_model.value = Set(data.value.clone());
+        setting_model.updated_at = Set(now);
+        setting_model.update(&state.db).await?
+    } else {
+        // Insert new
+        let new_setting = system_setting::ActiveModel {
+            key: Set(key.clone()),
+            value: Set(data.value.clone()),
+            description: Set(Some(description.to_string())),
+            updated_at: Set(now),
+        };
+        new_setting.insert(&state.db).await?
+    };
 
     Ok(Json(SettingResponse {
         key: setting.key,
@@ -177,12 +190,10 @@ async fn update_setting(
 }
 
 /// Get a setting value from the database (helper for other modules)
-pub async fn get_setting_value(pool: &DbPool, key: &str) -> Result<Option<String>> {
-    let setting: Option<SystemSetting> =
-        sqlx::query_as("SELECT * FROM system_settings WHERE key = ?")
-            .bind(key)
-            .fetch_optional(pool)
-            .await?;
+pub async fn get_setting_value(db: &DbConn, key: &str) -> Result<Option<String>> {
+    let setting = SystemSetting::find_by_id(key)
+        .one(db)
+        .await?;
 
     if let Some(s) = setting {
         return Ok(Some(s.value));
@@ -197,8 +208,8 @@ pub async fn get_setting_value(pool: &DbPool, key: &str) -> Result<Option<String
 }
 
 /// Get a boolean setting value (helper for other modules)
-pub async fn get_setting_bool(pool: &DbPool, key: &str) -> Result<bool> {
-    let value = get_setting_value(pool, key).await?;
+pub async fn get_setting_bool(db: &DbConn, key: &str) -> Result<bool> {
+    let value = get_setting_value(db, key).await?;
     Ok(value
         .map(|v| matches!(v.to_lowercase().as_str(), "true" | "1" | "yes"))
         .unwrap_or(false))

@@ -1,14 +1,19 @@
 use axum::{
     extract::{Query, State},
+    http::{header::SET_COOKIE, HeaderMap, HeaderValue},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
     Form, Json, Router,
 };
 use base64::Engine;
+use chrono::Utc;
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 
-use crate::api::extractors::AuthUser;
+use crate::api::extractors::{AdminUser, AuthUser};
 use crate::config::CONFIG;
+use crate::db::entities::{oauth2_client, system_setting, user};
+use crate::db::entities::prelude::*;
 use crate::error::{AppError, Result};
 use crate::services::{
     get_jwks, verify_password, OAuth2Service,
@@ -28,8 +33,12 @@ pub fn auth_routes(state: AppState) -> Router {
         .route("/revoke", post(revoke))
         .route("/jwks", get(jwks))
         .route("/.well-known/openid-configuration", get(openid_configuration))
-        // Direct API login
+        // Direct API login (returns token in body - legacy)
         .route("/api/login", post(api_login))
+        // Session-based login (sets HttpOnly cookie)
+        .route("/session/login", post(session_login))
+        .route("/session/verify", get(session_verify))
+        .route("/session/logout", post(session_logout))
         // Admin endpoints
         .route("/admin/regenerate-client-secret", post(regenerate_client_secret))
         .with_state(state)
@@ -92,7 +101,6 @@ pub struct UserInfo {
     pub id: i64,
     pub username: String,
     pub email: String,
-    pub is_admin: bool,
     pub is_active: bool,
     pub is_approved: bool,
 }
@@ -270,15 +278,13 @@ async fn login_submit(
     State(state): State<AppState>,
     Form(form): Form<LoginFormData>,
 ) -> Result<Response> {
-    use crate::db::User;
-
     // Find user
-    let user: Option<User> = sqlx::query_as("SELECT * FROM users WHERE username = ?")
-        .bind(&form.username)
-        .fetch_optional(&state.pool)
+    let found_user = User::find()
+        .filter(user::Column::Username.eq(&form.username))
+        .one(&state.db)
         .await?;
 
-    let user = match user {
+    let found_user = match found_user {
         Some(u) => u,
         None => {
             // Redirect back to login with error
@@ -297,7 +303,7 @@ async fn login_submit(
     };
 
     // Verify password
-    if !verify_password(&form.password, &user.hashed_password) {
+    if !verify_password(&form.password, &found_user.hashed_password) {
         let error_url = format!(
             "/auth/login?client_id={}&redirect_uri={}&scope={}&state={}&code_challenge={}&code_challenge_method={}&error={}",
             urlencoding::encode(&form.client_id),
@@ -312,7 +318,7 @@ async fn login_submit(
     }
 
     // Check if user is active
-    if !user.is_active {
+    if !found_user.is_active {
         let error_url = format!(
             "/auth/login?client_id={}&redirect_uri={}&scope={}&state={}&code_challenge={}&code_challenge_method={}&error={}",
             urlencoding::encode(&form.client_id),
@@ -327,7 +333,7 @@ async fn login_submit(
     }
 
     // Check if user is approved
-    if !user.is_approved {
+    if !found_user.is_approved {
         let error_url = format!(
             "/auth/login?client_id={}&redirect_uri={}&scope={}&state={}&code_challenge={}&code_challenge_method={}&error={}",
             urlencoding::encode(&form.client_id),
@@ -342,11 +348,11 @@ async fn login_submit(
     }
 
     // Create authorization code
-    let oauth2_service = OAuth2Service::new(&state.pool);
+    let oauth2_service = OAuth2Service::new(&state.db);
     let code = oauth2_service
         .create_authorization_code(
             &form.client_id,
-            user.id,
+            found_user.id,
             &form.redirect_uri,
             Some(&form.scope),
             Some(&form.code_challenge),
@@ -370,16 +376,16 @@ async fn api_login(
     State(state): State<AppState>,
     Json(login): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>> {
-    use crate::db::User;
     use crate::services::create_access_token;
+    use crate::api::extractors::{get_user_permissions, get_user_app_access};
 
     // Find user
-    let user: Option<User> = sqlx::query_as("SELECT * FROM users WHERE username = ?")
-        .bind(&login.username)
-        .fetch_optional(&state.pool)
+    let found_user = User::find()
+        .filter(user::Column::Username.eq(&login.username))
+        .one(&state.db)
         .await?;
 
-    let user = match user {
+    let found_user = match found_user {
         Some(u) => u,
         None => {
             return Err(AppError::Unauthorized(
@@ -389,44 +395,179 @@ async fn api_login(
     };
 
     // Verify password
-    if !verify_password(&login.password, &user.hashed_password) {
+    if !verify_password(&login.password, &found_user.hashed_password) {
         return Err(AppError::Unauthorized(
             "Invalid username or password".to_string(),
         ));
     }
 
     // Check if user is active
-    if !user.is_active {
+    if !found_user.is_active {
         return Err(AppError::Forbidden("Account is inactive".to_string()));
     }
 
     // Check if user is approved
-    if !user.is_approved {
+    if !found_user.is_approved {
         return Err(AppError::Forbidden("Account pending approval".to_string()));
     }
 
-    // Create JWT token
-    let access_token = create_access_token(&user.id.to_string(), Some(&user.email), None, None, None)?;
+    // Fetch user permissions and allowed apps
+    let permissions = get_user_permissions(&state.db, found_user.id).await;
+    let allowed_apps = get_user_app_access(&state.db, found_user.id).await;
+
+    // Create JWT token with embedded permissions
+    let access_token = create_access_token(
+        &found_user.id.to_string(),
+        Some(&found_user.email),
+        None,
+        None,
+        None,
+        Some(permissions),
+        Some(allowed_apps),
+    )?;
 
     Ok(Json(LoginResponse {
         access_token,
         token_type: "bearer".to_string(),
         user: UserInfo {
-            id: user.id,
-            username: user.username,
-            email: user.email,
-            is_admin: user.is_admin,
-            is_active: user.is_active,
-            is_approved: user.is_approved,
+            id: found_user.id,
+            username: found_user.username,
+            email: found_user.email,
+            is_active: found_user.is_active,
+            is_approved: found_user.is_approved,
         },
     }))
+}
+
+/// Session-based login - sets HttpOnly cookie
+async fn session_login(
+    State(state): State<AppState>,
+    Json(login): Json<LoginRequest>,
+) -> Result<Response> {
+    use crate::services::create_access_token;
+    use crate::api::extractors::{get_user_permissions, get_user_app_access};
+
+    // Find user
+    let found_user = User::find()
+        .filter(user::Column::Username.eq(&login.username))
+        .one(&state.db)
+        .await?;
+
+    let found_user = match found_user {
+        Some(u) => u,
+        None => {
+            return Err(AppError::Unauthorized(
+                "Invalid username or password".to_string(),
+            ))
+        }
+    };
+
+    // Verify password
+    if !verify_password(&login.password, &found_user.hashed_password) {
+        return Err(AppError::Unauthorized(
+            "Invalid username or password".to_string(),
+        ));
+    }
+
+    // Check if user is active
+    if !found_user.is_active {
+        return Err(AppError::Forbidden("Account is inactive".to_string()));
+    }
+
+    // Check if user is approved
+    if !found_user.is_approved {
+        return Err(AppError::Forbidden("Account pending approval".to_string()));
+    }
+
+    // Fetch user permissions and allowed apps
+    let permissions = get_user_permissions(&state.db, found_user.id).await;
+    let allowed_apps = get_user_app_access(&state.db, found_user.id).await;
+
+    // Create JWT token with embedded permissions
+    let access_token = create_access_token(
+        &found_user.id.to_string(),
+        Some(&found_user.email),
+        None,
+        None,
+        None,
+        Some(permissions),
+        Some(allowed_apps),
+    )?;
+
+    // Set HttpOnly cookie with the token
+    let cookie = format!(
+        "kubarr_session={}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800",
+        access_token
+    );
+
+    let mut headers = HeaderMap::new();
+    headers.insert(SET_COOKIE, HeaderValue::from_str(&cookie).unwrap());
+
+    Ok((headers, Json(serde_json::json!({"success": true}))).into_response())
+}
+
+/// Verify session - for Caddy forward_auth
+async fn session_verify(
+    headers: HeaderMap,
+    State(_state): State<AppState>,
+) -> Result<Response> {
+    use crate::services::decode_token;
+
+    // Get cookie
+    let cookie_header = headers
+        .get(axum::http::header::COOKIE)
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("");
+
+    // Parse kubarr_session cookie
+    let token = cookie_header
+        .split(';')
+        .filter_map(|c| {
+            let c = c.trim();
+            if c.starts_with("kubarr_session=") {
+                Some(c.strip_prefix("kubarr_session=").unwrap())
+            } else {
+                None
+            }
+        })
+        .next();
+
+    let token = match token {
+        Some(t) => t,
+        None => return Err(AppError::Unauthorized("No session".to_string())),
+    };
+
+    // Verify token
+    let claims = decode_token(token)?;
+
+    // Return user info in headers for Caddy to forward
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert("X-Auth-User-Id", HeaderValue::from_str(&claims.sub).unwrap_or(HeaderValue::from_static("")));
+    if let Some(email) = &claims.email {
+        response_headers.insert("X-Auth-User-Email", HeaderValue::from_str(email).unwrap_or(HeaderValue::from_static("")));
+    }
+
+    Ok((response_headers, "OK").into_response())
+}
+
+/// Logout - clears session cookie
+async fn session_logout() -> Response {
+    let cookie = "kubarr_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0";
+
+    let mut headers = HeaderMap::new();
+    headers.insert(SET_COOKIE, HeaderValue::from_str(cookie).unwrap());
+
+    (headers, Json(serde_json::json!({"success": true}))).into_response()
 }
 
 /// OAuth2 authorization endpoint
 async fn authorize(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(params): Query<AuthorizeQuery>,
 ) -> Result<Response> {
+    use crate::services::security::decode_token;
+
     // Validate response_type
     if params.response_type != "code" {
         return Err(AppError::BadRequest(
@@ -435,14 +576,43 @@ async fn authorize(
     }
 
     // Validate client
-    let oauth2_service = OAuth2Service::new(&state.pool);
+    let oauth2_service = OAuth2Service::new(&state.db);
     let client = oauth2_service.get_client(&params.client_id).await?;
 
     if client.is_none() {
         return Err(AppError::BadRequest("Invalid client_id".to_string()));
     }
 
-    // Build login URL with parameters (URL-encoded to preserve special chars in state/redirect_uri)
+    // Check for existing session cookie
+    let session_user = extract_session_user(&headers, &state).await;
+
+    if let Some(found_user) = session_user {
+        // User is already logged in - create auth code and redirect to callback
+        tracing::info!("User {} already logged in via session, creating auth code", found_user.email);
+
+        let code = oauth2_service
+            .create_authorization_code(
+                &params.client_id,
+                found_user.id,
+                &params.redirect_uri,
+                params.scope.as_deref(),
+                params.code_challenge.as_deref(),
+                params.code_challenge_method.as_deref(),
+                600, // 10 minutes expiry
+            )
+            .await?;
+
+        // Redirect to callback with authorization code
+        let callback_url = if params.redirect_uri.contains('?') {
+            format!("{}&code={}&state={}", params.redirect_uri, code, params.state.unwrap_or_default())
+        } else {
+            format!("{}?code={}&state={}", params.redirect_uri, code, params.state.unwrap_or_default())
+        };
+
+        return Ok(Redirect::to(&callback_url).into_response());
+    }
+
+    // No valid session - redirect to login page
     let login_url = format!(
         "/auth/login?client_id={}&redirect_uri={}&scope={}&state={}&code_challenge={}&code_challenge_method={}",
         urlencoding::encode(&params.client_id),
@@ -456,13 +626,43 @@ async fn authorize(
     Ok(Redirect::to(&login_url).into_response())
 }
 
+/// Extract user from session cookie (kubarr_session)
+async fn extract_session_user(headers: &HeaderMap, state: &AppState) -> Option<user::Model> {
+    use crate::services::security::decode_token;
+
+    // Get cookie header
+    let cookie_header = headers.get(axum::http::header::COOKIE)?;
+    let cookies = cookie_header.to_str().ok()?;
+
+    // Find kubarr_session cookie
+    let token = cookies
+        .split(';')
+        .find_map(|cookie| {
+            let cookie = cookie.trim();
+            cookie.strip_prefix("kubarr_session=").map(|v| v.to_string())
+        })?;
+
+    // Decode and validate the token
+    let claims = decode_token(&token).ok()?;
+
+    // Get user from database
+    let user_id = claims.sub.parse::<i64>().ok()?;
+    User::find_by_id(user_id)
+        .filter(user::Column::IsActive.eq(true))
+        .filter(user::Column::IsApproved.eq(true))
+        .one(&state.db)
+        .await
+        .ok()
+        .flatten()
+}
+
 /// OAuth2 token endpoint
 async fn token(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
     Form(params): Form<TokenRequest>,
 ) -> Result<Json<TokenResponse>> {
-    let oauth2_service = OAuth2Service::new(&state.pool);
+    let oauth2_service = OAuth2Service::new(&state.db);
 
     // Extract client credentials from Basic auth header or form body
     let (client_id, client_secret) = extract_client_credentials(&headers, &params)?;
@@ -571,7 +771,7 @@ async fn introspect(
     State(state): State<AppState>,
     Json(request): Json<IntrospectRequest>,
 ) -> Result<impl IntoResponse> {
-    let oauth2_service = OAuth2Service::new(&state.pool);
+    let oauth2_service = OAuth2Service::new(&state.db);
 
     // Validate client if credentials provided
     if let Some(ref secret) = request.client_secret {
@@ -605,7 +805,7 @@ async fn revoke(
     State(state): State<AppState>,
     Json(request): Json<RevokeRequest>,
 ) -> Result<Json<serde_json::Value>> {
-    let oauth2_service = OAuth2Service::new(&state.pool);
+    let oauth2_service = OAuth2Service::new(&state.db);
 
     // Validate client if credentials provided
     if let (Some(ref client_id), Some(ref secret)) = (&request.client_id, &request.client_secret) {
@@ -653,47 +853,52 @@ async fn openid_configuration() -> Json<serde_json::Value> {
 /// Regenerate oauth2-proxy client secret (admin only)
 async fn regenerate_client_secret(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    AdminUser(_user): AdminUser,
 ) -> Result<Json<serde_json::Value>> {
     use crate::services::{generate_random_string, hash_client_secret};
 
-    // Check admin
-    if !user.is_admin {
-        return Err(AppError::Forbidden("Admin access required".to_string()));
-    }
-
     // Find oauth2-proxy client
-    let oauth2_service = OAuth2Service::new(&state.pool);
+    let oauth2_service = OAuth2Service::new(&state.db);
     let client = oauth2_service.get_client("oauth2-proxy").await?;
 
-    if client.is_none() {
-        return Err(AppError::NotFound(
-            "oauth2-proxy client not found".to_string(),
-        ));
-    }
+    let client = match client {
+        Some(c) => c,
+        None => {
+            return Err(AppError::NotFound(
+                "oauth2-proxy client not found".to_string(),
+            ));
+        }
+    };
 
     // Generate new secret
     let new_secret = generate_random_string(32);
     let secret_hash = hash_client_secret(&new_secret)?;
 
     // Update client
-    sqlx::query("UPDATE oauth2_clients SET client_secret_hash = ? WHERE client_id = 'oauth2-proxy'")
-        .bind(&secret_hash)
-        .execute(&state.pool)
+    let mut client_model: oauth2_client::ActiveModel = client.into();
+    client_model.client_secret_hash = Set(secret_hash);
+    client_model.update(&state.db).await?;
+
+    // Store the plain secret in SystemSettings (upsert)
+    let now = Utc::now();
+    let existing = SystemSetting::find_by_id("oauth2_client_secret")
+        .one(&state.db)
         .await?;
 
-    // Store the plain secret in SystemSettings
-    sqlx::query(
-        r#"
-        INSERT INTO system_settings (key, value, description, updated_at)
-        VALUES ('oauth2_client_secret', ?, 'OAuth2-proxy client secret (for syncing to Kubernetes)', datetime('now'))
-        ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')
-        "#,
-    )
-    .bind(&new_secret)
-    .bind(&new_secret)
-    .execute(&state.pool)
-    .await?;
+    if let Some(setting) = existing {
+        let mut setting_model: system_setting::ActiveModel = setting.into();
+        setting_model.value = Set(new_secret.clone());
+        setting_model.updated_at = Set(now);
+        setting_model.update(&state.db).await?;
+    } else {
+        let new_setting = system_setting::ActiveModel {
+            key: Set("oauth2_client_secret".to_string()),
+            value: Set(new_secret.clone()),
+            description: Set(Some("OAuth2-proxy client secret (for syncing to Kubernetes)".to_string())),
+            updated_at: Set(now),
+        };
+        new_setting.insert(&state.db).await?;
+    }
 
     // TODO: Sync to Kubernetes secret
 

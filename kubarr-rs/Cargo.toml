@@ -18,7 +18,7 @@ hyper = { version = "1", features = ["full"] }
 http = "1"
 
 # Database
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }
+sea-orm = { version = "1.1", features = ["sqlx-sqlite", "runtime-tokio-native-tls", "macros", "with-chrono"] }
 
 # Kubernetes
 kube = { version = "0.95", features = ["runtime", "client", "derive"] }
@@ -64,9 +64,17 @@ parking_lot = "0.12"
 tokio-test = "0.4"
 tower = { version = "0.4", features = ["util"] }
 http-body-util = "0.1"
+tempfile = "3"
 
 [profile.release]
 lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# Fast release build for development - use with: cargo build --profile dev-release
+[profile.dev-release]
+inherits = "release"
+lto = "thin"
+codegen-units = 16
+incremental = true

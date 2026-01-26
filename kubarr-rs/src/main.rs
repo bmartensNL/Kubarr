@@ -5,6 +5,9 @@ mod error;
 mod services;
 mod state;
 
+#[cfg(test)]
+mod test_helpers;
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 

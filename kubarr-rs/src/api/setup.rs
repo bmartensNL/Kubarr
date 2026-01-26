@@ -3,9 +3,16 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use chrono::Utc;
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, JoinType, QueryFilter, QuerySelect,
+    RelationTrait, Set,
+};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+use crate::db::entities::{oauth2_client, role, system_setting, user, user_role};
+use crate::db::entities::prelude::*;
 use crate::error::{AppError, Result};
 use crate::state::AppState;
 
@@ -52,19 +59,25 @@ struct GeneratedCredentialsResponse {
     client_secret: String,
 }
 
+/// Check if any user with admin role exists
+async fn admin_user_exists(state: &AppState) -> Result<bool> {
+    let admin_exists = UserRole::find()
+        .join(JoinType::InnerJoin, user_role::Relation::Role.def())
+        .filter(role::Column::Name.eq("admin"))
+        .one(&state.db)
+        .await?;
+
+    Ok(admin_exists.is_some())
+}
+
 /// Check if setup is required (no admin user exists)
 async fn check_setup_required(
     State(state): State<AppState>,
 ) -> Result<Json<SetupRequiredResponse>> {
-    let admin_exists: Option<(i64,)> = sqlx::query_as(
-        "SELECT id FROM users WHERE is_admin = 1 LIMIT 1"
-    )
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| AppError::Internal(format!("Database error: {}", e)))?;
+    let admin_exists = admin_user_exists(&state).await?;
 
     Ok(Json(SetupRequiredResponse {
-        setup_required: admin_exists.is_none(),
+        setup_required: !admin_exists,
     }))
 }
 
@@ -72,44 +85,33 @@ async fn check_setup_required(
 async fn get_setup_status(
     State(state): State<AppState>,
 ) -> Result<Json<SetupStatusResponse>> {
-    // Check for admin user
-    let admin_exists: Option<(i64,)> = sqlx::query_as(
-        "SELECT id FROM users WHERE is_admin = 1 LIMIT 1"
-    )
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| AppError::Internal(format!("Database error: {}", e)))?;
-
-    // Check for oauth2-proxy client
-    let oauth2_client_exists: Option<(String,)> = sqlx::query_as(
-        "SELECT client_id FROM oauth2_clients WHERE client_id = 'oauth2-proxy' LIMIT 1"
-    )
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| AppError::Internal(format!("Database error: {}", e)))?;
-
-    // Check for storage configuration
-    let storage_configured: Option<(String,)> = sqlx::query_as(
-        "SELECT value FROM system_settings WHERE key = 'storage_path' LIMIT 1"
-    )
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| AppError::Internal(format!("Database error: {}", e)))?;
-
-    let setup_required = admin_exists.is_none();
+    // Check for admin user (user with admin role)
+    let admin_exists = admin_user_exists(&state).await?;
 
     // Only accessible during setup
-    if !setup_required {
+    if admin_exists {
         return Err(AppError::Forbidden(
             "Setup has already been completed".to_string(),
         ));
     }
 
+    // Check for oauth2-proxy client
+    let oauth2_client_exists = OAuth2Client::find_by_id("oauth2-proxy")
+        .one(&state.db)
+        .await?
+        .is_some();
+
+    // Check for storage configuration
+    let storage_configured = SystemSetting::find_by_id("storage_path")
+        .one(&state.db)
+        .await?
+        .is_some();
+
     Ok(Json(SetupStatusResponse {
-        setup_required,
-        admin_user_exists: admin_exists.is_some(),
-        oauth2_client_exists: oauth2_client_exists.is_some(),
-        storage_configured: storage_configured.is_some(),
+        setup_required: !admin_exists,
+        admin_user_exists: admin_exists,
+        oauth2_client_exists,
+        storage_configured,
     }))
 }
 
@@ -118,15 +120,10 @@ async fn initialize_setup(
     State(state): State<AppState>,
     Json(request): Json<SetupRequest>,
 ) -> Result<Json<serde_json::Value>> {
-    // Check if setup is required
-    let admin_exists: Option<(i64,)> = sqlx::query_as(
-        "SELECT id FROM users WHERE is_admin = 1 LIMIT 1"
-    )
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| AppError::Internal(format!("Database error: {}", e)))?;
+    // Check if setup is required (user with admin role exists)
+    let admin_exists = admin_user_exists(&state).await?;
 
-    if admin_exists.is_some() {
+    if admin_exists {
         return Err(AppError::Forbidden(
             "Setup has already been completed".to_string(),
         ));
@@ -136,34 +133,60 @@ async fn initialize_setup(
     let hashed_password = crate::services::security::hash_password(&request.admin_password)?;
 
     // Create admin user
-    let now = chrono::Utc::now();
-    sqlx::query(
-        r#"
-        INSERT INTO users (username, email, hashed_password, is_admin, is_active, is_approved, created_at, updated_at)
-        VALUES (?, ?, ?, 1, 1, 1, ?, ?)
-        "#,
-    )
-    .bind(&request.admin_username)
-    .bind(&request.admin_email)
-    .bind(&hashed_password)
-    .bind(now)
-    .bind(now)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| AppError::Internal(format!("Failed to create admin user: {}", e)))?;
+    let now = Utc::now();
+    let new_user = user::ActiveModel {
+        username: Set(request.admin_username.clone()),
+        email: Set(request.admin_email.clone()),
+        hashed_password: Set(hashed_password),
+        is_active: Set(true),
+        is_approved: Set(true),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    };
+
+    let created_user = new_user.insert(&state.db).await
+        .map_err(|e| AppError::Internal(format!("Failed to create admin user: {}", e)))?;
+
+    // Check if admin role exists
+    let admin_role = Role::find()
+        .filter(role::Column::Name.eq("admin"))
+        .one(&state.db)
+        .await?;
+
+    let admin_role = match admin_role {
+        Some(r) => r,
+        None => {
+            // Create admin role
+            let new_role = role::ActiveModel {
+                name: Set("admin".to_string()),
+                description: Set(Some("Full system access".to_string())),
+                is_system: Set(true),
+                created_at: Set(now),
+                ..Default::default()
+            };
+            new_role.insert(&state.db).await
+                .map_err(|e| AppError::Internal(format!("Failed to create admin role: {}", e)))?
+        }
+    };
+
+    // Assign admin role to user
+    let user_role_model = user_role::ActiveModel {
+        user_id: Set(created_user.id),
+        role_id: Set(admin_role.id),
+    };
+    user_role_model.insert(&state.db).await
+        .map_err(|e| AppError::Internal(format!("Failed to assign admin role: {}", e)))?;
 
     // Save storage path
-    sqlx::query(
-        r#"
-        INSERT INTO system_settings (key, value, description, updated_at)
-        VALUES ('storage_path', ?, 'Root storage path for media apps', ?)
-        "#,
-    )
-    .bind(&request.storage_path)
-    .bind(now)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| AppError::Internal(format!("Failed to save storage path: {}", e)))?;
+    let storage_setting = system_setting::ActiveModel {
+        key: Set("storage_path".to_string()),
+        value: Set(request.storage_path.clone()),
+        description: Set(Some("Root storage path for media apps".to_string())),
+        updated_at: Set(now),
+    };
+    storage_setting.insert(&state.db).await
+        .map_err(|e| AppError::Internal(format!("Failed to save storage path: {}", e)))?;
 
     // Create oauth2-proxy client if base_url is provided
     let mut oauth2_result = serde_json::Value::Null;
@@ -177,31 +200,25 @@ async fn initialize_setup(
             format!("{}/oauth/callback", base_url)
         ]);
 
-        sqlx::query(
-            r#"
-            INSERT INTO oauth2_clients (client_id, client_secret_hash, name, redirect_uris, created_at)
-            VALUES ('oauth2-proxy', ?, 'OAuth2 Proxy', ?, ?)
-            "#,
-        )
-        .bind(&secret_hash)
-        .bind(redirect_uris.to_string())
-        .bind(now)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to create OAuth2 client: {}", e)))?;
+        let client_model = oauth2_client::ActiveModel {
+            client_id: Set("oauth2-proxy".to_string()),
+            client_secret_hash: Set(secret_hash),
+            name: Set("OAuth2 Proxy".to_string()),
+            redirect_uris: Set(redirect_uris.to_string()),
+            created_at: Set(now),
+        };
+        client_model.insert(&state.db).await
+            .map_err(|e| AppError::Internal(format!("Failed to create OAuth2 client: {}", e)))?;
 
         // Store the plain secret in system settings
-        sqlx::query(
-            r#"
-            INSERT INTO system_settings (key, value, description, updated_at)
-            VALUES ('oauth2_client_secret', ?, 'OAuth2-proxy client secret', ?)
-            "#,
-        )
-        .bind(&client_secret)
-        .bind(now)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to save client secret: {}", e)))?;
+        let secret_setting = system_setting::ActiveModel {
+            key: Set("oauth2_client_secret".to_string()),
+            value: Set(client_secret.clone()),
+            description: Set(Some("OAuth2-proxy client secret".to_string())),
+            updated_at: Set(now),
+        };
+        secret_setting.insert(&state.db).await
+            .map_err(|e| AppError::Internal(format!("Failed to save client secret: {}", e)))?;
 
         // Sync credentials to Kubernetes secret for oauth2-proxy
         // Cookie secret must be exactly 32 bytes for AES-256, base64 encoded
@@ -247,15 +264,10 @@ async fn initialize_setup(
 async fn generate_credentials(
     State(state): State<AppState>,
 ) -> Result<Json<GeneratedCredentialsResponse>> {
-    // Check if setup is required
-    let admin_exists: Option<(i64,)> = sqlx::query_as(
-        "SELECT id FROM users WHERE is_admin = 1 LIMIT 1"
-    )
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| AppError::Internal(format!("Database error: {}", e)))?;
+    // Check if setup is required (user with admin role exists)
+    let admin_exists = admin_user_exists(&state).await?;
 
-    if admin_exists.is_some() {
+    if admin_exists {
         return Err(AppError::Forbidden(
             "Setup has already been completed".to_string(),
         ));

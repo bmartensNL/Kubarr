@@ -138,6 +138,8 @@ impl K8sClient {
                 age,
                 node: spec.node_name,
                 ip: status.pod_ip,
+                cpu_usage: None,
+                memory_usage: None,
             });
         }
 
@@ -360,10 +362,15 @@ pub struct PodStatus {
     pub namespace: String,
     pub status: String,
     pub ready: bool,
+    #[serde(rename = "restarts")]
     pub restart_count: i32,
     pub age: String,
     pub node: Option<String>,
     pub ip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cpu_usage: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_usage: Option<i64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

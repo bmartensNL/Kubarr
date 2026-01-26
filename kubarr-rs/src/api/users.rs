@@ -4,10 +4,15 @@ use axum::{
     Json, Router,
 };
 use chrono::{Duration, Utc};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, ModelTrait, QueryFilter, QueryOrder,
+    QuerySelect, Set,
+};
 use serde::{Deserialize, Serialize};
 
-use crate::api::extractors::{AdminUser, AuthUser};
-use crate::db::{DbPool, Invite, Role, User};
+use crate::api::extractors::{AuthUser, user_has_permission, get_user_permissions, get_user_app_access};
+use crate::db::entities::{invite, role, user, user_preferences, user_role};
+use crate::db::entities::prelude::*;
 use crate::error::{AppError, Result};
 use crate::services::hash_password;
 use crate::state::AppState;
@@ -17,6 +22,7 @@ pub fn users_routes(state: AppState) -> Router {
     Router::new()
         .route("/", get(list_users).post(create_user))
         .route("/me", get(get_current_user_info))
+        .route("/me/preferences", get(get_my_preferences).patch(update_my_preferences))
         .route("/pending", get(list_pending_users))
         .route("/invites", get(list_invites).post(create_invite))
         .route("/invites/:invite_id", delete(delete_invite))
@@ -32,26 +38,23 @@ pub fn users_routes(state: AppState) -> Router {
 
 #[derive(Debug, Deserialize)]
 pub struct ListParams {
-    pub skip: Option<i64>,
-    pub limit: Option<i64>,
+    pub skip: Option<u64>,
+    pub limit: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct CreateUser {
+pub struct CreateUserRequest {
     pub username: String,
     pub email: String,
     pub password: String,
-    #[serde(default)]
-    pub is_admin: bool,
     #[serde(default)]
     pub role_ids: Vec<i64>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct UpdateUser {
+pub struct UpdateUserRequest {
     pub email: Option<String>,
     pub is_active: Option<bool>,
-    pub is_admin: Option<bool>,
     pub is_approved: Option<bool>,
     pub role_ids: Option<Vec<i64>>,
 }
@@ -64,20 +67,32 @@ pub struct RoleInfo {
 }
 
 #[derive(Debug, Serialize)]
+pub struct PreferencesResponse {
+    pub theme: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdatePreferences {
+    pub theme: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct UserResponse {
     pub id: i64,
     pub username: String,
     pub email: String,
     pub is_active: bool,
-    pub is_admin: bool,
     pub is_approved: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub roles: Vec<RoleInfo>,
+    pub preferences: PreferencesResponse,
+    pub permissions: Vec<String>,
+    pub allowed_apps: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct CreateInvite {
+pub struct CreateInviteRequest {
     #[serde(default = "default_invite_days")]
     pub expires_in_days: i32,
 }
@@ -102,33 +117,40 @@ pub struct InviteResponse {
 // Helper Functions
 // ============================================================================
 
-async fn get_user_with_roles(pool: &DbPool, user_id: i64) -> Result<UserResponse> {
-    let user: User = sqlx::query_as("SELECT * FROM users WHERE id = ?")
-        .bind(user_id)
-        .fetch_optional(pool)
+async fn get_user_with_roles(state: &AppState, user_id: i64) -> Result<UserResponse> {
+    let found_user = User::find_by_id(user_id)
+        .one(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
-    let roles: Vec<Role> = sqlx::query_as(
-        r#"
-        SELECT r.* FROM roles r
-        INNER JOIN user_roles ur ON r.id = ur.role_id
-        WHERE ur.user_id = ?
-        "#,
-    )
-    .bind(user_id)
-    .fetch_all(pool)
-    .await?;
+    // Get user's roles via the junction table
+    let roles: Vec<role::Model> = Role::find()
+        .inner_join(UserRole)
+        .filter(user_role::Column::UserId.eq(user_id))
+        .all(&state.db)
+        .await?;
+
+    // Fetch user preferences (or use defaults)
+    let preferences = UserPreferences::find_by_id(user_id)
+        .one(&state.db)
+        .await?;
+
+    let theme = preferences
+        .map(|p| p.theme)
+        .unwrap_or_else(|| "system".to_string());
+
+    // Get user's permissions and allowed apps
+    let permissions = get_user_permissions(&state.db, user_id).await;
+    let allowed_apps = get_user_app_access(&state.db, user_id).await;
 
     Ok(UserResponse {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        is_active: user.is_active,
-        is_admin: user.is_admin,
-        is_approved: user.is_approved,
-        created_at: user.created_at,
-        updated_at: user.updated_at,
+        id: found_user.id,
+        username: found_user.username,
+        email: found_user.email,
+        is_active: found_user.is_active,
+        is_approved: found_user.is_approved,
+        created_at: found_user.created_at,
+        updated_at: found_user.updated_at,
         roles: roles
             .into_iter()
             .map(|r| RoleInfo {
@@ -137,6 +159,9 @@ async fn get_user_with_roles(pool: &DbPool, user_id: i64) -> Result<UserResponse
                 description: r.description,
             })
             .collect(),
+        preferences: PreferencesResponse { theme },
+        permissions,
+        allowed_apps,
     })
 }
 
@@ -144,24 +169,27 @@ async fn get_user_with_roles(pool: &DbPool, user_id: i64) -> Result<UserResponse
 // Endpoint Handlers
 // ============================================================================
 
-/// List all users (admin only)
+/// List all users (requires users.view permission)
 async fn list_users(
     State(state): State<AppState>,
     Query(params): Query<ListParams>,
-    AdminUser(_): AdminUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<Vec<UserResponse>>> {
+    if !user_has_permission(&state.db, user.id, "users.view").await {
+        return Err(AppError::Forbidden("Permission denied: users.view required".to_string()));
+    }
     let skip = params.skip.unwrap_or(0);
     let limit = params.limit.unwrap_or(100);
 
-    let users: Vec<User> = sqlx::query_as("SELECT * FROM users LIMIT ? OFFSET ?")
-        .bind(limit)
-        .bind(skip)
-        .fetch_all(&state.pool)
+    let users = User::find()
+        .offset(skip)
+        .limit(limit)
+        .all(&state.db)
         .await?;
 
     let mut responses = Vec::new();
-    for user in users {
-        responses.push(get_user_with_roles(&state.pool, user.id).await?);
+    for u in users {
+        responses.push(get_user_with_roles(&state, u.id).await?);
     }
 
     Ok(Json(responses))
@@ -170,39 +198,115 @@ async fn list_users(
 /// Get current user info
 async fn get_current_user_info(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    AuthUser(current_user): AuthUser,
 ) -> Result<Json<UserResponse>> {
-    let response = get_user_with_roles(&state.pool, user.id).await?;
+    let response = get_user_with_roles(&state, current_user.id).await?;
     Ok(Json(response))
 }
 
-/// List pending users (admin only)
+/// Get current user's preferences
+async fn get_my_preferences(
+    State(state): State<AppState>,
+    AuthUser(current_user): AuthUser,
+) -> Result<Json<PreferencesResponse>> {
+    let preferences = UserPreferences::find_by_id(current_user.id)
+        .one(&state.db)
+        .await?;
+
+    let theme = preferences
+        .map(|p| p.theme)
+        .unwrap_or_else(|| "system".to_string());
+
+    Ok(Json(PreferencesResponse { theme }))
+}
+
+/// Update current user's preferences
+async fn update_my_preferences(
+    State(state): State<AppState>,
+    AuthUser(current_user): AuthUser,
+    Json(data): Json<UpdatePreferences>,
+) -> Result<Json<PreferencesResponse>> {
+    // Validate theme value
+    if let Some(ref theme) = data.theme {
+        if !["system", "light", "dark"].contains(&theme.as_str()) {
+            return Err(AppError::BadRequest(
+                "Invalid theme value. Must be 'system', 'light', or 'dark'".to_string(),
+            ));
+        }
+    }
+
+    let now = Utc::now();
+
+    // Check if preferences exist
+    let existing = UserPreferences::find_by_id(current_user.id)
+        .one(&state.db)
+        .await?;
+
+    if let Some(existing_prefs) = existing {
+        // Update existing preferences
+        if let Some(ref theme) = data.theme {
+            let mut active_model: user_preferences::ActiveModel = existing_prefs.into();
+            active_model.theme = Set(theme.clone());
+            active_model.updated_at = Set(now);
+            active_model.update(&state.db).await?;
+        }
+    } else {
+        // Insert new preferences
+        let theme = data.theme.as_deref().unwrap_or("system");
+        let new_prefs = user_preferences::ActiveModel {
+            user_id: Set(current_user.id),
+            theme: Set(theme.to_string()),
+            updated_at: Set(now),
+        };
+        new_prefs.insert(&state.db).await?;
+    }
+
+    // Return updated preferences
+    let preferences = UserPreferences::find_by_id(current_user.id)
+        .one(&state.db)
+        .await?;
+
+    let theme = preferences
+        .map(|p| p.theme)
+        .unwrap_or_else(|| "system".to_string());
+
+    Ok(Json(PreferencesResponse { theme }))
+}
+
+/// List pending users (requires users.view permission)
 async fn list_pending_users(
     State(state): State<AppState>,
-    AdminUser(_): AdminUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<Vec<UserResponse>>> {
-    let users: Vec<User> = sqlx::query_as("SELECT * FROM users WHERE is_approved = 0")
-        .fetch_all(&state.pool)
+    if !user_has_permission(&state.db, user.id, "users.view").await {
+        return Err(AppError::Forbidden("Permission denied: users.view required".to_string()));
+    }
+    let users = User::find()
+        .filter(user::Column::IsApproved.eq(false))
+        .all(&state.db)
         .await?;
 
     let mut responses = Vec::new();
-    for user in users {
-        responses.push(get_user_with_roles(&state.pool, user.id).await?);
+    for u in users {
+        responses.push(get_user_with_roles(&state, u.id).await?);
     }
 
     Ok(Json(responses))
 }
 
-/// Create a new user (admin only)
+/// Create a new user (requires users.manage permission)
 async fn create_user(
     State(state): State<AppState>,
-    AdminUser(_): AdminUser,
-    Json(data): Json<CreateUser>,
+    AuthUser(user): AuthUser,
+    Json(data): Json<CreateUserRequest>,
 ) -> Result<Json<UserResponse>> {
+    if !user_has_permission(&state.db, user.id, "users.manage").await {
+        return Err(AppError::Forbidden("Permission denied: users.manage required".to_string()));
+    }
     // Check if username exists
-    let existing: Option<User> = sqlx::query_as("SELECT * FROM users WHERE username = ?")
-        .bind(&data.username)
-        .fetch_optional(&state.pool)
+    let existing = User::find()
+        .filter(user::Column::Username.eq(&data.username))
+        .one(&state.db)
         .await?;
 
     if existing.is_some() {
@@ -210,9 +314,9 @@ async fn create_user(
     }
 
     // Check if email exists
-    let existing: Option<User> = sqlx::query_as("SELECT * FROM users WHERE email = ?")
-        .bind(&data.email)
-        .fetch_optional(&state.pool)
+    let existing = User::find()
+        .filter(user::Column::Email.eq(&data.email))
+        .one(&state.db)
         .await?;
 
     if existing.is_some() {
@@ -220,229 +324,222 @@ async fn create_user(
     }
 
     let hashed = hash_password(&data.password)?;
+    let now = Utc::now();
 
     // Create user
-    let result = sqlx::query(
-        r#"
-        INSERT INTO users (username, email, hashed_password, is_admin, is_active, is_approved, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 1, 1, datetime('now'), datetime('now'))
-        "#,
-    )
-    .bind(&data.username)
-    .bind(&data.email)
-    .bind(&hashed)
-    .bind(data.is_admin)
-    .execute(&state.pool)
-    .await?;
+    let new_user = user::ActiveModel {
+        username: Set(data.username),
+        email: Set(data.email),
+        hashed_password: Set(hashed),
+        is_active: Set(true),
+        is_approved: Set(true),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    };
 
-    let user_id = result.last_insert_rowid();
+    let created_user = new_user.insert(&state.db).await?;
 
     // Assign roles
     for role_id in &data.role_ids {
-        sqlx::query("INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)")
-            .bind(user_id)
-            .bind(role_id)
-            .execute(&state.pool)
-            .await?;
+        let user_role_model = user_role::ActiveModel {
+            user_id: Set(created_user.id),
+            role_id: Set(*role_id),
+        };
+        user_role_model.insert(&state.db).await?;
     }
 
-    let response = get_user_with_roles(&state.pool, user_id).await?;
+    let response = get_user_with_roles(&state, created_user.id).await?;
     Ok(Json(response))
 }
 
-/// Get user by ID (admin only)
+/// Get user by ID (requires users.view permission)
 async fn get_user(
     State(state): State<AppState>,
     Path(user_id): Path<i64>,
-    AdminUser(_): AdminUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<UserResponse>> {
-    let response = get_user_with_roles(&state.pool, user_id).await?;
+    if !user_has_permission(&state.db, user.id, "users.view").await {
+        return Err(AppError::Forbidden("Permission denied: users.view required".to_string()));
+    }
+    let response = get_user_with_roles(&state, user_id).await?;
     Ok(Json(response))
 }
 
-/// Update user (admin only)
+/// Update user (requires users.manage permission)
 async fn update_user(
     State(state): State<AppState>,
     Path(user_id): Path<i64>,
-    AdminUser(_): AdminUser,
-    Json(data): Json<UpdateUser>,
+    AuthUser(user): AuthUser,
+    Json(data): Json<UpdateUserRequest>,
 ) -> Result<Json<UserResponse>> {
+    if !user_has_permission(&state.db, user.id, "users.manage").await {
+        return Err(AppError::Forbidden("Permission denied: users.manage required".to_string()));
+    }
     // Check user exists
-    let _: User = sqlx::query_as("SELECT * FROM users WHERE id = ?")
-        .bind(user_id)
-        .fetch_optional(&state.pool)
+    let existing_user = User::find_by_id(user_id)
+        .one(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
-    // Build update query dynamically
-    if let Some(email) = &data.email {
-        sqlx::query("UPDATE users SET email = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(email)
-            .bind(user_id)
-            .execute(&state.pool)
-            .await?;
-    }
+    let now = Utc::now();
+    let mut user_model: user::ActiveModel = existing_user.into();
 
+    // Update fields if provided
+    if let Some(email) = data.email {
+        user_model.email = Set(email);
+    }
     if let Some(is_active) = data.is_active {
-        sqlx::query("UPDATE users SET is_active = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(is_active)
-            .bind(user_id)
-            .execute(&state.pool)
-            .await?;
+        user_model.is_active = Set(is_active);
     }
-
-    if let Some(is_admin) = data.is_admin {
-        sqlx::query("UPDATE users SET is_admin = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(is_admin)
-            .bind(user_id)
-            .execute(&state.pool)
-            .await?;
-    }
-
     if let Some(is_approved) = data.is_approved {
-        sqlx::query("UPDATE users SET is_approved = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(is_approved)
-            .bind(user_id)
-            .execute(&state.pool)
-            .await?;
+        user_model.is_approved = Set(is_approved);
     }
+    user_model.updated_at = Set(now);
+
+    user_model.update(&state.db).await?;
 
     // Update roles if provided
     if let Some(role_ids) = &data.role_ids {
         // Delete existing roles
-        sqlx::query("DELETE FROM user_roles WHERE user_id = ?")
-            .bind(user_id)
-            .execute(&state.pool)
+        UserRole::delete_many()
+            .filter(user_role::Column::UserId.eq(user_id))
+            .exec(&state.db)
             .await?;
 
         // Add new roles
         for role_id in role_ids {
-            sqlx::query("INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)")
-                .bind(user_id)
-                .bind(role_id)
-                .execute(&state.pool)
-                .await?;
+            let user_role_model = user_role::ActiveModel {
+                user_id: Set(user_id),
+                role_id: Set(*role_id),
+            };
+            user_role_model.insert(&state.db).await?;
         }
     }
 
-    let response = get_user_with_roles(&state.pool, user_id).await?;
+    let response = get_user_with_roles(&state, user_id).await?;
     Ok(Json(response))
 }
 
-/// Approve a user registration (admin only)
+/// Approve a user registration (requires users.manage permission)
 async fn approve_user(
     State(state): State<AppState>,
     Path(user_id): Path<i64>,
-    AdminUser(_): AdminUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<UserResponse>> {
-    let _: User = sqlx::query_as("SELECT * FROM users WHERE id = ?")
-        .bind(user_id)
-        .fetch_optional(&state.pool)
+    if !user_has_permission(&state.db, user.id, "users.manage").await {
+        return Err(AppError::Forbidden("Permission denied: users.manage required".to_string()));
+    }
+    let existing_user = User::find_by_id(user_id)
+        .one(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
-    sqlx::query(
-        "UPDATE users SET is_approved = 1, is_active = 1, updated_at = datetime('now') WHERE id = ?",
-    )
-    .bind(user_id)
-    .execute(&state.pool)
-    .await?;
+    let now = Utc::now();
+    let mut user_model: user::ActiveModel = existing_user.into();
+    user_model.is_approved = Set(true);
+    user_model.is_active = Set(true);
+    user_model.updated_at = Set(now);
 
-    let response = get_user_with_roles(&state.pool, user_id).await?;
+    user_model.update(&state.db).await?;
+
+    let response = get_user_with_roles(&state, user_id).await?;
     Ok(Json(response))
 }
 
-/// Reject a user registration (admin only)
+/// Reject a user registration (requires users.manage permission)
 async fn reject_user(
     State(state): State<AppState>,
     Path(user_id): Path<i64>,
-    AdminUser(_): AdminUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<serde_json::Value>> {
-    let _: User = sqlx::query_as("SELECT * FROM users WHERE id = ?")
-        .bind(user_id)
-        .fetch_optional(&state.pool)
+    if !user_has_permission(&state.db, user.id, "users.manage").await {
+        return Err(AppError::Forbidden("Permission denied: users.manage required".to_string()));
+    }
+    let existing_user = User::find_by_id(user_id)
+        .one(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
-    sqlx::query("DELETE FROM users WHERE id = ?")
-        .bind(user_id)
-        .execute(&state.pool)
-        .await?;
+    existing_user.delete(&state.db).await?;
 
     Ok(Json(serde_json::json!({"message": "User rejected and deleted"})))
 }
 
-/// Delete a user (admin only)
+/// Delete a user (requires users.manage permission)
 async fn delete_user(
     State(state): State<AppState>,
     Path(user_id): Path<i64>,
-    AdminUser(admin): AdminUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<serde_json::Value>> {
-    if user_id == admin.id {
+    if !user_has_permission(&state.db, user.id, "users.manage").await {
+        return Err(AppError::Forbidden("Permission denied: users.manage required".to_string()));
+    }
+    if user_id == user.id {
         return Err(AppError::BadRequest("Cannot delete yourself".to_string()));
     }
 
-    let _: User = sqlx::query_as("SELECT * FROM users WHERE id = ?")
-        .bind(user_id)
-        .fetch_optional(&state.pool)
+    let existing_user = User::find_by_id(user_id)
+        .one(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
-    sqlx::query("DELETE FROM users WHERE id = ?")
-        .bind(user_id)
-        .execute(&state.pool)
-        .await?;
+    existing_user.delete(&state.db).await?;
 
     Ok(Json(serde_json::json!({"message": "User deleted"})))
 }
 
-/// List all invites (admin only)
+/// List all invites (requires users.manage permission)
 async fn list_invites(
     State(state): State<AppState>,
-    AdminUser(_): AdminUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<Vec<InviteResponse>>> {
-    let invites: Vec<Invite> =
-        sqlx::query_as("SELECT * FROM invites ORDER BY created_at DESC")
-            .fetch_all(&state.pool)
-            .await?;
+    if !user_has_permission(&state.db, user.id, "users.manage").await {
+        return Err(AppError::Forbidden("Permission denied: users.manage required".to_string()));
+    }
+    let invites = Invite::find()
+        .order_by_desc(invite::Column::CreatedAt)
+        .all(&state.db)
+        .await?;
 
     let mut responses = Vec::new();
-    for invite in invites {
-        let created_by: Option<User> = sqlx::query_as("SELECT * FROM users WHERE id = ?")
-            .bind(invite.created_by_id)
-            .fetch_optional(&state.pool)
+    for inv in invites {
+        let created_by = User::find_by_id(inv.created_by_id)
+            .one(&state.db)
             .await?;
 
-        let used_by: Option<User> = if let Some(used_by_id) = invite.used_by_id {
-            sqlx::query_as("SELECT * FROM users WHERE id = ?")
-                .bind(used_by_id)
-                .fetch_optional(&state.pool)
+        let used_by = if let Some(used_by_id) = inv.used_by_id {
+            User::find_by_id(used_by_id)
+                .one(&state.db)
                 .await?
         } else {
             None
         };
 
         responses.push(InviteResponse {
-            id: invite.id,
-            code: invite.code,
+            id: inv.id,
+            code: inv.code,
             created_by_username: created_by.map(|u| u.username).unwrap_or_else(|| "Unknown".to_string()),
             used_by_username: used_by.map(|u| u.username),
-            is_used: invite.is_used,
-            expires_at: invite.expires_at,
-            created_at: invite.created_at,
-            used_at: invite.used_at,
+            is_used: inv.is_used,
+            expires_at: inv.expires_at,
+            created_at: inv.created_at,
+            used_at: inv.used_at,
         });
     }
 
     Ok(Json(responses))
 }
 
-/// Create an invite (admin only)
+/// Create an invite (requires users.manage permission)
 async fn create_invite(
     State(state): State<AppState>,
-    AdminUser(admin): AdminUser,
-    Json(data): Json<CreateInvite>,
+    AuthUser(user): AuthUser,
+    Json(data): Json<CreateInviteRequest>,
 ) -> Result<Json<InviteResponse>> {
+    if !user_has_permission(&state.db, user.id, "users.manage").await {
+        return Err(AppError::Forbidden("Permission denied: users.manage required".to_string()));
+    }
     use crate::services::generate_random_string;
 
     let code = generate_random_string(32);
@@ -451,52 +548,46 @@ async fn create_invite(
     } else {
         None
     };
+    let now = Utc::now();
 
-    sqlx::query(
-        r#"
-        INSERT INTO invites (code, created_by_id, expires_at, created_at)
-        VALUES (?, ?, ?, datetime('now'))
-        "#,
-    )
-    .bind(&code)
-    .bind(admin.id)
-    .bind(expires_at)
-    .execute(&state.pool)
-    .await?;
+    let new_invite = invite::ActiveModel {
+        code: Set(code.clone()),
+        created_by_id: Set(user.id),
+        expires_at: Set(expires_at),
+        created_at: Set(now),
+        is_used: Set(false),
+        ..Default::default()
+    };
 
-    let invite: Invite = sqlx::query_as("SELECT * FROM invites WHERE code = ?")
-        .bind(&code)
-        .fetch_one(&state.pool)
-        .await?;
+    let created_invite = new_invite.insert(&state.db).await?;
 
     Ok(Json(InviteResponse {
-        id: invite.id,
-        code: invite.code,
-        created_by_username: admin.username,
+        id: created_invite.id,
+        code: created_invite.code,
+        created_by_username: user.username,
         used_by_username: None,
-        is_used: invite.is_used,
-        expires_at: invite.expires_at,
-        created_at: invite.created_at,
-        used_at: invite.used_at,
+        is_used: created_invite.is_used,
+        expires_at: created_invite.expires_at,
+        created_at: created_invite.created_at,
+        used_at: created_invite.used_at,
     }))
 }
 
-/// Delete an invite (admin only)
+/// Delete an invite (requires users.manage permission)
 async fn delete_invite(
     State(state): State<AppState>,
     Path(invite_id): Path<i64>,
-    AdminUser(_): AdminUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<serde_json::Value>> {
-    let _: Invite = sqlx::query_as("SELECT * FROM invites WHERE id = ?")
-        .bind(invite_id)
-        .fetch_optional(&state.pool)
+    if !user_has_permission(&state.db, user.id, "users.manage").await {
+        return Err(AppError::Forbidden("Permission denied: users.manage required".to_string()));
+    }
+    let existing_invite = Invite::find_by_id(invite_id)
+        .one(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound("Invite not found".to_string()))?;
 
-    sqlx::query("DELETE FROM invites WHERE id = ?")
-        .bind(invite_id)
-        .execute(&state.pool)
-        .await?;
+    existing_invite.delete(&state.db).await?;
 
     Ok(Json(serde_json::json!({"message": "Invite deleted"})))
 }

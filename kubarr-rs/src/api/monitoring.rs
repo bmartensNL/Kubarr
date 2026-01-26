@@ -5,21 +5,21 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::api::extractors::AuthUser;
-use crate::error::Result;
+use crate::api::extractors::{AuthUser, user_has_permission};
+use crate::error::{AppError, Result};
 use crate::services::k8s::{PodMetrics, PodStatus, ServiceEndpoint};
 use crate::state::AppState;
 
-/// Prometheus URL (inside cluster)
-const PROMETHEUS_URL: &str = "http://prometheus.prometheus.svc.cluster.local:9090";
+/// VictoriaMetrics URL (inside cluster)
+const VICTORIAMETRICS_URL: &str = "http://victoriametrics.victoriametrics.svc.cluster.local:8428";
 
 /// Create monitoring routes
 pub fn monitoring_routes(state: AppState) -> Router {
     Router::new()
-        .route("/prometheus/apps", get(get_app_metrics_prometheus))
-        .route("/prometheus/cluster", get(get_cluster_metrics))
-        .route("/prometheus/app/:app_name", get(get_app_detail_metrics))
-        .route("/prometheus/available", get(check_prometheus_available))
+        .route("/vm/apps", get(get_app_metrics))
+        .route("/vm/cluster", get(get_cluster_metrics))
+        .route("/vm/app/:app_name", get(get_app_detail_metrics))
+        .route("/vm/available", get(check_vm_available))
         .route("/pods", get(get_pods))
         .route("/metrics", get(get_metrics))
         .route("/health/:app_name", get(get_app_health))
@@ -117,12 +117,12 @@ pub struct AppDetailQuery {
 }
 
 // ============================================================================
-// Prometheus Query Helpers
+// VictoriaMetrics Query Helpers
 // ============================================================================
 
-async fn query_prometheus(query: &str) -> Vec<serde_json::Value> {
+async fn query_vm(query: &str) -> Vec<serde_json::Value> {
     let client = reqwest::Client::new();
-    let url = format!("{}/prometheus/api/v1/query", PROMETHEUS_URL);
+    let url = format!("{}/api/v1/query", VICTORIAMETRICS_URL);
 
     match client
         .get(&url)
@@ -146,14 +146,14 @@ async fn query_prometheus(query: &str) -> Vec<serde_json::Value> {
     }
 }
 
-async fn query_prometheus_range(
+async fn query_vm_range(
     query: &str,
     start: f64,
     end: f64,
     step: &str,
 ) -> Vec<serde_json::Value> {
     let client = reqwest::Client::new();
-    let url = format!("{}/prometheus/api/v1/query_range", PROMETHEUS_URL);
+    let url = format!("{}/api/v1/query_range", VICTORIAMETRICS_URL);
 
     match client
         .get(&url)
@@ -186,11 +186,14 @@ async fn query_prometheus_range(
 // Endpoint Handlers
 // ============================================================================
 
-/// Get resource metrics for all installed apps from Prometheus
-async fn get_app_metrics_prometheus(
+/// Get resource metrics for all installed apps from VictoriaMetrics
+async fn get_app_metrics(
     State(state): State<AppState>,
-    AuthUser(_): AuthUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<Vec<AppMetrics>>> {
+    if !user_has_permission(&state.db, user.id, "monitoring.view").await {
+        return Err(AppError::Forbidden("Permission denied: monitoring.view required".to_string()));
+    }
     // Get list of known app namespaces from catalog
     let catalog = state.catalog.read().await;
     let mut allowed_namespaces: std::collections::HashSet<String> = catalog
@@ -201,26 +204,26 @@ async fn get_app_metrics_prometheus(
 
     // Add monitoring/system namespaces
     allowed_namespaces.insert("kubarr-system".to_string());
-    allowed_namespaces.insert("prometheus".to_string());
+    allowed_namespaces.insert("victoriametrics".to_string());
     allowed_namespaces.insert("loki".to_string());
     allowed_namespaces.insert("promtail".to_string());
     allowed_namespaces.insert("grafana".to_string());
 
     // Query CPU usage by namespace
     let cpu_query = r#"sum by (namespace) (rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[5m]))"#;
-    let cpu_results = query_prometheus(cpu_query).await;
+    let cpu_results = query_vm(cpu_query).await;
 
     // Query memory usage by namespace
     let memory_query = r#"sum by (namespace) (container_memory_working_set_bytes{container!="",container!="POD"})"#;
-    let memory_results = query_prometheus(memory_query).await;
+    let memory_results = query_vm(memory_query).await;
 
     // Query network receive rate by namespace
     let network_rx_query = r#"sum by (namespace) (rate(container_network_receive_bytes_total{interface!="lo"}[5m]))"#;
-    let network_rx_results = query_prometheus(network_rx_query).await;
+    let network_rx_results = query_vm(network_rx_query).await;
 
     // Query network transmit rate by namespace
     let network_tx_query = r#"sum by (namespace) (rate(container_network_transmit_bytes_total{interface!="lo"}[5m]))"#;
-    let network_tx_results = query_prometheus(network_tx_query).await;
+    let network_tx_results = query_vm(network_tx_query).await;
 
     let mut metrics_map = std::collections::HashMap::new();
 
@@ -316,13 +319,16 @@ async fn get_app_metrics_prometheus(
     Ok(Json(metrics_map.into_values().collect()))
 }
 
-/// Get overall cluster resource metrics from Prometheus
+/// Get overall cluster resource metrics from VictoriaMetrics
 async fn get_cluster_metrics(
-    State(_state): State<AppState>,
-    AuthUser(_): AuthUser,
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<ClusterMetrics>> {
+    if !user_has_permission(&state.db, user.id, "monitoring.view").await {
+        return Err(AppError::Forbidden("Permission denied: monitoring.view required".to_string()));
+    }
     // Total CPU cores
-    let total_cpu = query_prometheus("sum(machine_cpu_cores)")
+    let total_cpu = query_vm("sum(machine_cpu_cores)")
         .await
         .first()
         .and_then(|r| r["value"][1].as_str())
@@ -330,7 +336,7 @@ async fn get_cluster_metrics(
         .unwrap_or(0.0);
 
     // Total memory
-    let total_memory = query_prometheus("sum(machine_memory_bytes)")
+    let total_memory = query_vm("sum(machine_memory_bytes)")
         .await
         .first()
         .and_then(|r| r["value"][1].as_str())
@@ -338,7 +344,7 @@ async fn get_cluster_metrics(
         .unwrap_or(0.0) as i64;
 
     // Used CPU
-    let used_cpu = query_prometheus(
+    let used_cpu = query_vm(
         r#"sum(rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[5m]))"#,
     )
     .await
@@ -348,7 +354,7 @@ async fn get_cluster_metrics(
     .unwrap_or(0.0);
 
     // Used memory
-    let used_memory = query_prometheus(
+    let used_memory = query_vm(
         r#"sum(container_memory_working_set_bytes{container!="",container!="POD"})"#,
     )
     .await
@@ -358,7 +364,7 @@ async fn get_cluster_metrics(
     .unwrap_or(0.0) as i64;
 
     // Container count
-    let container_count = query_prometheus(
+    let container_count = query_vm(
         r#"count(container_last_seen{container!="",container!="POD"})"#,
     )
     .await
@@ -368,7 +374,7 @@ async fn get_cluster_metrics(
     .unwrap_or(0.0) as i32;
 
     // Pod count
-    let pod_count = query_prometheus(
+    let pod_count = query_vm(
         r#"count(count by (pod, namespace) (container_last_seen{container!="",container!="POD"}))"#,
     )
     .await
@@ -378,7 +384,7 @@ async fn get_cluster_metrics(
     .unwrap_or(0.0) as i32;
 
     // Network receive rate
-    let network_rx = query_prometheus(
+    let network_rx = query_vm(
         r#"sum(rate(container_network_receive_bytes_total{interface!="lo"}[5m]))"#,
     )
     .await
@@ -388,7 +394,7 @@ async fn get_cluster_metrics(
     .unwrap_or(0.0);
 
     // Network transmit rate
-    let network_tx = query_prometheus(
+    let network_tx = query_vm(
         r#"sum(rate(container_network_transmit_bytes_total{interface!="lo"}[5m]))"#,
     )
     .await
@@ -398,14 +404,14 @@ async fn get_cluster_metrics(
     .unwrap_or(0.0);
 
     // Storage metrics
-    let total_storage = query_prometheus(r#"max(container_fs_limit_bytes{id="/",device=~"/dev/.*"})"#)
+    let total_storage = query_vm(r#"max(container_fs_limit_bytes{id="/",device=~"/dev/.*"})"#)
         .await
         .first()
         .and_then(|r| r["value"][1].as_str())
         .and_then(|v| v.parse::<f64>().ok())
         .unwrap_or(0.0) as i64;
 
-    let used_storage = query_prometheus(r#"max(container_fs_usage_bytes{id="/",device=~"/dev/.*"})"#)
+    let used_storage = query_vm(r#"max(container_fs_usage_bytes{id="/",device=~"/dev/.*"})"#)
         .await
         .first()
         .and_then(|r| r["value"][1].as_str())
@@ -446,8 +452,11 @@ async fn get_app_detail_metrics(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
     Query(query): Query<AppDetailQuery>,
-    AuthUser(_): AuthUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<AppDetailMetrics>> {
+    if !user_has_permission(&state.db, user.id, "monitoring.view").await {
+        return Err(AppError::Forbidden("Permission denied: monitoring.view required".to_string()));
+    }
     use std::time::{SystemTime, UNIX_EPOCH};
 
     let duration = query.duration.unwrap_or_else(|| "1h".to_string());
@@ -477,7 +486,7 @@ async fn get_app_detail_metrics(
         "300s"
     };
 
-    // Build Prometheus queries by namespace
+    // Build VictoriaMetrics queries by namespace
     let cpu_query = format!(
         r#"sum(rate(container_cpu_usage_seconds_total{{namespace="{}",container!="",container!="POD"}}[5m]))"#,
         app_name
@@ -496,7 +505,7 @@ async fn get_app_detail_metrics(
     );
 
     // Query historical CPU
-    let cpu_results = query_prometheus_range(&cpu_query, start_time, end_time, step).await;
+    let cpu_results = query_vm_range(&cpu_query, start_time, end_time, step).await;
 
     let cpu_series: Vec<TimeSeriesPoint> = cpu_results
         .first()
@@ -517,7 +526,7 @@ async fn get_app_detail_metrics(
         .unwrap_or_default();
 
     // Query historical memory
-    let memory_results = query_prometheus_range(&memory_query, start_time, end_time, step).await;
+    let memory_results = query_vm_range(&memory_query, start_time, end_time, step).await;
 
     let memory_series: Vec<TimeSeriesPoint> = memory_results
         .first()
@@ -538,7 +547,7 @@ async fn get_app_detail_metrics(
         .unwrap_or_default();
 
     // Query historical network receive
-    let network_rx_results = query_prometheus_range(&network_rx_query, start_time, end_time, step).await;
+    let network_rx_results = query_vm_range(&network_rx_query, start_time, end_time, step).await;
 
     let network_rx_series: Vec<TimeSeriesPoint> = network_rx_results
         .first()
@@ -559,7 +568,7 @@ async fn get_app_detail_metrics(
         .unwrap_or_default();
 
     // Query historical network transmit
-    let network_tx_results = query_prometheus_range(&network_tx_query, start_time, end_time, step).await;
+    let network_tx_results = query_vm_range(&network_tx_query, start_time, end_time, step).await;
 
     let network_tx_series: Vec<TimeSeriesPoint> = network_tx_results
         .first()
@@ -585,11 +594,56 @@ async fn get_app_detail_metrics(
     let current_network_tx = network_tx_series.last().map(|p| p.value).unwrap_or(0.0);
 
     // Get pod status
-    let pods = if let Some(client) = state.k8s_client.read().await.as_ref() {
+    let mut pods = if let Some(client) = state.k8s_client.read().await.as_ref() {
         client.get_pod_status(&app_name, None).await.unwrap_or_default()
     } else {
         Vec::new()
     };
+
+    // Query per-pod CPU and memory metrics from VictoriaMetrics
+    let pod_cpu_query = format!(
+        r#"sum(rate(container_cpu_usage_seconds_total{{namespace="{}",container!="",container!="POD"}}[5m])) by (pod)"#,
+        app_name
+    );
+    let pod_memory_query = format!(
+        r#"sum(container_memory_working_set_bytes{{namespace="{}",container!="",container!="POD"}}) by (pod)"#,
+        app_name
+    );
+
+    let pod_cpu_results = query_vm(&pod_cpu_query).await;
+    let pod_memory_results = query_vm(&pod_memory_query).await;
+
+    // Build maps of pod name -> metric value
+    let mut pod_cpu_map: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+    let mut pod_memory_map: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+
+    for result in &pod_cpu_results {
+        if let (Some(pod_name), Some(value_str)) = (
+            result["metric"]["pod"].as_str(),
+            result["value"].as_array().and_then(|v| v.get(1)).and_then(|v| v.as_str()),
+        ) {
+            if let Ok(value) = value_str.parse::<f64>() {
+                pod_cpu_map.insert(pod_name.to_string(), value);
+            }
+        }
+    }
+
+    for result in &pod_memory_results {
+        if let (Some(pod_name), Some(value_str)) = (
+            result["metric"]["pod"].as_str(),
+            result["value"].as_array().and_then(|v| v.get(1)).and_then(|v| v.as_str()),
+        ) {
+            if let Ok(value) = value_str.parse::<f64>() {
+                pod_memory_map.insert(pod_name.to_string(), value as i64);
+            }
+        }
+    }
+
+    // Merge metrics into pod status
+    for pod in &mut pods {
+        pod.cpu_usage = pod_cpu_map.get(&pod.name).copied();
+        pod.memory_usage = pod_memory_map.get(&pod.name).copied();
+    }
 
     Ok(Json(AppDetailMetrics {
         app_name: app_name.clone(),
@@ -611,13 +665,17 @@ async fn get_app_detail_metrics(
     }))
 }
 
-/// Check if Prometheus is available
-async fn check_prometheus_available(
-    State(_state): State<AppState>,
-    AuthUser(_): AuthUser,
-) -> Json<serde_json::Value> {
+/// Check if VictoriaMetrics is available
+async fn check_vm_available(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+) -> Result<Json<serde_json::Value>> {
+    if !user_has_permission(&state.db, user.id, "monitoring.view").await {
+        return Err(AppError::Forbidden("Permission denied: monitoring.view required".to_string()));
+    }
     let client = reqwest::Client::new();
-    let url = format!("{}/prometheus/api/v1/status/runtimeinfo", PROMETHEUS_URL);
+    // VictoriaMetrics uses /health endpoint for health checks
+    let url = format!("{}/health", VICTORIAMETRICS_URL);
 
     let available = client
         .get(&url)
@@ -627,18 +685,21 @@ async fn check_prometheus_available(
         .map(|r| r.status().is_success())
         .unwrap_or(false);
 
-    Json(serde_json::json!({
+    Ok(Json(serde_json::json!({
         "available": available,
-        "message": if available { "Prometheus is available" } else { "Cannot connect to Prometheus" }
-    }))
+        "message": if available { "VictoriaMetrics is available" } else { "Cannot connect to VictoriaMetrics" }
+    })))
 }
 
 /// Get pod status
 async fn get_pods(
     State(state): State<AppState>,
     Query(query): Query<PodQuery>,
-    AuthUser(_): AuthUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<Vec<PodStatus>>> {
+    if !user_has_permission(&state.db, user.id, "monitoring.view").await {
+        return Err(AppError::Forbidden("Permission denied: monitoring.view required".to_string()));
+    }
     let namespace = query.namespace.unwrap_or_else(|| "media".to_string());
 
     let pods = if let Some(client) = state.k8s_client.read().await.as_ref() {
@@ -657,8 +718,11 @@ async fn get_pods(
 async fn get_metrics(
     State(state): State<AppState>,
     Query(query): Query<PodQuery>,
-    AuthUser(_): AuthUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<Vec<PodMetrics>>> {
+    if !user_has_permission(&state.db, user.id, "monitoring.view").await {
+        return Err(AppError::Forbidden("Permission denied: monitoring.view required".to_string()));
+    }
     let namespace = query.namespace.unwrap_or_else(|| "media".to_string());
 
     let metrics = if let Some(client) = state.k8s_client.read().await.as_ref() {
@@ -678,8 +742,11 @@ async fn get_app_health(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
     Query(query): Query<PodQuery>,
-    AuthUser(_): AuthUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<AppHealth>> {
+    if !user_has_permission(&state.db, user.id, "monitoring.view").await {
+        return Err(AppError::Forbidden("Permission denied: monitoring.view required".to_string()));
+    }
     let namespace = query.namespace.unwrap_or_else(|| "media".to_string());
 
     let (pods, metrics, endpoints) = if let Some(client) = state.k8s_client.read().await.as_ref() {
@@ -737,8 +804,11 @@ async fn get_endpoints(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
     Query(query): Query<PodQuery>,
-    AuthUser(_): AuthUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<Vec<ServiceEndpoint>>> {
+    if !user_has_permission(&state.db, user.id, "monitoring.view").await {
+        return Err(AppError::Forbidden("Permission denied: monitoring.view required".to_string()));
+    }
     let namespace = query.namespace.unwrap_or_else(|| "media".to_string());
 
     let endpoints = if let Some(client) = state.k8s_client.read().await.as_ref() {
@@ -756,16 +826,19 @@ async fn get_endpoints(
 /// Check if metrics-server is available
 async fn check_metrics_available(
     State(state): State<AppState>,
-    AuthUser(_): AuthUser,
-) -> Json<serde_json::Value> {
+    AuthUser(user): AuthUser,
+) -> Result<Json<serde_json::Value>> {
+    if !user_has_permission(&state.db, user.id, "monitoring.view").await {
+        return Err(AppError::Forbidden("Permission denied: monitoring.view required".to_string()));
+    }
     let available = if let Some(client) = state.k8s_client.read().await.as_ref() {
         client.check_metrics_server_available().await
     } else {
         false
     };
 
-    Json(serde_json::json!({
+    Ok(Json(serde_json::json!({
         "available": available,
         "message": if available { "Metrics server is available" } else { "Metrics server not found" }
-    }))
+    })))
 }

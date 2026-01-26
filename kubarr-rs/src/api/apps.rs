@@ -5,10 +5,12 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use sea_orm::EntityTrait;
 use serde::{Deserialize, Serialize};
 
-use crate::api::extractors::AuthUser;
+use crate::api::extractors::{AuthUser, user_has_permission};
 use crate::config::CONFIG;
+use crate::db::entities::prelude::*;
 use crate::error::{AppError, Result};
 use crate::services::{AppConfig, DeploymentManager, DeploymentRequest, DeploymentStatus};
 use crate::state::AppState;
@@ -47,8 +49,11 @@ pub struct NamespaceQuery {
 /// List all apps in the catalog
 async fn list_catalog(
     State(state): State<AppState>,
-    AuthUser(_): AuthUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<Vec<AppConfig>>> {
+    if !user_has_permission(&state.db, user.id, "apps.view").await {
+        return Err(AppError::Forbidden("Permission denied: apps.view required".to_string()));
+    }
     let catalog = state.catalog.read().await;
     let apps: Vec<AppConfig> = catalog.get_all_apps().into_iter().cloned().collect();
     Ok(Json(apps))
@@ -58,8 +63,11 @@ async fn list_catalog(
 async fn get_app_from_catalog(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
-    AuthUser(_): AuthUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<AppConfig>> {
+    if !user_has_permission(&state.db, user.id, "apps.view").await {
+        return Err(AppError::Forbidden("Permission denied: apps.view required".to_string()));
+    }
     let catalog = state.catalog.read().await;
     let app = catalog
         .get_app(&app_name)
@@ -99,8 +107,11 @@ async fn get_app_icon(
 /// List installed apps
 async fn list_installed_apps(
     State(state): State<AppState>,
-    AuthUser(_): AuthUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<Vec<String>>> {
+    if !user_has_permission(&state.db, user.id, "apps.view").await {
+        return Err(AppError::Forbidden("Permission denied: apps.view required".to_string()));
+    }
     let k8s = state.k8s_client.read().await;
     let catalog = state.catalog.read().await;
 
@@ -117,9 +128,12 @@ async fn list_installed_apps(
 /// Install an app
 async fn install_app(
     State(state): State<AppState>,
-    AuthUser(_): AuthUser,
+    AuthUser(user): AuthUser,
     Json(request): Json<DeploymentRequest>,
 ) -> Result<Json<DeploymentStatus>> {
+    if !user_has_permission(&state.db, user.id, "apps.install").await {
+        return Err(AppError::Forbidden("Permission denied: apps.install required".to_string()));
+    }
     let k8s = state.k8s_client.read().await;
     let catalog = state.catalog.read().await;
 
@@ -128,11 +142,10 @@ async fn install_app(
         .ok_or_else(|| AppError::Internal("Kubernetes client not available".to_string()))?;
 
     // Get storage path from settings
-    let storage_path: Option<String> = sqlx::query_scalar(
-        "SELECT value FROM system_settings WHERE key = 'storage_path'",
-    )
-    .fetch_optional(&state.pool)
-    .await?;
+    let storage_setting = SystemSetting::find_by_id("storage_path")
+        .one(&state.db)
+        .await?;
+    let storage_path = storage_setting.map(|s| s.value);
 
     let manager = DeploymentManager::new(client, &catalog);
     let status = manager
@@ -146,8 +159,11 @@ async fn install_app(
 async fn delete_app(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
-    AuthUser(_): AuthUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<serde_json::Value>> {
+    if !user_has_permission(&state.db, user.id, "apps.delete").await {
+        return Err(AppError::Forbidden("Permission denied: apps.delete required".to_string()));
+    }
     let k8s = state.k8s_client.read().await;
     let catalog = state.catalog.read().await;
 
@@ -180,8 +196,11 @@ async fn restart_app(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
     Query(query): Query<NamespaceQuery>,
-    AuthUser(_): AuthUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<serde_json::Value>> {
+    if !user_has_permission(&state.db, user.id, "apps.restart").await {
+        return Err(AppError::Forbidden("Permission denied: apps.restart required".to_string()));
+    }
     let namespace = query.namespace.unwrap_or_else(|| app_name.clone());
 
     let k8s = state.k8s_client.read().await;
@@ -216,8 +235,11 @@ async fn restart_app(
 /// List all categories
 async fn list_categories(
     State(state): State<AppState>,
-    AuthUser(_): AuthUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<Vec<String>>> {
+    if !user_has_permission(&state.db, user.id, "apps.view").await {
+        return Err(AppError::Forbidden("Permission denied: apps.view required".to_string()));
+    }
     let catalog = state.catalog.read().await;
     Ok(Json(catalog.get_categories()))
 }
@@ -226,8 +248,11 @@ async fn list_categories(
 async fn get_apps_by_category(
     State(state): State<AppState>,
     Path(category): Path<String>,
-    AuthUser(_): AuthUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<Vec<AppConfig>>> {
+    if !user_has_permission(&state.db, user.id, "apps.view").await {
+        return Err(AppError::Forbidden("Permission denied: apps.view required".to_string()));
+    }
     let catalog = state.catalog.read().await;
     let apps: Vec<AppConfig> = catalog
         .get_apps_by_category(&category)
@@ -241,8 +266,11 @@ async fn get_apps_by_category(
 async fn check_app_health(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
-    AuthUser(_): AuthUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<serde_json::Value>> {
+    if !user_has_permission(&state.db, user.id, "apps.view").await {
+        return Err(AppError::Forbidden("Permission denied: apps.view required".to_string()));
+    }
     let k8s = state.k8s_client.read().await;
     let catalog = state.catalog.read().await;
 
@@ -260,8 +288,11 @@ async fn check_app_health(
 async fn check_app_exists(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
-    AuthUser(_): AuthUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<serde_json::Value>> {
+    if !user_has_permission(&state.db, user.id, "apps.view").await {
+        return Err(AppError::Forbidden("Permission denied: apps.view required".to_string()));
+    }
     let k8s = state.k8s_client.read().await;
     let catalog = state.catalog.read().await;
 
@@ -279,8 +310,11 @@ async fn check_app_exists(
 async fn get_app_status(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
-    AuthUser(_): AuthUser,
+    AuthUser(user): AuthUser,
 ) -> Result<Json<serde_json::Value>> {
+    if !user_has_permission(&state.db, user.id, "apps.view").await {
+        return Err(AppError::Forbidden("Permission denied: apps.view required".to_string()));
+    }
     let k8s = state.k8s_client.read().await;
     let catalog = state.catalog.read().await;
 

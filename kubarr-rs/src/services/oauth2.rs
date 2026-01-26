@@ -1,30 +1,32 @@
 use chrono::{Duration, Utc};
-use sqlx::SqlitePool;
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set,
+};
 
-use crate::db::{OAuth2AuthorizationCode, OAuth2Client, OAuth2Token, User};
+use crate::db::entities::{oauth2_authorization_code, oauth2_client, oauth2_token, user};
+use crate::db::entities::prelude::*;
 use crate::error::{AppError, Result};
 use crate::services::security::{
     create_access_token, create_refresh_token, generate_authorization_code,
     verify_client_secret, verify_pkce,
 };
+use crate::api::extractors::{get_user_permissions, get_user_app_access};
 
 /// OAuth2 service for handling authorization and token operations
 pub struct OAuth2Service<'a> {
-    pool: &'a SqlitePool,
+    db: &'a DatabaseConnection,
 }
 
 impl<'a> OAuth2Service<'a> {
-    pub fn new(pool: &'a SqlitePool) -> Self {
-        Self { pool }
+    pub fn new(db: &'a DatabaseConnection) -> Self {
+        Self { db }
     }
 
     /// Get OAuth2 client by ID
-    pub async fn get_client(&self, client_id: &str) -> Result<Option<OAuth2Client>> {
-        let client: Option<OAuth2Client> =
-            sqlx::query_as("SELECT * FROM oauth2_clients WHERE client_id = ?")
-                .bind(client_id)
-                .fetch_optional(self.pool)
-                .await?;
+    pub async fn get_client(&self, client_id: &str) -> Result<Option<oauth2_client::Model>> {
+        let client = OAuth2Client::find_by_id(client_id)
+            .one(self.db)
+            .await?;
         Ok(client)
     }
 
@@ -62,24 +64,20 @@ impl<'a> OAuth2Service<'a> {
         let now = Utc::now();
         let expires_at = now + Duration::seconds(expires_in_secs);
 
-        sqlx::query(
-            r#"
-            INSERT INTO oauth2_authorization_codes
-            (code, client_id, user_id, redirect_uri, scope, code_challenge, code_challenge_method, expires_at, used, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
-            "#,
-        )
-        .bind(&code)
-        .bind(client_id)
-        .bind(user_id)
-        .bind(redirect_uri)
-        .bind(scope)
-        .bind(code_challenge)
-        .bind(code_challenge_method)
-        .bind(expires_at)
-        .bind(now)
-        .execute(self.pool)
-        .await?;
+        let auth_code = oauth2_authorization_code::ActiveModel {
+            code: Set(code.clone()),
+            client_id: Set(client_id.to_string()),
+            user_id: Set(user_id),
+            redirect_uri: Set(redirect_uri.to_string()),
+            scope: Set(scope.map(String::from)),
+            code_challenge: Set(code_challenge.map(String::from)),
+            code_challenge_method: Set(code_challenge_method.map(String::from)),
+            expires_at: Set(expires_at),
+            used: Set(false),
+            created_at: Set(now),
+        };
+
+        auth_code.insert(self.db).await?;
 
         Ok(code)
     }
@@ -91,12 +89,10 @@ impl<'a> OAuth2Service<'a> {
         client_id: &str,
         redirect_uri: &str,
         code_verifier: Option<&str>,
-    ) -> Result<Option<OAuth2AuthorizationCode>> {
-        let auth_code: Option<OAuth2AuthorizationCode> =
-            sqlx::query_as("SELECT * FROM oauth2_authorization_codes WHERE code = ?")
-                .bind(code)
-                .fetch_optional(self.pool)
-                .await?;
+    ) -> Result<Option<oauth2_authorization_code::Model>> {
+        let auth_code = OAuth2AuthorizationCode::find_by_id(code)
+            .one(self.db)
+            .await?;
 
         let auth_code = match auth_code {
             Some(ac) => ac,
@@ -158,10 +154,9 @@ impl<'a> OAuth2Service<'a> {
         }
 
         // Mark as used
-        sqlx::query("UPDATE oauth2_authorization_codes SET used = 1 WHERE code = ?")
-            .bind(code)
-            .execute(self.pool)
-            .await?;
+        let mut auth_code_model: oauth2_authorization_code::ActiveModel = auth_code.clone().into();
+        auth_code_model.used = Set(true);
+        auth_code_model.update(self.db).await?;
 
         Ok(Some(auth_code))
     }
@@ -176,25 +171,30 @@ impl<'a> OAuth2Service<'a> {
         refresh_token_expires_in: i64,
     ) -> Result<TokenPair> {
         // Get user info
-        let user: User = sqlx::query_as("SELECT * FROM users WHERE id = ?")
-            .bind(user_id)
-            .fetch_optional(self.pool)
+        let found_user = User::find_by_id(user_id)
+            .one(self.db)
             .await?
             .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
-        // Create access token
+        // Fetch user permissions and allowed apps for JWT embedding
+        let permissions = get_user_permissions(self.db, user_id).await;
+        let allowed_apps = get_user_app_access(self.db, user_id).await;
+
+        // Create access token with embedded permissions
         let access_token = create_access_token(
             &user_id.to_string(),
-            Some(&user.email),
+            Some(&found_user.email),
             scope,
             Some(client_id),
             Some(access_token_expires_in),
+            Some(permissions),
+            Some(allowed_apps),
         )?;
 
         // Create refresh token
         let refresh_token = create_refresh_token(
             &user_id.to_string(),
-            Some(&user.email),
+            Some(&found_user.email),
             scope,
             Some(client_id),
             Some(refresh_token_expires_in),
@@ -205,23 +205,20 @@ impl<'a> OAuth2Service<'a> {
         let refresh_expires_at = now + Duration::seconds(refresh_token_expires_in);
 
         // Store in database
-        sqlx::query(
-            r#"
-            INSERT INTO oauth2_tokens
-            (access_token, refresh_token, client_id, user_id, scope, expires_at, refresh_expires_at, revoked, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
-            "#,
-        )
-        .bind(&access_token)
-        .bind(&refresh_token)
-        .bind(client_id)
-        .bind(user_id)
-        .bind(scope)
-        .bind(expires_at)
-        .bind(refresh_expires_at)
-        .bind(now)
-        .execute(self.pool)
-        .await?;
+        let token_model = oauth2_token::ActiveModel {
+            access_token: Set(access_token.clone()),
+            refresh_token: Set(Some(refresh_token.clone())),
+            client_id: Set(client_id.to_string()),
+            user_id: Set(user_id),
+            scope: Set(scope.map(String::from)),
+            expires_at: Set(expires_at),
+            refresh_expires_at: Set(Some(refresh_expires_at)),
+            revoked: Set(false),
+            created_at: Set(now),
+            ..Default::default()
+        };
+
+        token_model.insert(self.db).await?;
 
         Ok(TokenPair {
             access_token,
@@ -233,12 +230,11 @@ impl<'a> OAuth2Service<'a> {
     }
 
     /// Validate an access token
-    pub async fn validate_access_token(&self, access_token: &str) -> Result<Option<OAuth2Token>> {
-        let token: Option<OAuth2Token> =
-            sqlx::query_as("SELECT * FROM oauth2_tokens WHERE access_token = ?")
-                .bind(access_token)
-                .fetch_optional(self.pool)
-                .await?;
+    pub async fn validate_access_token(&self, access_token: &str) -> Result<Option<oauth2_token::Model>> {
+        let token = OAuth2Token::find()
+            .filter(oauth2_token::Column::AccessToken.eq(access_token))
+            .one(self.db)
+            .await?;
 
         let token = match token {
             Some(t) => t,
@@ -264,11 +260,10 @@ impl<'a> OAuth2Service<'a> {
         refresh_token: &str,
         client_id: &str,
     ) -> Result<Option<TokenPair>> {
-        let token: Option<OAuth2Token> =
-            sqlx::query_as("SELECT * FROM oauth2_tokens WHERE refresh_token = ?")
-                .bind(refresh_token)
-                .fetch_optional(self.pool)
-                .await?;
+        let token = OAuth2Token::find()
+            .filter(oauth2_token::Column::RefreshToken.eq(refresh_token))
+            .one(self.db)
+            .await?;
 
         let token = match token {
             Some(t) => t,
@@ -293,10 +288,9 @@ impl<'a> OAuth2Service<'a> {
         }
 
         // Revoke old tokens
-        sqlx::query("UPDATE oauth2_tokens SET revoked = 1 WHERE id = ?")
-            .bind(token.id)
-            .execute(self.pool)
-            .await?;
+        let mut token_model: oauth2_token::ActiveModel = token.clone().into();
+        token_model.revoked = Set(true);
+        token_model.update(self.db).await?;
 
         // Create new tokens
         let new_tokens = self
@@ -315,22 +309,32 @@ impl<'a> OAuth2Service<'a> {
     /// Revoke a token
     pub async fn revoke_token(&self, token: &str) -> Result<bool> {
         // Try as access token
-        let result = sqlx::query("UPDATE oauth2_tokens SET revoked = 1 WHERE access_token = ?")
-            .bind(token)
-            .execute(self.pool)
+        let found = OAuth2Token::find()
+            .filter(oauth2_token::Column::AccessToken.eq(token))
+            .one(self.db)
             .await?;
 
-        if result.rows_affected() > 0 {
+        if let Some(t) = found {
+            let mut token_model: oauth2_token::ActiveModel = t.into();
+            token_model.revoked = Set(true);
+            token_model.update(self.db).await?;
             return Ok(true);
         }
 
         // Try as refresh token
-        let result = sqlx::query("UPDATE oauth2_tokens SET revoked = 1 WHERE refresh_token = ?")
-            .bind(token)
-            .execute(self.pool)
+        let found = OAuth2Token::find()
+            .filter(oauth2_token::Column::RefreshToken.eq(token))
+            .one(self.db)
             .await?;
 
-        Ok(result.rows_affected() > 0)
+        if let Some(t) = found {
+            let mut token_model: oauth2_token::ActiveModel = t.into();
+            token_model.revoked = Set(true);
+            token_model.update(self.db).await?;
+            return Ok(true);
+        }
+
+        Ok(false)
     }
 
     /// Introspect a token
@@ -341,21 +345,20 @@ impl<'a> OAuth2Service<'a> {
         };
 
         // Get user
-        let user: Option<User> = sqlx::query_as("SELECT * FROM users WHERE id = ?")
-            .bind(token_record.user_id)
-            .fetch_optional(self.pool)
+        let found_user = User::find_by_id(token_record.user_id)
+            .one(self.db)
             .await?;
 
-        let user = match user {
+        let found_user = match found_user {
             Some(u) if u.is_active && u.is_approved => u,
             _ => return Ok(TokenIntrospection::inactive()),
         };
 
         Ok(TokenIntrospection {
             active: true,
-            sub: Some(user.id.to_string()),
-            username: Some(user.username),
-            email: Some(user.email),
+            sub: Some(found_user.id.to_string()),
+            username: Some(found_user.username),
+            email: Some(found_user.email),
             scope: token_record.scope,
             exp: Some(token_record.expires_at.timestamp()),
             client_id: Some(token_record.client_id),
@@ -369,32 +372,24 @@ impl<'a> OAuth2Service<'a> {
         client_secret: &str,
         name: &str,
         redirect_uris: &[String],
-    ) -> Result<OAuth2Client> {
+    ) -> Result<oauth2_client::Model> {
         use crate::services::security::hash_client_secret;
 
         let secret_hash = hash_client_secret(client_secret)?;
         let redirect_uris_json = serde_json::to_string(redirect_uris)?;
+        let now = Utc::now();
 
-        sqlx::query(
-            r#"
-            INSERT INTO oauth2_clients (client_id, client_secret_hash, name, redirect_uris)
-            VALUES (?, ?, ?, ?)
-            "#,
-        )
-        .bind(client_id)
-        .bind(&secret_hash)
-        .bind(name)
-        .bind(&redirect_uris_json)
-        .execute(self.pool)
-        .await?;
+        let client_model = oauth2_client::ActiveModel {
+            client_id: Set(client_id.to_string()),
+            client_secret_hash: Set(secret_hash),
+            name: Set(name.to_string()),
+            redirect_uris: Set(redirect_uris_json),
+            created_at: Set(now),
+        };
 
-        let client: OAuth2Client =
-            sqlx::query_as("SELECT * FROM oauth2_clients WHERE client_id = ?")
-                .bind(client_id)
-                .fetch_one(self.pool)
-                .await?;
+        let created = client_model.insert(self.db).await?;
 
-        Ok(client)
+        Ok(created)
     }
 }
 
@@ -437,5 +432,521 @@ impl TokenIntrospection {
             exp: None,
             client_id: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::{create_test_db_with_seed, create_test_user_with_role};
+
+    // ==========================================================================
+    // TokenPair Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_token_pair_debug() {
+        let pair = TokenPair {
+            access_token: "access123".to_string(),
+            refresh_token: "refresh456".to_string(),
+            expires_in: 3600,
+            refresh_expires_in: 604800,
+            scope: Some("openid profile".to_string()),
+        };
+
+        let debug_str = format!("{:?}", pair);
+        assert!(debug_str.contains("access123"));
+        assert!(debug_str.contains("refresh456"));
+        assert!(debug_str.contains("3600"));
+    }
+
+    #[test]
+    fn test_token_pair_clone() {
+        let pair = TokenPair {
+            access_token: "access".to_string(),
+            refresh_token: "refresh".to_string(),
+            expires_in: 3600,
+            refresh_expires_in: 604800,
+            scope: None,
+        };
+
+        let cloned = pair.clone();
+        assert_eq!(pair.access_token, cloned.access_token);
+        assert_eq!(pair.refresh_token, cloned.refresh_token);
+        assert_eq!(pair.expires_in, cloned.expires_in);
+    }
+
+    // ==========================================================================
+    // TokenIntrospection Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_token_introspection_inactive() {
+        let introspection = TokenIntrospection::inactive();
+
+        assert!(!introspection.active);
+        assert!(introspection.sub.is_none());
+        assert!(introspection.username.is_none());
+        assert!(introspection.email.is_none());
+        assert!(introspection.scope.is_none());
+        assert!(introspection.exp.is_none());
+        assert!(introspection.client_id.is_none());
+    }
+
+    #[test]
+    fn test_token_introspection_active_serialize() {
+        let introspection = TokenIntrospection {
+            active: true,
+            sub: Some("123".to_string()),
+            username: Some("testuser".to_string()),
+            email: Some("test@example.com".to_string()),
+            scope: Some("openid".to_string()),
+            exp: Some(1700000000),
+            client_id: Some("my-client".to_string()),
+        };
+
+        let json = serde_json::to_string(&introspection).unwrap();
+        assert!(json.contains("\"active\":true"));
+        assert!(json.contains("\"sub\":\"123\""));
+        assert!(json.contains("\"username\":\"testuser\""));
+        assert!(json.contains("\"email\":\"test@example.com\""));
+        assert!(json.contains("\"scope\":\"openid\""));
+        assert!(json.contains("\"client_id\":\"my-client\""));
+    }
+
+    #[test]
+    fn test_token_introspection_inactive_serialize_skips_none() {
+        let introspection = TokenIntrospection::inactive();
+        let json = serde_json::to_string(&introspection).unwrap();
+
+        // Should only have "active": false
+        assert!(json.contains("\"active\":false"));
+        // None values should be skipped
+        assert!(!json.contains("\"sub\""));
+        assert!(!json.contains("\"username\""));
+        assert!(!json.contains("\"email\""));
+    }
+
+    #[test]
+    fn test_token_introspection_clone() {
+        let introspection = TokenIntrospection {
+            active: true,
+            sub: Some("123".to_string()),
+            username: Some("user".to_string()),
+            email: None,
+            scope: None,
+            exp: Some(123456),
+            client_id: None,
+        };
+
+        let cloned = introspection.clone();
+        assert_eq!(introspection.active, cloned.active);
+        assert_eq!(introspection.sub, cloned.sub);
+        assert_eq!(introspection.exp, cloned.exp);
+    }
+
+    // ==========================================================================
+    // OAuth2Service Tests
+    // ==========================================================================
+
+    #[tokio::test]
+    async fn test_oauth2_service_get_nonexistent_client() {
+        let db = create_test_db_with_seed().await;
+        let service = OAuth2Service::new(&db);
+
+        let client = service.get_client("nonexistent").await.unwrap();
+        assert!(client.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_oauth2_service_validate_nonexistent_client() {
+        let db = create_test_db_with_seed().await;
+        let service = OAuth2Service::new(&db);
+
+        let valid = service
+            .validate_client("nonexistent", Some("secret"))
+            .await
+            .unwrap();
+        assert!(!valid);
+    }
+
+    #[tokio::test]
+    async fn test_oauth2_service_create_and_get_client() {
+        let db = create_test_db_with_seed().await;
+        let service = OAuth2Service::new(&db);
+
+        // Create a client
+        let client = service
+            .create_client(
+                "test-client",
+                "test-secret",
+                "Test Client",
+                &["http://localhost:8080/callback".to_string()],
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(client.client_id, "test-client");
+        assert_eq!(client.name, "Test Client");
+
+        // Retrieve the client
+        let retrieved = service.get_client("test-client").await.unwrap();
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap().name, "Test Client");
+    }
+
+    #[tokio::test]
+    async fn test_oauth2_service_validate_client_secret() {
+        let db = create_test_db_with_seed().await;
+        let service = OAuth2Service::new(&db);
+
+        // Create a client
+        service
+            .create_client(
+                "my-client",
+                "my-secret",
+                "My Client",
+                &["http://localhost/callback".to_string()],
+            )
+            .await
+            .unwrap();
+
+        // Valid secret
+        let valid = service
+            .validate_client("my-client", Some("my-secret"))
+            .await
+            .unwrap();
+        assert!(valid);
+
+        // Invalid secret
+        let invalid = service
+            .validate_client("my-client", Some("wrong-secret"))
+            .await
+            .unwrap();
+        assert!(!invalid);
+
+        // No secret (public client)
+        let no_secret = service.validate_client("my-client", None).await.unwrap();
+        assert!(no_secret);
+    }
+
+    #[tokio::test]
+    async fn test_oauth2_service_create_authorization_code() {
+        let db = create_test_db_with_seed().await;
+        let service = OAuth2Service::new(&db);
+
+        // Create client and user
+        service
+            .create_client(
+                "auth-client",
+                "secret",
+                "Auth Client",
+                &["http://localhost/callback".to_string()],
+            )
+            .await
+            .unwrap();
+
+        let user = create_test_user_with_role(&db, "authuser", "auth@test.com", "password", "admin").await;
+
+        // Create authorization code
+        let code = service
+            .create_authorization_code(
+                "auth-client",
+                user.id,
+                "http://localhost/callback",
+                Some("openid"),
+                None,
+                None,
+                300, // 5 minutes
+            )
+            .await
+            .unwrap();
+
+        assert!(!code.is_empty());
+        assert!(code.len() > 20); // Should be a reasonably long random string
+    }
+
+    #[tokio::test]
+    async fn test_oauth2_service_validate_authorization_code() {
+        let db = create_test_db_with_seed().await;
+        let service = OAuth2Service::new(&db);
+
+        // Create client and user
+        service
+            .create_client(
+                "val-client",
+                "secret",
+                "Validation Client",
+                &["http://localhost/cb".to_string()],
+            )
+            .await
+            .unwrap();
+
+        let user = create_test_user_with_role(&db, "valuser", "val@test.com", "password", "admin").await;
+
+        // Create authorization code
+        let code = service
+            .create_authorization_code(
+                "val-client",
+                user.id,
+                "http://localhost/cb",
+                Some("openid"),
+                None,
+                None,
+                300,
+            )
+            .await
+            .unwrap();
+
+        // Validate the code
+        let validated = service
+            .validate_authorization_code(&code, "val-client", "http://localhost/cb", None)
+            .await
+            .unwrap();
+
+        assert!(validated.is_some());
+        let auth_code = validated.unwrap();
+        assert_eq!(auth_code.user_id, user.id);
+
+        // Try to use the code again (should fail - already used)
+        let reused = service
+            .validate_authorization_code(&code, "val-client", "http://localhost/cb", None)
+            .await
+            .unwrap();
+        assert!(reused.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_oauth2_service_validate_code_wrong_client() {
+        let db = create_test_db_with_seed().await;
+        let service = OAuth2Service::new(&db);
+
+        service
+            .create_client("client-a", "secret", "Client A", &["http://a/cb".to_string()])
+            .await
+            .unwrap();
+
+        let user = create_test_user_with_role(&db, "user1", "user1@test.com", "password", "admin").await;
+
+        let code = service
+            .create_authorization_code("client-a", user.id, "http://a/cb", None, None, None, 300)
+            .await
+            .unwrap();
+
+        // Try to validate with wrong client ID
+        let result = service
+            .validate_authorization_code(&code, "wrong-client", "http://a/cb", None)
+            .await
+            .unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_oauth2_service_validate_code_wrong_redirect() {
+        let db = create_test_db_with_seed().await;
+        let service = OAuth2Service::new(&db);
+
+        service
+            .create_client("redir-client", "secret", "Redirect Client", &["http://correct/cb".to_string()])
+            .await
+            .unwrap();
+
+        let user = create_test_user_with_role(&db, "user2", "user2@test.com", "password", "admin").await;
+
+        let code = service
+            .create_authorization_code("redir-client", user.id, "http://correct/cb", None, None, None, 300)
+            .await
+            .unwrap();
+
+        // Try to validate with wrong redirect URI
+        let result = service
+            .validate_authorization_code(&code, "redir-client", "http://wrong/cb", None)
+            .await
+            .unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_oauth2_service_create_tokens() {
+        let db = create_test_db_with_seed().await;
+        let service = OAuth2Service::new(&db);
+
+        service
+            .create_client("token-client", "secret", "Token Client", &["http://localhost/cb".to_string()])
+            .await
+            .unwrap();
+
+        let user = create_test_user_with_role(&db, "tokenuser", "token@test.com", "password", "admin").await;
+
+        let tokens = service
+            .create_tokens("token-client", user.id, Some("openid profile"), 3600, 604800)
+            .await
+            .unwrap();
+
+        assert!(!tokens.access_token.is_empty());
+        assert!(!tokens.refresh_token.is_empty());
+        assert_eq!(tokens.expires_in, 3600);
+        assert_eq!(tokens.refresh_expires_in, 604800);
+        assert_eq!(tokens.scope, Some("openid profile".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_oauth2_service_validate_access_token() {
+        let db = create_test_db_with_seed().await;
+        let service = OAuth2Service::new(&db);
+
+        service
+            .create_client("access-client", "secret", "Access Client", &["http://localhost/cb".to_string()])
+            .await
+            .unwrap();
+
+        let user = create_test_user_with_role(&db, "accessuser", "access@test.com", "password", "admin").await;
+
+        let tokens = service
+            .create_tokens("access-client", user.id, None, 3600, 604800)
+            .await
+            .unwrap();
+
+        // Validate the access token
+        let validated = service.validate_access_token(&tokens.access_token).await.unwrap();
+        assert!(validated.is_some());
+
+        // Invalid token should return None
+        let invalid = service.validate_access_token("invalid-token").await.unwrap();
+        assert!(invalid.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_oauth2_service_revoke_token() {
+        let db = create_test_db_with_seed().await;
+        let service = OAuth2Service::new(&db);
+
+        service
+            .create_client("revoke-client", "secret", "Revoke Client", &["http://localhost/cb".to_string()])
+            .await
+            .unwrap();
+
+        let user = create_test_user_with_role(&db, "revokeuser", "revoke@test.com", "password", "admin").await;
+
+        let tokens = service
+            .create_tokens("revoke-client", user.id, None, 3600, 604800)
+            .await
+            .unwrap();
+
+        // Validate before revoke
+        let valid_before = service.validate_access_token(&tokens.access_token).await.unwrap();
+        assert!(valid_before.is_some());
+
+        // Revoke the token
+        let revoked = service.revoke_token(&tokens.access_token).await.unwrap();
+        assert!(revoked);
+
+        // Validate after revoke
+        let valid_after = service.validate_access_token(&tokens.access_token).await.unwrap();
+        assert!(valid_after.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_oauth2_service_revoke_nonexistent_token() {
+        let db = create_test_db_with_seed().await;
+        let service = OAuth2Service::new(&db);
+
+        let revoked = service.revoke_token("nonexistent-token").await.unwrap();
+        assert!(!revoked);
+    }
+
+    #[tokio::test]
+    async fn test_oauth2_service_introspect_token() {
+        let db = create_test_db_with_seed().await;
+        let service = OAuth2Service::new(&db);
+
+        service
+            .create_client("intro-client", "secret", "Introspect Client", &["http://localhost/cb".to_string()])
+            .await
+            .unwrap();
+
+        let user = create_test_user_with_role(&db, "introuser", "intro@test.com", "password", "admin").await;
+
+        let tokens = service
+            .create_tokens("intro-client", user.id, Some("openid"), 3600, 604800)
+            .await
+            .unwrap();
+
+        // Introspect the token
+        let introspection = service.introspect_token(&tokens.access_token).await.unwrap();
+
+        assert!(introspection.active);
+        assert_eq!(introspection.sub, Some(user.id.to_string()));
+        assert_eq!(introspection.username, Some("introuser".to_string()));
+        assert_eq!(introspection.email, Some("intro@test.com".to_string()));
+        assert_eq!(introspection.scope, Some("openid".to_string()));
+        assert_eq!(introspection.client_id, Some("intro-client".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_oauth2_service_introspect_invalid_token() {
+        let db = create_test_db_with_seed().await;
+        let service = OAuth2Service::new(&db);
+
+        let introspection = service.introspect_token("invalid-token").await.unwrap();
+        assert!(!introspection.active);
+    }
+
+    #[tokio::test]
+    async fn test_oauth2_service_refresh_access_token() {
+        let db = create_test_db_with_seed().await;
+        let service = OAuth2Service::new(&db);
+
+        service
+            .create_client("refresh-client", "secret", "Refresh Client", &["http://localhost/cb".to_string()])
+            .await
+            .unwrap();
+
+        let user = create_test_user_with_role(&db, "refreshuser", "refresh@test.com", "password", "admin").await;
+
+        let original_tokens = service
+            .create_tokens("refresh-client", user.id, Some("openid"), 3600, 604800)
+            .await
+            .unwrap();
+
+        // Refresh the token
+        let new_tokens = service
+            .refresh_access_token(&original_tokens.refresh_token, "refresh-client")
+            .await
+            .unwrap();
+
+        assert!(new_tokens.is_some());
+        let new_pair = new_tokens.unwrap();
+        assert!(!new_pair.access_token.is_empty());
+        assert_ne!(new_pair.access_token, original_tokens.access_token);
+
+        // Original access token should be revoked
+        let old_valid = service.validate_access_token(&original_tokens.access_token).await.unwrap();
+        assert!(old_valid.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_oauth2_service_refresh_wrong_client() {
+        let db = create_test_db_with_seed().await;
+        let service = OAuth2Service::new(&db);
+
+        service
+            .create_client("orig-client", "secret", "Original Client", &["http://localhost/cb".to_string()])
+            .await
+            .unwrap();
+
+        let user = create_test_user_with_role(&db, "origuser", "orig@test.com", "password", "admin").await;
+
+        let tokens = service
+            .create_tokens("orig-client", user.id, None, 3600, 604800)
+            .await
+            .unwrap();
+
+        // Try to refresh with wrong client ID
+        let result = service
+            .refresh_access_token(&tokens.refresh_token, "wrong-client")
+            .await
+            .unwrap();
+        assert!(result.is_none());
     }
 }
