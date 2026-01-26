@@ -32,6 +32,7 @@ rand = "0.8"
 sha2 = "0.10"
 base64 = "0.22"
 hex = "0.4"
+totp-rs = { version = "5", features = ["qr", "gen_secret"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

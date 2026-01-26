@@ -16,7 +16,10 @@ use crate::api::extractors::{
 use crate::db::entities::prelude::*;
 use crate::db::entities::{invite, role, user, user_preferences, user_role};
 use crate::error::{AppError, Result};
-use crate::services::hash_password;
+use crate::services::{
+    generate_totp_secret, get_totp_provisioning_uri, get_totp_qr_code_base64, hash_password,
+    verify_password, verify_totp,
+};
 use crate::state::AppState;
 
 /// Create users routes
@@ -28,6 +31,11 @@ pub fn users_routes(state: AppState) -> Router {
             "/me/preferences",
             get(get_my_preferences).patch(update_my_preferences),
         )
+        .route("/me/password", patch(change_own_password))
+        .route("/me/2fa/setup", post(setup_2fa))
+        .route("/me/2fa/enable", post(enable_2fa))
+        .route("/me/2fa/disable", post(disable_2fa))
+        .route("/me/2fa/status", get(get_2fa_status))
         .route("/pending", get(list_pending_users))
         .route("/invites", get(list_invites).post(create_invite))
         .route("/invites/:invite_id", delete(delete_invite))
@@ -37,6 +45,7 @@ pub fn users_routes(state: AppState) -> Router {
         )
         .route("/:user_id/approve", post(approve_user))
         .route("/:user_id/reject", post(reject_user))
+        .route("/:user_id/password", patch(admin_reset_password))
         .with_state(state)
 }
 
@@ -82,6 +91,41 @@ pub struct PreferencesResponse {
 #[derive(Debug, Deserialize)]
 pub struct UpdatePreferences {
     pub theme: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChangeOwnPasswordRequest {
+    pub current_password: String,
+    pub new_password: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AdminResetPasswordRequest {
+    pub new_password: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TwoFactorSetupResponse {
+    pub secret: String,
+    pub provisioning_uri: String,
+    pub qr_code_base64: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Enable2FARequest {
+    pub code: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Disable2FARequest {
+    pub password: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TwoFactorStatusResponse {
+    pub enabled: bool,
+    pub verified_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub required_by_role: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -618,4 +662,251 @@ async fn delete_invite(
     existing_invite.delete(&state.db).await?;
 
     Ok(Json(serde_json::json!({"message": "Invite deleted"})))
+}
+
+// ============================================================================
+// Password Change Endpoints
+// ============================================================================
+
+/// Change own password (requires current password)
+async fn change_own_password(
+    State(state): State<AppState>,
+    AuthUser(current_user): AuthUser,
+    Json(data): Json<ChangeOwnPasswordRequest>,
+) -> Result<Json<serde_json::Value>> {
+    // Validate new password
+    if data.new_password.len() < 8 {
+        return Err(AppError::BadRequest(
+            "New password must be at least 8 characters".to_string(),
+        ));
+    }
+
+    // Get fresh user data to verify current password
+    let user_record = User::find_by_id(current_user.id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+
+    // Verify current password
+    if !verify_password(&data.current_password, &user_record.hashed_password) {
+        return Err(AppError::BadRequest("Current password is incorrect".to_string()));
+    }
+
+    // Hash and update password
+    let hashed = hash_password(&data.new_password)?;
+    let now = Utc::now();
+
+    let mut user_model: user::ActiveModel = user_record.into();
+    user_model.hashed_password = Set(hashed);
+    user_model.updated_at = Set(now);
+    user_model.update(&state.db).await?;
+
+    Ok(Json(serde_json::json!({"message": "Password changed successfully"})))
+}
+
+/// Admin reset password for another user (requires users.manage permission)
+async fn admin_reset_password(
+    State(state): State<AppState>,
+    Path(user_id): Path<i64>,
+    AuthUser(admin_user): AuthUser,
+    Json(data): Json<AdminResetPasswordRequest>,
+) -> Result<Json<serde_json::Value>> {
+    // Check permission
+    if !user_has_permission(&state.db, admin_user.id, "users.manage").await {
+        return Err(AppError::Forbidden(
+            "Permission denied: users.manage required".to_string(),
+        ));
+    }
+
+    // Prevent admin from resetting their own password via this endpoint
+    if user_id == admin_user.id {
+        return Err(AppError::BadRequest(
+            "Use /api/users/me/password to change your own password".to_string(),
+        ));
+    }
+
+    // Validate new password
+    if data.new_password.len() < 8 {
+        return Err(AppError::BadRequest(
+            "New password must be at least 8 characters".to_string(),
+        ));
+    }
+
+    // Get target user
+    let user_record = User::find_by_id(user_id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+
+    // Hash and update password
+    let hashed = hash_password(&data.new_password)?;
+    let now = Utc::now();
+
+    let mut user_model: user::ActiveModel = user_record.into();
+    user_model.hashed_password = Set(hashed);
+    user_model.updated_at = Set(now);
+    user_model.update(&state.db).await?;
+
+    Ok(Json(serde_json::json!({"message": "Password reset successfully"})))
+}
+
+// ============================================================================
+// Two-Factor Authentication Endpoints
+// ============================================================================
+
+/// Check if user's role requires 2FA
+async fn user_requires_2fa(db: &sea_orm::DatabaseConnection, user_id: i64) -> bool {
+    // Get user's roles and check if any require 2FA
+    let roles: Vec<role::Model> = Role::find()
+        .inner_join(UserRole)
+        .filter(user_role::Column::UserId.eq(user_id))
+        .all(db)
+        .await
+        .unwrap_or_default();
+
+    roles.iter().any(|r| r.requires_2fa)
+}
+
+/// Set up 2FA - generate secret and QR code
+async fn setup_2fa(
+    State(state): State<AppState>,
+    AuthUser(current_user): AuthUser,
+) -> Result<Json<TwoFactorSetupResponse>> {
+    // Get fresh user data
+    let user_record = User::find_by_id(current_user.id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+
+    // Check if 2FA is already enabled
+    if user_record.totp_enabled {
+        return Err(AppError::BadRequest(
+            "2FA is already enabled. Disable it first to set up a new secret.".to_string(),
+        ));
+    }
+
+    // Generate new TOTP secret
+    let secret = generate_totp_secret();
+    let account_name = &user_record.email;
+
+    // Get provisioning URI and QR code
+    let provisioning_uri = get_totp_provisioning_uri(&secret, account_name)?;
+    let qr_code_base64 = get_totp_qr_code_base64(&secret, account_name)?;
+
+    // Store the secret (but don't enable yet - user must verify first)
+    let now = Utc::now();
+    let mut user_model: user::ActiveModel = user_record.into();
+    user_model.totp_secret = Set(Some(secret.clone()));
+    user_model.updated_at = Set(now);
+    user_model.update(&state.db).await?;
+
+    Ok(Json(TwoFactorSetupResponse {
+        secret,
+        provisioning_uri,
+        qr_code_base64,
+    }))
+}
+
+/// Enable 2FA - verify the code and activate
+async fn enable_2fa(
+    State(state): State<AppState>,
+    AuthUser(current_user): AuthUser,
+    Json(data): Json<Enable2FARequest>,
+) -> Result<Json<serde_json::Value>> {
+    // Get fresh user data
+    let user_record = User::find_by_id(current_user.id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+
+    // Check if 2FA is already enabled
+    if user_record.totp_enabled {
+        return Err(AppError::BadRequest("2FA is already enabled".to_string()));
+    }
+
+    // Check if secret exists (user must call setup first)
+    let secret = user_record.totp_secret.as_ref().ok_or_else(|| {
+        AppError::BadRequest("No 2FA setup in progress. Call /api/users/me/2fa/setup first.".to_string())
+    })?;
+
+    // Verify the code
+    if !verify_totp(secret, &data.code, &user_record.email)? {
+        return Err(AppError::BadRequest("Invalid verification code".to_string()));
+    }
+
+    // Enable 2FA
+    let now = Utc::now();
+    let mut user_model: user::ActiveModel = user_record.into();
+    user_model.totp_enabled = Set(true);
+    user_model.totp_verified_at = Set(Some(now));
+    user_model.updated_at = Set(now);
+    user_model.update(&state.db).await?;
+
+    Ok(Json(serde_json::json!({
+        "message": "Two-factor authentication enabled successfully"
+    })))
+}
+
+/// Disable 2FA (requires password confirmation)
+async fn disable_2fa(
+    State(state): State<AppState>,
+    AuthUser(current_user): AuthUser,
+    Json(data): Json<Disable2FARequest>,
+) -> Result<Json<serde_json::Value>> {
+    // Get fresh user data
+    let user_record = User::find_by_id(current_user.id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+
+    // Check if 2FA is enabled
+    if !user_record.totp_enabled {
+        return Err(AppError::BadRequest("2FA is not enabled".to_string()));
+    }
+
+    // Verify password
+    if !verify_password(&data.password, &user_record.hashed_password) {
+        return Err(AppError::BadRequest("Incorrect password".to_string()));
+    }
+
+    // Check if user's role requires 2FA
+    if user_requires_2fa(&state.db, current_user.id).await {
+        return Err(AppError::BadRequest(
+            "Cannot disable 2FA - your role requires two-factor authentication".to_string(),
+        ));
+    }
+
+    // Disable 2FA and clear secret
+    let now = Utc::now();
+    let mut user_model: user::ActiveModel = user_record.into();
+    user_model.totp_enabled = Set(false);
+    user_model.totp_secret = Set(None);
+    user_model.totp_verified_at = Set(None);
+    user_model.updated_at = Set(now);
+    user_model.update(&state.db).await?;
+
+    Ok(Json(serde_json::json!({
+        "message": "Two-factor authentication disabled"
+    })))
+}
+
+/// Get 2FA status
+async fn get_2fa_status(
+    State(state): State<AppState>,
+    AuthUser(current_user): AuthUser,
+) -> Result<Json<TwoFactorStatusResponse>> {
+    // Get fresh user data
+    let user_record = User::find_by_id(current_user.id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+
+    // Check if role requires 2FA
+    let required_by_role = user_requires_2fa(&state.db, current_user.id).await;
+
+    Ok(Json(TwoFactorStatusResponse {
+        enabled: user_record.totp_enabled,
+        verified_at: user_record.totp_verified_at,
+        required_by_role,
+    }))
 }

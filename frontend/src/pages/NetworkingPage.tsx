@@ -1,7 +1,25 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { networkingApi, NetworkNode, NetworkTopology, formatBandwidth, formatPackets } from '../api/networking'
+import { networkingApi, NetworkTopology, formatBandwidth, formatPackets } from '../api/networking'
 import { AppIcon } from '../components/AppIcon'
+import {
+  ReactFlow,
+  Node,
+  Edge,
+  Background,
+  Controls,
+  MiniMap,
+  useNodesState,
+  useEdgesState,
+  Position,
+  Handle,
+  BaseEdge,
+  EdgeProps,
+  getBezierPath,
+  ReactFlowProvider,
+} from '@xyflow/react'
+import '@xyflow/react/dist/style.css'
+import dagre from 'dagre'
 import {
   Network,
   RefreshCw,
@@ -16,51 +34,268 @@ import {
 } from 'lucide-react'
 
 // ============================================================================
-// Network Flow Visualization - Clean Tiered Layout
+// Custom Node Component
 // ============================================================================
+
+interface TrafficNodeData {
+  label: string
+  type: 'external' | 'app'
+  rx: number
+  tx: number
+  total: number
+  podCount: number
+  appId: string
+  [key: string]: unknown
+}
+
+function TrafficNode({ data }: { data: TrafficNodeData }) {
+  return (
+    <div className="relative">
+      {/* Handles for connections */}
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="!bg-blue-500 !w-2 !h-2 !border-2 !border-white dark:!border-gray-800"
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="!bg-blue-500 !w-2 !h-2 !border-2 !border-white dark:!border-gray-800"
+      />
+
+      {/* Node Card */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border-2 border-gray-200 dark:border-gray-600 shadow-lg hover:shadow-xl hover:border-blue-500 transition-all duration-200 min-w-[100px]">
+        {/* Icon */}
+        <div className="flex justify-center mb-2">
+          {data.type === 'external' ? (
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-md">
+              <Globe size={24} className="text-white" />
+            </div>
+          ) : (
+            <AppIcon appName={data.appId} size={40} className="rounded-xl shadow-md" />
+          )}
+        </div>
+
+        {/* Name */}
+        <div className="text-center mb-2">
+          <div className="text-xs font-semibold text-gray-900 dark:text-white truncate max-w-[90px]">
+            {data.label}
+          </div>
+        </div>
+
+        {/* Traffic Stats */}
+        <div className="flex flex-col gap-0.5 text-[10px]">
+          <div className="flex items-center justify-center gap-1 text-green-500">
+            <ArrowDownToLine size={10} />
+            <span className="font-mono">{formatBandwidth(data.rx)}</span>
+          </div>
+          <div className="flex items-center justify-center gap-1 text-orange-500">
+            <ArrowUpFromLine size={10} />
+            <span className="font-mono">{formatBandwidth(data.tx)}</span>
+          </div>
+        </div>
+
+        {/* Pod count badge */}
+        {data.podCount > 0 && (
+          <div className="absolute -top-2 -right-2 bg-blue-500 text-white text-[9px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow">
+            {data.podCount}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ============================================================================
+// Animated Edge Component
+// ============================================================================
+
+interface AnimatedEdgeData {
+  traffic: number
+  maxTraffic: number
+  [key: string]: unknown
+}
+
+function AnimatedEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  data,
+  style,
+}: EdgeProps<Edge<AnimatedEdgeData>>) {
+  const [edgePath] = getBezierPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+  })
+
+  // Calculate line width based on traffic (2-8px)
+  const traffic = data?.traffic || 0
+  const maxTraffic = data?.maxTraffic || 1
+  const strokeWidth = 2 + (traffic / maxTraffic) * 6
+
+  // Animation speed based on traffic (faster = more traffic)
+  const animationDuration = Math.max(1, 4 - (traffic / maxTraffic) * 3)
+
+  return (
+    <>
+      {/* Background path */}
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        style={{
+          ...style,
+          strokeWidth,
+          stroke: 'rgba(59, 130, 246, 0.2)',
+        }}
+      />
+
+      {/* Animated particles */}
+      <circle r="4" fill="#3b82f6">
+        <animateMotion
+          dur={`${animationDuration}s`}
+          repeatCount="indefinite"
+          path={edgePath}
+        />
+      </circle>
+      <circle r="4" fill="#3b82f6" style={{ opacity: 0.6 }}>
+        <animateMotion
+          dur={`${animationDuration}s`}
+          repeatCount="indefinite"
+          path={edgePath}
+          begin={`${animationDuration / 3}s`}
+        />
+      </circle>
+      <circle r="4" fill="#3b82f6" style={{ opacity: 0.3 }}>
+        <animateMotion
+          dur={`${animationDuration}s`}
+          repeatCount="indefinite"
+          path={edgePath}
+          begin={`${(animationDuration / 3) * 2}s`}
+        />
+      </circle>
+    </>
+  )
+}
+
+// ============================================================================
+// Dagre Layout
+// ============================================================================
+
+const nodeWidth = 120
+const nodeHeight = 100
+
+function getLayoutedElements(
+  nodes: Node[],
+  edges: Edge[],
+  direction: 'TB' | 'LR' = 'TB'
+) {
+  const dagreGraph = new dagre.graphlib.Graph()
+  dagreGraph.setDefaultEdgeLabel(() => ({}))
+
+  const isHorizontal = direction === 'LR'
+  dagreGraph.setGraph({ rankdir: direction, nodesep: 80, ranksep: 100 })
+
+  nodes.forEach((node) => {
+    dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight })
+  })
+
+  edges.forEach((edge) => {
+    dagreGraph.setEdge(edge.source, edge.target)
+  })
+
+  dagre.layout(dagreGraph)
+
+  const layoutedNodes = nodes.map((node) => {
+    const nodeWithPosition = dagreGraph.node(node.id)
+    return {
+      ...node,
+      position: {
+        x: nodeWithPosition.x - nodeWidth / 2,
+        y: nodeWithPosition.y - nodeHeight / 2,
+      },
+      targetPosition: isHorizontal ? Position.Left : Position.Top,
+      sourcePosition: isHorizontal ? Position.Right : Position.Bottom,
+    }
+  })
+
+  return { nodes: layoutedNodes, edges }
+}
+
+// ============================================================================
+// Network Flow Visualization with React Flow
+// ============================================================================
+
+const nodeTypes = { traffic: TrafficNode }
+const edgeTypes = { animated: AnimatedEdge }
 
 interface FlowVisualizationProps {
   topology: NetworkTopology
-  width: number
-  height: number
 }
 
-function NetworkFlowVisualization({ topology, width, height }: FlowVisualizationProps) {
-  const [hoveredNode, setHoveredNode] = useState<string | null>(null)
+function NetworkFlowVisualizationInner({ topology }: FlowVisualizationProps) {
+  // Convert topology to React Flow nodes and edges
+  const { initialNodes, initialEdges } = useMemo(() => {
+    const maxTraffic = Math.max(...topology.nodes.map(n => n.total_traffic), 1)
 
-  // Categorize nodes into tiers - sort by ID for stable positions across updates
-  // These hooks must be called unconditionally (before any early returns)
-  const nodeIds = topology.nodes.map(n => n.id).join(',')
-  const appNodes = useMemo(() =>
-    topology.nodes.filter(n => n.type === 'app').sort((a, b) => a.id.localeCompare(b.id)),
-    [nodeIds, topology.nodes]
-  )
-  const systemNodes = useMemo(() =>
-    topology.nodes.filter(n => n.type === 'system' || n.type === 'monitoring').sort((a, b) => a.id.localeCompare(b.id)),
-    [nodeIds, topology.nodes]
-  )
+    const nodes: Node<TrafficNodeData>[] = topology.nodes.map((node) => ({
+      id: node.id,
+      type: 'traffic',
+      position: { x: 0, y: 0 }, // Will be set by dagre
+      data: {
+        label: node.name,
+        type: node.type,
+        rx: node.rx_bytes_per_sec,
+        tx: node.tx_bytes_per_sec,
+        total: node.total_traffic,
+        podCount: node.pod_count,
+        appId: node.id,
+      },
+    }))
 
-  // Get nodes connected to a given node
-  const getConnectedNodes = (nodeId: string): Set<string> => {
-    const connected = new Set<string>([nodeId])
-    topology.edges.forEach(edge => {
-      if (edge.source === nodeId) connected.add(edge.target)
-      if (edge.target === nodeId) connected.add(edge.source)
+    const edges: Edge<AnimatedEdgeData>[] = topology.edges.map((edge, i) => {
+      const sourceNode = topology.nodes.find(n => n.id === edge.source)
+      const targetNode = topology.nodes.find(n => n.id === edge.target)
+      const traffic = Math.min(sourceNode?.total_traffic || 0, targetNode?.total_traffic || 0)
+
+      return {
+        id: `e${i}-${edge.source}-${edge.target}`,
+        source: edge.source,
+        target: edge.target,
+        type: 'animated',
+        data: { traffic, maxTraffic },
+      }
     })
-    return connected
-  }
 
-  // Check if a node is connected to the hovered node
-  const isNodeConnected = (nodeId: string): boolean => {
-    if (!hoveredNode) return true // No hover = all visible
-    return getConnectedNodes(hoveredNode).has(nodeId)
-  }
+    return { initialNodes: nodes, initialEdges: edges, maxTraffic }
+  }, [topology])
 
-  // Check if an edge is connected to the hovered node
-  const isEdgeConnected = (source: string, target: string): boolean => {
-    if (!hoveredNode) return true
-    return source === hoveredNode || target === hoveredNode
-  }
+  // Apply dagre layout
+  const { nodes: layoutedNodes, edges: layoutedEdges } = useMemo(
+    () => getLayoutedElements(initialNodes, initialEdges, 'TB'),
+    [initialNodes, initialEdges]
+  )
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(layoutedNodes)
+  const [edges, setEdges, onEdgesChange] = useEdgesState(layoutedEdges)
+
+  // Update nodes when topology changes
+  useEffect(() => {
+    const { nodes: newLayoutedNodes, edges: newLayoutedEdges } = getLayoutedElements(
+      initialNodes,
+      initialEdges,
+      'TB'
+    )
+    setNodes(newLayoutedNodes)
+    setEdges(newLayoutedEdges)
+  }, [initialNodes, initialEdges, setNodes, setEdges])
 
   if (topology.nodes.length === 0) {
     return (
@@ -73,273 +308,41 @@ function NetworkFlowVisualization({ topology, width, height }: FlowVisualization
     )
   }
 
-  const externalNode = topology.nodes.find(n => n.type === 'external')
-
-  // Layout constants
-  const padding = 60
-  const nodeWidth = 100 // Width of node card
-  const nodeHeight = 100 // Height of node card including margins
-  const minSpacing = 110 // Minimum vertical spacing between node centers
-
-  // Calculate how many apps can fit per column
-  const availableHeight = height - padding * 2
-  const maxAppsPerColumn = Math.max(2, Math.floor(availableHeight / minSpacing))
-
-  // Determine number of app columns needed
-  const appColumns = appNodes.length > maxAppsPerColumn ? Math.ceil(appNodes.length / maxAppsPerColumn) : 1
-
-  // Calculate horizontal positions based on number of app columns
-  let tier1X: number, tier3X: number, appColumnXs: number[]
-
-  if (appColumns === 1) {
-    tier1X = padding + nodeWidth / 2
-    tier3X = width - padding - nodeWidth / 2
-    appColumnXs = [width / 2]
-  } else {
-    // Multiple columns of apps - spread them evenly
-    tier1X = padding + nodeWidth / 2
-    tier3X = width - padding - nodeWidth / 2
-    const appAreaStart = tier1X + nodeWidth
-    const appAreaEnd = tier3X - nodeWidth
-    const appAreaWidth = appAreaEnd - appAreaStart
-
-    // Evenly space app columns
-    appColumnXs = []
-    for (let i = 0; i < appColumns; i++) {
-      appColumnXs.push(appAreaStart + (appAreaWidth / (appColumns + 1)) * (i + 1))
-    }
-  }
-
-  // Position nodes vertically within their tiers with proper spacing
-  const getNodePositions = (nodes: NetworkNode[], tierX: number) => {
-    const count = nodes.length
-    if (count === 0) return []
-    if (count === 1) return [{ node: nodes[0], x: tierX, y: height / 2 }]
-
-    // Calculate actual spacing needed
-    const totalHeight = (count - 1) * minSpacing
-    const startY = Math.max(padding + nodeHeight / 2, (height - totalHeight) / 2)
-    const actualSpacing = count > 1 ? Math.min(minSpacing, (height - padding * 2) / (count - 1)) : 0
-
-    return nodes.map((node, i) => ({
-      node,
-      x: tierX,
-      y: startY + i * actualSpacing,
-    }))
-  }
-
-  // Position apps across columns - distribute evenly
-  const getAppPositions = () => {
-    if (appColumns === 1) {
-      return getNodePositions(appNodes, appColumnXs[0])
-    }
-
-    // Split apps evenly across columns (round-robin)
-    const columns: NetworkNode[][] = Array.from({ length: appColumns }, () => [])
-    appNodes.forEach((node, i) => {
-      columns[i % appColumns].push(node)
-    })
-
-    // Get positions for each column
-    const positions: { node: NetworkNode; x: number; y: number }[] = []
-    columns.forEach((colNodes, colIdx) => {
-      const colPositions = getNodePositions(colNodes, appColumnXs[colIdx])
-      positions.push(...colPositions)
-    })
-
-    return positions
-  }
-
-  const externalPos = externalNode ? [{ node: externalNode, x: tier1X, y: height / 2 }] : []
-  const appPositions = getAppPositions()
-  const systemPositions = getNodePositions(systemNodes, tier3X)
-  const allPositions = [...externalPos, ...appPositions, ...systemPositions]
-
-  // Get position by node id
-  const getPos = (id: string) => allPositions.find(p => p.node.id === id)
-
-  // Calculate max traffic for scaling line widths
-  const maxTraffic = Math.max(...topology.nodes.map(n => n.total_traffic)) || 1
-
-  // Get line width based on traffic
-  const getLineWidth = (sourceId: string, targetId: string) => {
-    const source = topology.nodes.find(n => n.id === sourceId)
-    const target = topology.nodes.find(n => n.id === targetId)
-    if (!source || !target) return 1
-    const traffic = Math.min(source.total_traffic, target.total_traffic)
-    return 1 + (traffic / maxTraffic) * 4
-  }
-
   return (
-    <div className="relative w-full h-full">
-      {/* SVG for connection lines */}
-      <svg className="absolute inset-0 w-full h-full pointer-events-none">
-        <defs>
-          <linearGradient id="flowGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="rgba(59, 130, 246, 0.6)" />
-            <stop offset="100%" stopColor="rgba(34, 197, 94, 0.6)" />
-          </linearGradient>
-          <marker
-            id="arrowMarker"
-            markerWidth="8"
-            markerHeight="6"
-            refX="7"
-            refY="3"
-            orient="auto"
-          >
-            <polygon points="0 0, 8 3, 0 6" fill="rgba(107, 114, 128, 0.5)" />
-          </marker>
-        </defs>
+    <ReactFlow
+      nodes={nodes}
+      edges={edges}
+      onNodesChange={onNodesChange}
+      onEdgesChange={onEdgesChange}
+      nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
+      fitView
+      fitViewOptions={{ padding: 0.2 }}
+      minZoom={0.5}
+      maxZoom={1.5}
+      proOptions={{ hideAttribution: true }}
+      className="bg-gray-50 dark:bg-gray-900"
+    >
+      <Background color="#e5e7eb" gap={20} className="dark:!bg-gray-900" />
+      <Controls className="!bg-white dark:!bg-gray-800 !border-gray-200 dark:!border-gray-700 !shadow-lg [&>button]:!bg-white [&>button]:dark:!bg-gray-800 [&>button]:!border-gray-200 [&>button]:dark:!border-gray-700 [&>button]:!text-gray-600 [&>button]:dark:!text-gray-300 [&>button:hover]:!bg-gray-100 [&>button:hover]:dark:!bg-gray-700" />
+      <MiniMap
+        nodeColor={(node) => {
+          const data = node.data as TrafficNodeData
+          if (data.type === 'external') return '#3b82f6'
+          return '#10b981'
+        }}
+        className="!bg-white dark:!bg-gray-800 !border-gray-200 dark:!border-gray-700"
+        maskColor="rgba(0, 0, 0, 0.1)"
+      />
+    </ReactFlow>
+  )
+}
 
-        {/* Draw edges */}
-        {topology.edges.map((edge, i) => {
-          const sourcePos = getPos(edge.source)
-          const targetPos = getPos(edge.target)
-          if (!sourcePos || !targetPos) return null
-
-          const edgeConnected = isEdgeConnected(edge.source, edge.target)
-          const isHighlighted = hoveredNode === edge.source || hoveredNode === edge.target
-          const lineWidth = getLineWidth(edge.source, edge.target)
-
-          // Calculate control points for curved lines
-          const midX = (sourcePos.x + targetPos.x) / 2
-          const curve = `M ${sourcePos.x + 40} ${sourcePos.y} Q ${midX} ${sourcePos.y} ${midX} ${(sourcePos.y + targetPos.y) / 2} Q ${midX} ${targetPos.y} ${targetPos.x - 40} ${targetPos.y}`
-
-          // Determine stroke color and opacity based on hover - less pronounced effect
-          let strokeColor = 'rgba(107, 114, 128, 0.25)'
-          let strokeOpacity = 1
-
-          if (hoveredNode) {
-            if (edgeConnected) {
-              strokeColor = 'rgba(59, 130, 246, 0.5)'
-            } else {
-              strokeOpacity = 0.4
-            }
-          }
-
-          if (isHighlighted) {
-            strokeColor = 'rgba(59, 130, 246, 0.7)'
-          }
-
-          return (
-            <g key={`edge-${i}`} style={{ opacity: strokeOpacity }} className="transition-opacity duration-200">
-              <path
-                d={curve}
-                fill="none"
-                stroke={strokeColor}
-                strokeWidth={isHighlighted ? lineWidth + 1 : lineWidth}
-                strokeDasharray={edge.type === 'external' ? '6,4' : undefined}
-                markerEnd="url(#arrowMarker)"
-                className="transition-all duration-200"
-              />
-            </g>
-          )
-        })}
-      </svg>
-
-      {/* Tier labels */}
-      <div className="absolute top-3 left-0 right-0 flex justify-between text-xs text-gray-400 font-medium uppercase tracking-wide px-8">
-        <span style={{ width: 100, textAlign: 'center' }}>External</span>
-        <span style={{ width: 100, textAlign: 'center' }}>Applications</span>
-        <span style={{ width: 100, textAlign: 'center' }}>System</span>
-      </div>
-
-      {/* Render nodes */}
-      {allPositions.map(({ node, x, y }) => {
-        const isHovered = hoveredNode === node.id
-        const nodeConnected = isNodeConnected(node.id)
-        const isConnectedToHovered = hoveredNode && !isHovered && nodeConnected
-
-        // Determine visual state - less pronounced fade on hover
-        const isFaded = hoveredNode && !nodeConnected
-
-        return (
-          <div
-            key={node.id}
-            className={`absolute transform -translate-x-1/2 -translate-y-1/2 transition-all duration-200 ${
-              isHovered ? 'scale-105 z-20' :
-              isConnectedToHovered ? 'z-10' :
-              'z-0'
-            }`}
-            style={{
-              left: x,
-              top: y,
-              opacity: isFaded ? 0.5 : 1,
-            }}
-            onMouseEnter={() => setHoveredNode(node.id)}
-            onMouseLeave={() => setHoveredNode(null)}
-          >
-            <div className={`
-              bg-white dark:bg-gray-800 rounded-lg p-2 border-2 transition-all duration-200 w-[90px]
-              ${isHovered
-                ? 'border-blue-500 shadow-lg shadow-blue-500/20'
-                : isConnectedToHovered
-                  ? 'border-blue-400/50 shadow-md'
-                  : 'border-gray-200 dark:border-gray-700 shadow-sm'
-              }
-            `}>
-              {/* Node icon */}
-              <div className="flex justify-center mb-1">
-                {node.type === 'external' ? (
-                  <div className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
-                    <Globe size={20} className="text-blue-500" />
-                  </div>
-                ) : (
-                  <AppIcon appName={node.id} size={32} />
-                )}
-              </div>
-
-              {/* Node name */}
-              <div className="text-center">
-                <div className="text-[10px] font-medium text-gray-900 dark:text-white truncate">
-                  {node.name}
-                </div>
-              </div>
-
-              {/* Traffic indicator - stacked */}
-              <div className="mt-1 flex flex-col items-center gap-0 text-[9px]">
-                <span className="text-green-500 flex items-center gap-0.5">
-                  <ArrowDownToLine size={8} />
-                  {formatBandwidth(node.rx_bytes_per_sec).replace(' ', '')}
-                </span>
-                <span className="text-orange-500 flex items-center gap-0.5">
-                  <ArrowUpFromLine size={8} />
-                  {formatBandwidth(node.tx_bytes_per_sec).replace(' ', '')}
-                </span>
-              </div>
-            </div>
-
-            {/* Hover tooltip with more details */}
-            {isHovered && (
-              <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 bg-gray-900 text-white rounded-lg p-3 text-xs shadow-xl z-30 whitespace-nowrap">
-                <div className="font-semibold mb-1">{node.name}</div>
-                <div className="space-y-1 text-gray-300">
-                  <div className="flex justify-between gap-4">
-                    <span>Receive:</span>
-                    <span className="text-green-400">{formatBandwidth(node.rx_bytes_per_sec)}</span>
-                  </div>
-                  <div className="flex justify-between gap-4">
-                    <span>Transmit:</span>
-                    <span className="text-orange-400">{formatBandwidth(node.tx_bytes_per_sec)}</span>
-                  </div>
-                  <div className="flex justify-between gap-4">
-                    <span>Total:</span>
-                    <span className="text-blue-400">{formatBandwidth(node.total_traffic)}</span>
-                  </div>
-                  {node.pod_count > 0 && (
-                    <div className="flex justify-between gap-4">
-                      <span>Pods:</span>
-                      <span>{node.pod_count}</span>
-                    </div>
-                  )}
-                </div>
-                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45" />
-              </div>
-            )}
-          </div>
-        )
-      })}
-    </div>
+function NetworkFlowVisualization({ topology }: FlowVisualizationProps) {
+  return (
+    <ReactFlowProvider>
+      <NetworkFlowVisualizationInner topology={topology} />
+    </ReactFlowProvider>
   )
 }
 
@@ -455,25 +458,6 @@ function NetworkStatsTable({ stats }: { stats: any[] }) {
 
 export default function NetworkingPage() {
   const [autoRefresh, setAutoRefresh] = useState(true)
-  const [graphSize, setGraphSize] = useState({ width: 800, height: 400 })
-  const graphContainerRef = useRef<HTMLDivElement>(null)
-
-  // Resize observer for graph container
-  useEffect(() => {
-    if (!graphContainerRef.current) return
-
-    const observer = new ResizeObserver(entries => {
-      for (const entry of entries) {
-        setGraphSize({
-          width: entry.contentRect.width,
-          height: Math.max(350, entry.contentRect.height),
-        })
-      }
-    })
-
-    observer.observe(graphContainerRef.current)
-    return () => observer.disconnect()
-  }, [])
 
   // Fetch topology
   const {
@@ -616,24 +600,19 @@ export default function NetworkingPage() {
           <Globe size={20} />
           Network Flow
           <span className="text-sm font-normal text-gray-500 dark:text-gray-400 ml-2">
-            Hover over an app to highlight its connections
+            Drag to pan • Scroll to zoom • Use controls for navigation
           </span>
         </h2>
         <div
-          ref={graphContainerRef}
           className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden"
-          style={{ height: '450px' }}
+          style={{ height: '500px' }}
         >
           {topologyLoading ? (
             <div className="flex items-center justify-center h-full">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
             </div>
           ) : topology ? (
-            <NetworkFlowVisualization
-              topology={topology}
-              width={graphSize.width}
-              height={graphSize.height}
-            />
+            <NetworkFlowVisualization topology={topology} />
           ) : null}
         </div>
       </div>

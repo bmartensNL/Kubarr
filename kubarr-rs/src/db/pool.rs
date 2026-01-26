@@ -48,7 +48,76 @@ async fn run_migrations(db: &DbConn) -> Result<()> {
     .await
     .map_err(|e| AppError::Internal(format!("Failed to run migrations: {}", e)))?;
 
+    // Run ALTER TABLE migrations for columns added after initial schema
+    // These are safe to run multiple times - they check if column exists first
+    run_alter_migrations(db).await?;
+
     tracing::info!("Database migrations completed");
+    Ok(())
+}
+
+/// Run ALTER TABLE migrations for schema changes
+async fn run_alter_migrations(db: &DbConn) -> Result<()> {
+    // Helper to get column names for a table
+    async fn get_columns(db: &DbConn, table: &str) -> Result<Vec<String>> {
+        Ok(db
+            .query_all(Statement::from_string(
+                DatabaseBackend::Sqlite,
+                format!("PRAGMA table_info({})", table),
+            ))
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to get table info: {}", e)))?
+            .iter()
+            .filter_map(|row| row.try_get::<String>("", "name").ok())
+            .collect())
+    }
+
+    // Helper to add a column if it doesn't exist
+    async fn add_column_if_missing(
+        db: &DbConn,
+        table: &str,
+        column: &str,
+        definition: &str,
+        columns: &[String],
+    ) -> Result<()> {
+        if !columns.contains(&column.to_string()) {
+            tracing::info!("Adding {} column to {} table...", column, table);
+            db.execute(Statement::from_string(
+                DatabaseBackend::Sqlite,
+                format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, definition),
+            ))
+            .await
+            .map_err(|e| {
+                AppError::Internal(format!("Failed to add {} column: {}", column, e))
+            })?;
+        }
+        Ok(())
+    }
+
+    // Migrate roles table
+    let role_columns = get_columns(db, "roles").await?;
+    add_column_if_missing(
+        db,
+        "roles",
+        "requires_2fa",
+        "BOOLEAN NOT NULL DEFAULT 0",
+        &role_columns,
+    )
+    .await?;
+
+    // Migrate users table for 2FA support
+    let user_columns = get_columns(db, "users").await?;
+    add_column_if_missing(db, "users", "totp_secret", "TEXT", &user_columns).await?;
+    add_column_if_missing(
+        db,
+        "users",
+        "totp_enabled",
+        "BOOLEAN NOT NULL DEFAULT 0",
+        &user_columns,
+    )
+    .await?;
+    add_column_if_missing(db, "users", "totp_verified_at", "DATETIME", &user_columns).await?;
+
     Ok(())
 }
 
@@ -244,6 +313,9 @@ CREATE TABLE IF NOT EXISTS users (
     hashed_password TEXT NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT 1,
     is_approved BOOLEAN NOT NULL DEFAULT 0,
+    totp_secret TEXT,
+    totp_enabled BOOLEAN NOT NULL DEFAULT 0,
+    totp_verified_at DATETIME,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -257,6 +329,7 @@ CREATE TABLE IF NOT EXISTS roles (
     name TEXT NOT NULL UNIQUE,
     description TEXT,
     is_system BOOLEAN NOT NULL DEFAULT 0,
+    requires_2fa BOOLEAN NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -371,6 +444,19 @@ CREATE TABLE IF NOT EXISTS role_permissions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_role_permissions_role ON role_permissions(role_id);
+
+-- Pending 2FA challenges table (for login flow)
+CREATE TABLE IF NOT EXISTS pending_2fa_challenges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    challenge_token TEXT NOT NULL UNIQUE,
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_2fa_token ON pending_2fa_challenges(challenge_token);
+CREATE INDEX IF NOT EXISTS idx_pending_2fa_expires ON pending_2fa_challenges(expires_at);
 "#;
 
 #[cfg(test)]

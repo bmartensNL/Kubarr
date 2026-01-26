@@ -3,7 +3,7 @@ import apiClient from './client'
 export interface NetworkNode {
   id: string
   name: string
-  type: 'app' | 'system' | 'monitoring' | 'external'
+  type: 'app' | 'external'
   rx_bytes_per_sec: number
   tx_bytes_per_sec: number
   total_traffic: number
@@ -14,7 +14,7 @@ export interface NetworkNode {
 export interface NetworkEdge {
   source: string
   target: string
-  type: 'service' | 'external' | 'policy'
+  type: string
   port?: number
   protocol?: string
   label: string

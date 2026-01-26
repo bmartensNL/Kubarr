@@ -168,3 +168,80 @@ export const updateMyPreferences = async (data: UpdatePreferencesRequest): Promi
   const response = await apiClient.patch<UserPreferences>('/users/me/preferences', data);
   return response.data;
 };
+
+// ============================================================================
+// Password Change API
+// ============================================================================
+
+export interface ChangeOwnPasswordRequest {
+  current_password: string;
+  new_password: string;
+}
+
+export interface AdminResetPasswordRequest {
+  new_password: string;
+}
+
+/**
+ * Change own password (requires current password)
+ */
+export const changeOwnPassword = async (data: ChangeOwnPasswordRequest): Promise<{ message: string }> => {
+  const response = await apiClient.patch<{ message: string }>('/users/me/password', data);
+  return response.data;
+};
+
+/**
+ * Admin reset password for another user (requires users.manage permission)
+ */
+export const adminResetPassword = async (userId: number, data: AdminResetPasswordRequest): Promise<{ message: string }> => {
+  const response = await apiClient.patch<{ message: string }>(`/users/${userId}/password`, data);
+  return response.data;
+};
+
+// ============================================================================
+// Two-Factor Authentication API
+// ============================================================================
+
+export interface TwoFactorSetupResponse {
+  secret: string;
+  provisioning_uri: string;
+  qr_code_base64: string;
+}
+
+export interface TwoFactorStatusResponse {
+  enabled: boolean;
+  verified_at: string | null;
+  required_by_role: boolean;
+}
+
+/**
+ * Set up 2FA - generates secret and QR code
+ */
+export const setup2FA = async (): Promise<TwoFactorSetupResponse> => {
+  const response = await apiClient.post<TwoFactorSetupResponse>('/users/me/2fa/setup');
+  return response.data;
+};
+
+/**
+ * Enable 2FA - verifies code and activates
+ */
+export const enable2FA = async (code: string): Promise<{ message: string }> => {
+  const response = await apiClient.post<{ message: string }>('/users/me/2fa/enable', { code });
+  return response.data;
+};
+
+/**
+ * Disable 2FA (requires password confirmation)
+ */
+export const disable2FA = async (password: string): Promise<{ message: string }> => {
+  const response = await apiClient.post<{ message: string }>('/users/me/2fa/disable', { password });
+  return response.data;
+};
+
+/**
+ * Get 2FA status
+ */
+export const get2FAStatus = async (): Promise<TwoFactorStatusResponse> => {
+  const response = await apiClient.get<TwoFactorStatusResponse>('/users/me/2fa/status');
+  return response.data;
+};

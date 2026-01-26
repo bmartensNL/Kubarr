@@ -107,21 +107,7 @@ async fn get_network_topology(
     State(state): State<AppState>,
     AuthUser(_): AuthUser,
 ) -> Result<Json<NetworkTopology>> {
-    // Get list of known app namespaces from catalog
-    let catalog = state.catalog.read().await;
-    let mut allowed_namespaces: HashSet<String> = catalog
-        .get_all_apps()
-        .iter()
-        .map(|app| app.name.clone())
-        .collect();
-
-    // Add monitoring/system namespaces
-    allowed_namespaces.insert("kubarr-system".to_string());
-    allowed_namespaces.insert("victoriametrics".to_string());
-    allowed_namespaces.insert("loki".to_string());
-    allowed_namespaces.insert("grafana".to_string());
-
-    // Query network metrics from VictoriaMetrics
+    // Query network metrics from VictoriaMetrics - get ALL namespaces
     let rx_query =
         r#"sum by (namespace) (rate(container_network_receive_bytes_total{interface!="lo"}[5m]))"#;
     let tx_query =
@@ -132,13 +118,14 @@ async fn get_network_topology(
     let tx_results = query_vm(tx_query).await;
     let pod_results = query_vm(pod_count_query).await;
 
-    // Build namespace metrics map
+    // Build namespace metrics map - include ALL namespaces
     let mut metrics_map: HashMap<String, (f64, f64, i32)> = HashMap::new();
 
     // Process RX results
     for result in &rx_results {
         if let Some(namespace) = result["metric"]["namespace"].as_str() {
-            if !allowed_namespaces.contains(namespace) {
+            // Skip kube-system and other internal k8s namespaces
+            if namespace.starts_with("kube-") || namespace == "local-path-storage" {
                 continue;
             }
             if let Some(value) = result["value"][1].as_str() {
@@ -154,7 +141,7 @@ async fn get_network_topology(
     // Process TX results
     for result in &tx_results {
         if let Some(namespace) = result["metric"]["namespace"].as_str() {
-            if !allowed_namespaces.contains(namespace) {
+            if namespace.starts_with("kube-") || namespace == "local-path-storage" {
                 continue;
             }
             if let Some(value) = result["value"][1].as_str() {
@@ -170,7 +157,7 @@ async fn get_network_topology(
     // Process pod count results
     for result in &pod_results {
         if let Some(namespace) = result["metric"]["namespace"].as_str() {
-            if !allowed_namespaces.contains(namespace) {
+            if namespace.starts_with("kube-") || namespace == "local-path-storage" {
                 continue;
             }
             if let Some(value) = result["value"][1].as_str() {
@@ -194,21 +181,13 @@ async fn get_network_topology(
         "#f97316", // orange
     ];
 
-    // Build nodes
+    // Build nodes for all namespaces with traffic
     let mut nodes: Vec<NetworkNode> = Vec::new();
     for (i, (namespace, (rx, tx, pods))) in metrics_map.iter().enumerate() {
-        let node_type = if namespace == "kubarr-system" {
-            "system"
-        } else if namespace == "victoriametrics" || namespace == "loki" || namespace == "grafana" {
-            "monitoring"
-        } else {
-            "app"
-        };
-
         nodes.push(NetworkNode {
             id: namespace.clone(),
             name: capitalize_first(namespace),
-            node_type: node_type.to_string(),
+            node_type: "app".to_string(),
             rx_bytes_per_sec: (*rx * 100.0).round() / 100.0,
             tx_bytes_per_sec: (*tx * 100.0).round() / 100.0,
             total_traffic: ((*rx + *tx) * 100.0).round() / 100.0,
@@ -225,77 +204,22 @@ async fn get_network_topology(
             id: "external".to_string(),
             name: "Internet".to_string(),
             node_type: "external".to_string(),
-            rx_bytes_per_sec: total_tx, // External receives what we transmit
-            tx_bytes_per_sec: total_rx, // External transmits what we receive
+            rx_bytes_per_sec: total_tx,
+            tx_bytes_per_sec: total_rx,
             total_traffic: total_rx + total_tx,
             pod_count: 0,
-            color: "#6b7280".to_string(), // gray
+            color: "#6b7280".to_string(),
         });
     }
 
-    // Infer edges from Kubernetes Services
+    // Discover edges from Kubernetes Services
     let mut edges: Vec<NetworkEdge> = Vec::new();
+    let namespace_set: HashSet<String> = metrics_map.keys().cloned().collect();
 
-    if let Some(client) = state.k8s_client.read().await.as_ref() {
-        // Get all services across namespaces we care about
-        for namespace in &allowed_namespaces {
-            if let Ok(services) = list_services(client, namespace).await {
-                for svc in services {
-                    let svc_name = svc.metadata.name.clone().unwrap_or_default();
-                    let svc_namespace = namespace.clone();
-
-                    // Get service ports
-                    let ports: Vec<i32> = svc
-                        .spec
-                        .as_ref()
-                        .and_then(|s| s.ports.as_ref())
-                        .map(|p| p.iter().map(|port| port.port).collect())
-                        .unwrap_or_default();
-
-                    let port = ports.first().copied();
-
-                    // Check service selector to see what it connects to
-                    let selector = svc
-                        .spec
-                        .as_ref()
-                        .and_then(|s| s.selector.as_ref())
-                        .cloned()
-                        .unwrap_or_default();
-
-                    // If the service exists, infer connections from other namespaces
-                    // For now, connect apps to kubarr-system (dashboard)
-                    if svc_namespace != "kubarr-system" && metrics_map.contains_key(&svc_namespace)
-                    {
-                        edges.push(NetworkEdge {
-                            source: "kubarr-system".to_string(),
-                            target: svc_namespace.clone(),
-                            edge_type: "service".to_string(),
-                            port,
-                            protocol: Some("HTTP".to_string()),
-                            label: format!("{}", port.map(|p| p.to_string()).unwrap_or_default()),
-                        });
-                    }
-                }
-            }
-        }
+    if let Some(k8s) = state.k8s_client.read().await.as_ref() {
+        // Discover service connections by examining services and their endpoints
+        edges = discover_service_connections(k8s, &namespace_set).await;
     }
-
-    // Add external edges for apps with traffic
-    for node in &nodes {
-        if node.node_type == "app" && node.total_traffic > 1000.0 {
-            edges.push(NetworkEdge {
-                source: node.id.clone(),
-                target: "external".to_string(),
-                edge_type: "external".to_string(),
-                port: None,
-                protocol: None,
-                label: "".to_string(),
-            });
-        }
-    }
-
-    // Add known service dependencies based on app types
-    add_known_dependencies(&mut edges, &metrics_map);
 
     // Deduplicate edges
     edges.sort_by(|a, b| (&a.source, &a.target).cmp(&(&b.source, &b.target)));
@@ -304,25 +228,163 @@ async fn get_network_topology(
     Ok(Json(NetworkTopology { nodes, edges }))
 }
 
+/// Discover service connections from Kubernetes
+async fn discover_service_connections(
+    k8s: &crate::services::K8sClient,
+    namespaces: &HashSet<String>,
+) -> Vec<NetworkEdge> {
+    use k8s_openapi::api::core::v1::{ConfigMap, Endpoints, Service};
+    use kube::api::{Api, ListParams};
+
+    let mut edges: Vec<NetworkEdge> = Vec::new();
+    let mut service_to_namespace: HashMap<String, String> = HashMap::new();
+
+    // Build a map of service names to their namespaces
+    for ns in namespaces {
+        let services: Api<Service> = Api::namespaced(k8s.client().clone(), ns);
+        if let Ok(svc_list) = services.list(&ListParams::default()).await {
+            for svc in svc_list.items {
+                if let Some(name) = &svc.metadata.name {
+                    // Store both short name and FQDN
+                    service_to_namespace.insert(name.clone(), ns.clone());
+                    service_to_namespace.insert(format!("{}.{}", name, ns), ns.clone());
+                    service_to_namespace.insert(
+                        format!("{}.{}.svc.cluster.local", name, ns),
+                        ns.clone(),
+                    );
+                }
+            }
+        }
+    }
+
+    // For each namespace, look for references to other services in ConfigMaps and environment
+    for ns in namespaces {
+        // Check ConfigMaps for service references
+        let configmaps: Api<ConfigMap> = Api::namespaced(k8s.client().clone(), ns);
+        if let Ok(cm_list) = configmaps.list(&ListParams::default()).await {
+            for cm in cm_list.items {
+                if let Some(data) = &cm.data {
+                    for (_key, value) in data {
+                        // Look for URLs or service references in config values
+                        for (svc_name, target_ns) in &service_to_namespace {
+                            if target_ns != ns && value.contains(svc_name) {
+                                edges.push(NetworkEdge {
+                                    source: ns.clone(),
+                                    target: target_ns.clone(),
+                                    edge_type: "config".to_string(),
+                                    port: None,
+                                    protocol: Some("HTTP".to_string()),
+                                    label: String::new(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check Endpoints to find cross-namespace connections
+        let endpoints: Api<Endpoints> = Api::namespaced(k8s.client().clone(), ns);
+        if let Ok(ep_list) = endpoints.list(&ListParams::default()).await {
+            for ep in ep_list.items {
+                if let Some(subsets) = &ep.subsets {
+                    for subset in subsets {
+                        if let Some(addresses) = &subset.addresses {
+                            for addr in addresses {
+                                // Check if this endpoint points to a pod in a different namespace
+                                if let Some(target_ref) = &addr.target_ref {
+                                    if let Some(target_ns) = &target_ref.namespace {
+                                        if target_ns != ns && namespaces.contains(target_ns) {
+                                            let port = subset
+                                                .ports
+                                                .as_ref()
+                                                .and_then(|p| p.first())
+                                                .map(|p| p.port);
+                                            edges.push(NetworkEdge {
+                                                source: ns.clone(),
+                                                target: target_ns.clone(),
+                                                edge_type: "endpoint".to_string(),
+                                                port,
+                                                protocol: Some("TCP".to_string()),
+                                                label: String::new(),
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Look for common patterns in service names that indicate dependencies
+    // e.g., nginx upstream configs, proxy configs, etc.
+    for ns in namespaces {
+        let services: Api<Service> = Api::namespaced(k8s.client().clone(), ns);
+        if let Ok(svc_list) = services.list(&ListParams::default()).await {
+            for svc in svc_list.items {
+                if let Some(annotations) = svc.metadata.annotations {
+                    // Check for upstream/backend annotations (common in ingress/proxy configs)
+                    for (_key, value) in &annotations {
+                        for (svc_name, target_ns) in &service_to_namespace {
+                            if target_ns != ns && value.contains(svc_name) {
+                                let port = svc
+                                    .spec
+                                    .as_ref()
+                                    .and_then(|s| s.ports.as_ref())
+                                    .and_then(|p| p.first())
+                                    .map(|p| p.port);
+                                edges.push(NetworkEdge {
+                                    source: ns.clone(),
+                                    target: target_ns.clone(),
+                                    edge_type: "upstream".to_string(),
+                                    port,
+                                    protocol: Some("HTTP".to_string()),
+                                    label: String::new(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Add external edge to namespaces that have LoadBalancer or NodePort services
+    for ns in namespaces {
+        let services: Api<Service> = Api::namespaced(k8s.client().clone(), ns);
+        if let Ok(svc_list) = services.list(&ListParams::default()).await {
+            for svc in svc_list.items {
+                if let Some(spec) = &svc.spec {
+                    if let Some(svc_type) = &spec.type_ {
+                        if svc_type == "LoadBalancer" || svc_type == "NodePort" {
+                            edges.push(NetworkEdge {
+                                source: "external".to_string(),
+                                target: ns.clone(),
+                                edge_type: "ingress".to_string(),
+                                port: spec.ports.as_ref().and_then(|p| p.first()).map(|p| p.port),
+                                protocol: Some("HTTP".to_string()),
+                                label: String::new(),
+                            });
+                            break; // One external edge per namespace is enough
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    edges
+}
+
 /// Get detailed network statistics per app
 async fn get_network_stats(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     AuthUser(_): AuthUser,
 ) -> Result<Json<Vec<NetworkStats>>> {
-    // Get list of known app namespaces
-    let catalog = state.catalog.read().await;
-    let mut allowed_namespaces: HashSet<String> = catalog
-        .get_all_apps()
-        .iter()
-        .map(|app| app.name.clone())
-        .collect();
-
-    allowed_namespaces.insert("kubarr-system".to_string());
-    allowed_namespaces.insert("victoriametrics".to_string());
-    allowed_namespaces.insert("loki".to_string());
-    allowed_namespaces.insert("grafana".to_string());
-
-    // Query all network metrics
+    // Query all network metrics - get ALL namespaces
     let queries = [
         (
             r#"sum by (namespace) (rate(container_network_receive_bytes_total{interface!="lo"}[5m]))"#,
@@ -365,7 +427,8 @@ async fn get_network_stats(
         let results = query_vm(query).await;
         for result in results {
             if let Some(namespace) = result["metric"]["namespace"].as_str() {
-                if !allowed_namespaces.contains(namespace) {
+                // Skip internal k8s namespaces
+                if namespace.starts_with("kube-") || namespace == "local-path-storage" {
                     continue;
                 }
                 if let Some(value) = result["value"][1].as_str() {
@@ -404,68 +467,11 @@ async fn get_network_stats(
 // Helper Functions
 // ============================================================================
 
-/// List services in a namespace
-async fn list_services(
-    client: &crate::services::K8sClient,
-    namespace: &str,
-) -> Result<Vec<k8s_openapi::api::core::v1::Service>> {
-    use k8s_openapi::api::core::v1::Service;
-    use kube::api::{Api, ListParams};
-
-    let services: Api<Service> = Api::namespaced(client.client().clone(), namespace);
-    let svc_list = services.list(&ListParams::default()).await?;
-    Ok(svc_list.items)
-}
-
 /// Capitalize first letter
 fn capitalize_first(s: &str) -> String {
     let mut chars = s.chars();
     match chars.next() {
         None => String::new(),
         Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
-    }
-}
-
-/// Add known dependencies based on common media server patterns
-fn add_known_dependencies(
-    edges: &mut Vec<NetworkEdge>,
-    namespaces: &HashMap<String, (f64, f64, i32)>,
-) {
-    // Define known service relationships
-    let relationships = [
-        // Sonarr/Radarr typically connect to download clients
-        ("sonarr", "qbittorrent", "BitTorrent", 8080),
-        ("sonarr", "sabnzbd", "Usenet", 8080),
-        ("sonarr", "nzbget", "Usenet", 6789),
-        ("radarr", "qbittorrent", "BitTorrent", 8080),
-        ("radarr", "sabnzbd", "Usenet", 8080),
-        ("radarr", "nzbget", "Usenet", 6789),
-        // Overseerr connects to Sonarr/Radarr
-        ("overseerr", "sonarr", "API", 8989),
-        ("overseerr", "radarr", "API", 7878),
-        // Plex/Jellyfin are media servers
-        ("overseerr", "plex", "API", 32400),
-        ("overseerr", "jellyfin", "API", 8096),
-        // Prowlarr provides indexers
-        ("sonarr", "prowlarr", "Indexers", 9696),
-        ("radarr", "prowlarr", "Indexers", 9696),
-        // VictoriaMetrics scrapes everything
-        ("victoriametrics", "sonarr", "Metrics", 8989),
-        ("victoriametrics", "radarr", "Metrics", 7878),
-        ("victoriametrics", "qbittorrent", "Metrics", 8080),
-        ("victoriametrics", "kubarr-system", "Metrics", 8000),
-    ];
-
-    for (source, target, protocol, port) in relationships {
-        if namespaces.contains_key(source) && namespaces.contains_key(target) {
-            edges.push(NetworkEdge {
-                source: source.to_string(),
-                target: target.to_string(),
-                edge_type: "service".to_string(),
-                port: Some(port),
-                protocol: Some(protocol.to_string()),
-                label: protocol.to_string(),
-            });
-        }
     }
 }

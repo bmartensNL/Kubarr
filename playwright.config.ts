@@ -10,7 +10,7 @@ export default defineConfig({
   testDir: './e2e',
   fullyParallel: false, // Run tests sequentially for auth state management
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  retries: 0, // Disable retries to speed up CI (OAuth flow is slow)
   workers: 1, // Single worker for consistent auth state
   reporter: [
     ['html', { open: 'never' }],

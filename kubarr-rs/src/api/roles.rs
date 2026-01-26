@@ -40,12 +40,15 @@ pub struct CreateRoleRequest {
     pub description: Option<String>,
     #[serde(default)]
     pub app_names: Vec<String>,
+    #[serde(default)]
+    pub requires_2fa: bool,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateRoleRequest {
     pub name: Option<String>,
     pub description: Option<String>,
+    pub requires_2fa: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -59,6 +62,7 @@ pub struct RoleWithAppsResponse {
     pub name: String,
     pub description: Option<String>,
     pub is_system: bool,
+    pub requires_2fa: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub app_names: Vec<String>,
     pub permissions: Vec<String>,
@@ -110,6 +114,7 @@ async fn get_role_with_apps(state: &AppState, role_id: i64) -> Result<RoleWithAp
         name: found_role.name,
         description: found_role.description,
         is_system: found_role.is_system,
+        requires_2fa: found_role.requires_2fa,
         created_at: found_role.created_at,
         app_names,
         permissions,
@@ -183,6 +188,7 @@ async fn create_role(
         name: Set(data.name),
         description: Set(data.description),
         is_system: Set(false),
+        requires_2fa: Set(data.requires_2fa),
         created_at: Set(now),
         ..Default::default()
     };
@@ -252,6 +258,9 @@ async fn update_role(
     }
     if let Some(description) = data.description {
         role_model.description = Set(Some(description));
+    }
+    if let Some(requires_2fa) = data.requires_2fa {
+        role_model.requires_2fa = Set(requires_2fa);
     }
 
     role_model.update(&state.db).await?;

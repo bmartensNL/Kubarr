@@ -7,15 +7,15 @@ use axum::{
 };
 use base64::Engine;
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, ModelTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 
 use crate::api::extractors::{AdminUser, AuthUser};
 use crate::config::CONFIG;
 use crate::db::entities::prelude::*;
-use crate::db::entities::{oauth2_client, system_setting, user};
+use crate::db::entities::{oauth2_client, pending_2fa_challenge, role, system_setting, user, user_role};
 use crate::error::{AppError, Result};
-use crate::services::{get_jwks, verify_password, OAuth2Service};
+use crate::services::{generate_2fa_challenge_token, get_jwks, verify_password, verify_totp, OAuth2Service};
 use crate::state::AppState;
 
 /// Create auth routes
@@ -40,6 +40,7 @@ pub fn auth_routes(state: AppState) -> Router {
         .route("/session/login", post(session_login))
         .route("/session/verify", get(session_verify))
         .route("/session/logout", post(session_logout))
+        .route("/session/2fa/verify", post(verify_2fa_challenge))
         // Admin endpoints
         .route(
             "/admin/regenerate-client-secret",
@@ -157,6 +158,23 @@ pub struct RevokeRequest {
     pub token: String,
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "status")]
+pub enum SessionLoginResponse {
+    #[serde(rename = "success")]
+    Success,
+    #[serde(rename = "2fa_required")]
+    TwoFactorRequired { challenge_token: String },
+    #[serde(rename = "2fa_setup_required")]
+    TwoFactorSetupRequired,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Verify2FARequest {
+    pub challenge_token: String,
+    pub code: String,
 }
 
 // ============================================================================
@@ -450,13 +468,59 @@ async fn api_login(
     }))
 }
 
-/// Session-based login - sets HttpOnly cookie
+/// Check if user's role requires 2FA
+async fn user_requires_2fa(db: &sea_orm::DatabaseConnection, user_id: i64) -> bool {
+    let roles: Vec<role::Model> = Role::find()
+        .inner_join(UserRole)
+        .filter(user_role::Column::UserId.eq(user_id))
+        .all(db)
+        .await
+        .unwrap_or_default();
+
+    roles.iter().any(|r| r.requires_2fa)
+}
+
+/// Complete login by setting session cookie
+async fn complete_session_login(
+    state: &AppState,
+    found_user: &user::Model,
+) -> Result<Response> {
+    use crate::api::extractors::{get_user_app_access, get_user_permissions};
+    use crate::services::create_access_token;
+
+    // Fetch user permissions and allowed apps
+    let permissions = get_user_permissions(&state.db, found_user.id).await;
+    let allowed_apps = get_user_app_access(&state.db, found_user.id).await;
+
+    // Create JWT token with embedded permissions
+    let access_token = create_access_token(
+        &found_user.id.to_string(),
+        Some(&found_user.email),
+        None,
+        None,
+        None,
+        Some(permissions),
+        Some(allowed_apps),
+    )?;
+
+    // Set HttpOnly cookie with the token
+    let cookie = format!(
+        "kubarr_session={}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800",
+        access_token
+    );
+
+    let mut headers = HeaderMap::new();
+    headers.insert(SET_COOKIE, HeaderValue::from_str(&cookie).unwrap());
+
+    Ok((headers, Json(SessionLoginResponse::Success)).into_response())
+}
+
+/// Session-based login - sets HttpOnly cookie or returns 2FA challenge
 async fn session_login(
     State(state): State<AppState>,
     Json(login): Json<LoginRequest>,
 ) -> Result<Response> {
-    use crate::api::extractors::{get_user_app_access, get_user_permissions};
-    use crate::services::create_access_token;
+    use chrono::Duration;
 
     // Find user
     let found_user = User::find()
@@ -490,31 +554,81 @@ async fn session_login(
         return Err(AppError::Forbidden("Account pending approval".to_string()));
     }
 
-    // Fetch user permissions and allowed apps
-    let permissions = get_user_permissions(&state.db, found_user.id).await;
-    let allowed_apps = get_user_app_access(&state.db, found_user.id).await;
+    // Check if user has 2FA enabled
+    if found_user.totp_enabled {
+        // Create a 2FA challenge
+        let challenge_token = generate_2fa_challenge_token();
+        let now = Utc::now();
+        let expires_at = now + Duration::minutes(5);
 
-    // Create JWT token with embedded permissions
-    let access_token = create_access_token(
-        &found_user.id.to_string(),
-        Some(&found_user.email),
-        None,
-        None,
-        None,
-        Some(permissions),
-        Some(allowed_apps),
-    )?;
+        // Clean up any existing challenges for this user
+        Pending2faChallenge::delete_many()
+            .filter(pending_2fa_challenge::Column::UserId.eq(found_user.id))
+            .exec(&state.db)
+            .await?;
 
-    // Set HttpOnly cookie with the token
-    let cookie = format!(
-        "kubarr_session={}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800",
-        access_token
-    );
+        // Create new challenge
+        let challenge = pending_2fa_challenge::ActiveModel {
+            user_id: Set(found_user.id),
+            challenge_token: Set(challenge_token.clone()),
+            expires_at: Set(expires_at),
+            created_at: Set(now),
+            ..Default::default()
+        };
+        challenge.insert(&state.db).await?;
 
-    let mut headers = HeaderMap::new();
-    headers.insert(SET_COOKIE, HeaderValue::from_str(&cookie).unwrap());
+        return Ok(Json(SessionLoginResponse::TwoFactorRequired { challenge_token }).into_response());
+    }
 
-    Ok((headers, Json(serde_json::json!({"success": true}))).into_response())
+    // Check if role requires 2FA but user hasn't set it up
+    if user_requires_2fa(&state.db, found_user.id).await {
+        return Ok(Json(SessionLoginResponse::TwoFactorSetupRequired).into_response());
+    }
+
+    // No 2FA required - complete login
+    complete_session_login(&state, &found_user).await
+}
+
+/// Verify 2FA code and complete login
+async fn verify_2fa_challenge(
+    State(state): State<AppState>,
+    Json(request): Json<Verify2FARequest>,
+) -> Result<Response> {
+    // Find the challenge
+    let challenge = Pending2faChallenge::find()
+        .filter(pending_2fa_challenge::Column::ChallengeToken.eq(&request.challenge_token))
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::BadRequest("Invalid or expired challenge".to_string()))?;
+
+    // Check if challenge is expired
+    if challenge.expires_at < Utc::now() {
+        // Delete expired challenge
+        challenge.clone().delete(&state.db).await?;
+        return Err(AppError::BadRequest("Challenge has expired".to_string()));
+    }
+
+    // Get the user
+    let found_user = User::find_by_id(challenge.user_id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::BadRequest("User not found".to_string()))?;
+
+    // Get the TOTP secret
+    let totp_secret = found_user.totp_secret.as_ref().ok_or_else(|| {
+        AppError::Internal("User has 2FA enabled but no secret".to_string())
+    })?;
+
+    // Verify the TOTP code
+    if !verify_totp(totp_secret, &request.code, &found_user.email)? {
+        return Err(AppError::BadRequest("Invalid verification code".to_string()));
+    }
+
+    // Delete the challenge (it's been used)
+    challenge.delete(&state.db).await?;
+
+    // Complete the login
+    complete_session_login(&state, &found_user).await
 }
 
 /// Verify session - for Caddy forward_auth

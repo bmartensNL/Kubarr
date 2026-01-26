@@ -314,6 +314,62 @@ pub fn generate_secure_password(length: usize) -> String {
         .collect()
 }
 
+// ==========================================================================
+// TOTP (Time-based One-Time Password) Functions
+// ==========================================================================
+
+const TOTP_ISSUER: &str = "Kubarr";
+
+/// Generate a new TOTP secret (base32 encoded)
+pub fn generate_totp_secret() -> String {
+    use totp_rs::Secret;
+    Secret::generate_secret().to_encoded().to_string()
+}
+
+/// Create a TOTP instance for verification
+fn create_totp(secret: &str, account_name: &str) -> Result<totp_rs::TOTP> {
+    use totp_rs::{Algorithm, Secret, TOTP};
+
+    let secret_bytes = Secret::Encoded(secret.to_string())
+        .to_bytes()
+        .map_err(|e| AppError::Internal(format!("Invalid TOTP secret: {}", e)))?;
+
+    TOTP::new(
+        Algorithm::SHA1,
+        6,     // digits
+        1,     // skew (allow 1 step before/after for clock drift)
+        30,    // step (30 seconds)
+        secret_bytes,
+        Some(TOTP_ISSUER.to_string()),
+        account_name.to_string(),
+    )
+    .map_err(|e| AppError::Internal(format!("Failed to create TOTP: {}", e)))
+}
+
+/// Verify a TOTP code
+pub fn verify_totp(secret: &str, code: &str, account_name: &str) -> Result<bool> {
+    let totp = create_totp(secret, account_name)?;
+    Ok(totp.check_current(code).unwrap_or(false))
+}
+
+/// Get TOTP provisioning URI for QR code generation
+pub fn get_totp_provisioning_uri(secret: &str, account_name: &str) -> Result<String> {
+    let totp = create_totp(secret, account_name)?;
+    Ok(totp.get_url())
+}
+
+/// Get TOTP QR code as base64-encoded PNG
+pub fn get_totp_qr_code_base64(secret: &str, account_name: &str) -> Result<String> {
+    let totp = create_totp(secret, account_name)?;
+    totp.get_qr_base64()
+        .map_err(|e| AppError::Internal(format!("Failed to generate QR code: {}", e)))
+}
+
+/// Generate a 2FA challenge token
+pub fn generate_2fa_challenge_token() -> String {
+    generate_random_string(32)
+}
+
 /// Get the JWKS (JSON Web Key Set) for the public key
 pub fn get_jwks() -> Result<serde_json::Value> {
     let public_pem = get_public_key()?;

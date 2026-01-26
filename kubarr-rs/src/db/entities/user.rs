@@ -14,6 +14,10 @@ pub struct Model {
     pub hashed_password: String,
     pub is_active: bool,
     pub is_approved: bool,
+    #[serde(skip_serializing)]
+    pub totp_secret: Option<String>,
+    pub totp_enabled: bool,
+    pub totp_verified_at: Option<DateTimeUtc>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
 }
@@ -26,6 +30,8 @@ pub enum Relation {
     Tokens,
     #[sea_orm(has_one = "super::user_preferences::Entity")]
     Preferences,
+    #[sea_orm(has_many = "super::pending_2fa_challenge::Entity")]
+    Pending2faChallenges,
 }
 
 impl Related<super::role::Entity> for Entity {

@@ -5,6 +5,7 @@ export interface Role {
   name: string;
   description: string | null;
   is_system: boolean;
+  requires_2fa: boolean;
   created_at: string;
   app_names: string[];
   permissions: string[];
@@ -26,11 +27,13 @@ export interface CreateRoleRequest {
   name: string;
   description?: string;
   app_names?: string[];
+  requires_2fa?: boolean;
 }
 
 export interface UpdateRoleRequest {
   name?: string;
   description?: string;
+  requires_2fa?: boolean;
 }
 
 export interface SetRoleAppsRequest {

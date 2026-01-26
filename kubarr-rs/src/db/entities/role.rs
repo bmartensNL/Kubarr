@@ -10,6 +10,7 @@ pub struct Model {
     pub name: String,
     pub description: Option<String>,
     pub is_system: bool,
+    pub requires_2fa: bool,
     pub created_at: DateTimeUtc,
 }
 
