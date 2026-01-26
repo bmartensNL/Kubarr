@@ -14,7 +14,7 @@ jobs:
   e2e-tests:
     name: E2E Tests with Kind
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Checkout code
@@ -194,35 +194,46 @@ jobs:
           kubectl describe pods -n kubarr 2>/dev/null | tail -100 || true
           kubectl describe pods -n oauth2-proxy 2>/dev/null | tail -100 || true
 
-      - name: Setup port-forward
+      - name: Setup port-forwards
         run: |
-          # Port-forward oauth2-proxy (service port 80 -> localhost:8080)
-          kubectl port-forward svc/oauth2-proxy 8080:80 -n oauth2-proxy &
-          echo $! > /tmp/pf_pid
+          # Port-forward backend directly for setup (port 8000)
+          kubectl port-forward svc/kubarr 8000:8000 -n kubarr &
+          echo $! > /tmp/pf_backend_pid
 
-          # Wait for port-forward to be ready
-          echo "Waiting for port-forward to be ready..."
+          # Port-forward oauth2-proxy for E2E tests (port 8080)
+          kubectl port-forward svc/oauth2-proxy 8080:80 -n oauth2-proxy &
+          echo $! > /tmp/pf_oauth_pid
+
+          # Wait for backend port-forward
+          echo "Waiting for backend port-forward..."
           for i in {1..30}; do
-            if curl -s -o /dev/null -w "%{http_code}" http://localhost:8080 2>/dev/null | grep -qE "200|302|401|403"; then
-              echo "Port-forward is ready!"
+            if curl -s http://localhost:8000/api/system/health 2>/dev/null | grep -q "ok"; then
+              echo "Backend port-forward ready!"
               break
             fi
-            echo "Attempt $i: waiting..."
+            echo "Attempt $i: waiting for backend..."
             sleep 2
           done
 
-          # Show what we got
-          echo "Testing connectivity:"
-          curl -s -o /dev/null -w "HTTP Status: %{http_code}\n" http://localhost:8080 || true
+          # Wait for oauth2-proxy port-forward
+          echo "Waiting for oauth2-proxy port-forward..."
+          for i in {1..30}; do
+            if curl -s -o /dev/null -w "%{http_code}" http://localhost:8080 2>/dev/null | grep -qE "200|302|401|403"; then
+              echo "OAuth2-proxy port-forward ready!"
+              break
+            fi
+            echo "Attempt $i: waiting for oauth2-proxy..."
+            sleep 2
+          done
 
       - name: Initialize Kubarr setup
         run: |
-          echo "Checking backend health directly..."
-          kubectl exec -n kubarr deploy/kubarr -c backend -- curl -s http://localhost:8000/api/system/health || echo "Health check via exec failed"
+          echo "Checking backend health..."
+          curl -s http://localhost:8000/api/system/health || echo "Health check failed"
 
           echo ""
-          echo "Running initial setup..."
-          SETUP_RESPONSE=$(kubectl exec -n kubarr deploy/kubarr -c backend -- curl -s -X POST \
+          echo "Running initial setup via port-forward..."
+          SETUP_RESPONSE=$(curl -s -X POST \
             http://localhost:8000/api/setup/initialize \
             -H "Content-Type: application/json" \
             -d '{
@@ -231,15 +242,17 @@ jobs:
               "admin_password": "admin",
               "storage_path": "/data",
               "base_url": "http://localhost:8080"
-            }' 2>&1) || true
+            }') || true
 
           echo "Setup response: $SETUP_RESPONSE"
 
-          # Check if setup was successful or already completed
-          if echo "$SETUP_RESPONSE" | grep -qE "success|already|oauth2_client"; then
+          # Verify admin user can be used
+          if echo "$SETUP_RESPONSE" | grep -qE "success|admin|oauth2"; then
             echo "Setup completed successfully!"
           else
-            echo "Setup may have issues, but continuing..."
+            echo "Setup response: $SETUP_RESPONSE"
+            echo "Attempting to check setup status..."
+            curl -s http://localhost:8000/api/setup/status || true
           fi
 
       - name: Run Playwright tests
