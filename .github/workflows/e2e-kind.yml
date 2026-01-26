@@ -137,20 +137,10 @@ jobs:
 
       - name: Deploy OAuth2-Proxy
         run: |
-          # Create namespace
-          kubectl create namespace oauth2-proxy --dry-run=client -o yaml | kubectl apply -f -
-
-          # Create the secret that oauth2-proxy expects
-          kubectl create secret generic oauth2-proxy-secret \
-            --from-literal=client-secret="${CLIENT_SECRET}" \
-            --from-literal=cookie-secret="${COOKIE_SECRET}" \
-            -n oauth2-proxy \
-            --dry-run=client -o yaml | kubectl apply -f -
-
-          # Deploy oauth2-proxy chart
+          # Deploy oauth2-proxy chart (it creates its own secret from values)
           helm upgrade --install oauth2-proxy ./charts/oauth2-proxy \
             --namespace oauth2-proxy \
-            --set namespace.create=false \
+            --create-namespace \
             --set config.clientId=oauth2-proxy \
             --set config.clientSecret="${CLIENT_SECRET}" \
             --set config.cookieSecret="${COOKIE_SECRET}" \
