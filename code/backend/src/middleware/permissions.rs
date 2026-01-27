@@ -105,12 +105,6 @@ define_permissions! {
     /// Manage notification settings
     NotificationsManage => "notifications.manage",
 
-    // OAuth clients
-    /// View OAuth clients
-    OAuthView => "oauth.view",
-    /// Manage OAuth clients
-    OAuthManage => "oauth.manage",
-
     // Networking
     /// View network topology
     NetworkingView => "networking.view",

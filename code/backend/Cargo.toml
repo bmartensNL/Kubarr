@@ -8,10 +8,12 @@ description = "Kubernetes application management dashboard"
 
 [dependencies]
 # Web framework
-axum = { version = "0.7", features = ["macros", "multipart"] }
+axum = { version = "0.7", features = ["macros", "multipart", "ws"] }
 tower-http = { version = "0.5", features = ["cors", "fs", "trace", "compression-gzip"] }
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
 http = "1"
 
 # Database
@@ -27,7 +29,6 @@ jsonwebtoken = "9"
 bcrypt = "0.15"
 rsa = { version = "0.9", features = ["sha2"] }
 rand = "0.8"
-sha2 = "0.10"
 base64 = "0.22"
 hex = "0.4"
 totp-rs = { version = "5", features = ["qr", "gen_secret"] }

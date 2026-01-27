@@ -9,7 +9,6 @@ use rsa::{
     RsaPrivateKey, RsaPublicKey,
 };
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::fs;
 
 use crate::config::CONFIG;
@@ -262,43 +261,6 @@ pub fn generate_random_string(length: usize) -> String {
     let mut rng = rand::thread_rng();
     let bytes: Vec<u8> = (0..length).map(|_| rng.gen()).collect();
     hex::encode(bytes)
-}
-
-/// Generate an OAuth2 authorization code
-pub fn generate_authorization_code() -> String {
-    generate_random_string(32)
-}
-
-/// Hash an OAuth2 client secret (same as password hashing)
-pub fn hash_client_secret(secret: &str) -> Result<String> {
-    hash_password(secret)
-}
-
-/// Verify an OAuth2 client secret
-pub fn verify_client_secret(plain_secret: &str, hashed_secret: &str) -> bool {
-    verify_password(plain_secret, hashed_secret)
-}
-
-/// Verify PKCE code challenge
-pub fn verify_pkce(code_verifier: &str, code_challenge: &str, method: &str) -> bool {
-    match method {
-        "S256" => {
-            let mut hasher = Sha256::new();
-            hasher.update(code_verifier.as_bytes());
-            let digest = hasher.finalize();
-            let computed_challenge = URL_SAFE_NO_PAD.encode(digest);
-            computed_challenge == code_challenge
-        }
-        "plain" => code_verifier == code_challenge,
-        _ => false,
-    }
-}
-
-/// Generate a secure cookie secret for oauth2-proxy (base64-encoded 32 bytes)
-pub fn generate_cookie_secret() -> String {
-    let mut rng = rand::thread_rng();
-    let bytes: [u8; 32] = rng.gen();
-    base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
 /// Generate a secure random password

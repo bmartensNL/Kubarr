@@ -7,6 +7,7 @@ pub mod monitoring;
 pub mod networking;
 pub mod notifications;
 pub mod oauth;
+pub mod proxy;
 pub mod roles;
 pub mod settings;
 pub mod setup;
@@ -24,6 +25,7 @@ pub fn create_router(state: AppState) -> Router {
     Router::new()
         .nest("/api", api_routes(state.clone()))
         .nest("/auth", auth::auth_routes(state.clone()))
+        .nest("/proxy", proxy::proxy_routes(state.clone()))
         .layer(axum_middleware::from_fn_with_state(
             state,
             require_auth,

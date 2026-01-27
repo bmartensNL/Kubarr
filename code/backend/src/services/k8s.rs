@@ -255,66 +255,6 @@ impl K8sClient {
         Ok(endpoints)
     }
 
-    /// Sync OAuth2-proxy credentials to Kubernetes secret
-    pub async fn sync_oauth2_proxy_secret(
-        &self,
-        client_id: &str,
-        client_secret: &str,
-        cookie_secret: &str,
-        namespace: &str,
-    ) -> Result<bool> {
-        use k8s_openapi::ByteString;
-
-        let secrets: Api<Secret> = Api::namespaced(self.client.clone(), namespace);
-        let secret_name = "oauth2-proxy-credentials";
-
-        let mut data = std::collections::BTreeMap::new();
-        data.insert(
-            "client-id".to_string(),
-            ByteString(client_id.as_bytes().to_vec()),
-        );
-        data.insert(
-            "client-secret".to_string(),
-            ByteString(client_secret.as_bytes().to_vec()),
-        );
-        data.insert(
-            "cookie-secret".to_string(),
-            ByteString(cookie_secret.as_bytes().to_vec()),
-        );
-
-        let mut labels = std::collections::BTreeMap::new();
-        labels.insert("app".to_string(), "oauth2-proxy".to_string());
-        labels.insert("managed-by".to_string(), "kubarr".to_string());
-
-        let secret = Secret {
-            metadata: ObjectMeta {
-                name: Some(secret_name.to_string()),
-                namespace: Some(namespace.to_string()),
-                labels: Some(labels),
-                ..Default::default()
-            },
-            data: Some(data),
-            type_: Some("Opaque".to_string()),
-            ..Default::default()
-        };
-
-        // Try to replace, if not exists create
-        match secrets
-            .replace(secret_name, &Default::default(), &secret)
-            .await
-        {
-            Ok(_) => Ok(true),
-            Err(kube::Error::Api(ae)) if ae.code == 404 => {
-                // Create new secret
-                match secrets.create(&Default::default(), &secret).await {
-                    Ok(_) => Ok(true),
-                    Err(_) => Ok(false),
-                }
-            }
-            Err(_) => Ok(false),
-        }
-    }
-
     /// List pods in a namespace, optionally filtered by app name
     pub async fn list_pods(&self, namespace: &str, app_name: Option<&str>) -> Result<Vec<Pod>> {
         let pods: Api<Pod> = Api::namespaced(self.client.clone(), namespace);

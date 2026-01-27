@@ -30,6 +30,9 @@ pub enum AppError {
     #[error("Service unavailable: {0}")]
     ServiceUnavailable(String),
 
+    #[error("Bad gateway: {0}")]
+    BadGateway(String),
+
     #[error("Database error: {0}")]
     Database(#[from] sea_orm::DbErr),
 
@@ -76,6 +79,7 @@ impl IntoResponse for AppError {
             AppError::Conflict(msg) => (StatusCode::CONFLICT, msg.clone()),
             AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
             AppError::ServiceUnavailable(msg) => (StatusCode::SERVICE_UNAVAILABLE, msg.clone()),
+            AppError::BadGateway(msg) => (StatusCode::BAD_GATEWAY, msg.clone()),
             AppError::Database(e) => {
                 tracing::error!("Database error: {}", e);
                 (

@@ -26,8 +26,6 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(has_many = "super::user_role::Entity")]
     UserRoles,
-    #[sea_orm(has_many = "super::oauth2_token::Entity")]
-    Tokens,
     #[sea_orm(has_one = "super::user_preferences::Entity")]
     Preferences,
     #[sea_orm(has_many = "super::pending_2fa_challenge::Entity")]
@@ -52,12 +50,6 @@ impl Related<super::user_role::Entity> for Entity {
 impl Related<super::user_preferences::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Preferences.def()
-    }
-}
-
-impl Related<super::oauth2_token::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Tokens.def()
     }
 }
 

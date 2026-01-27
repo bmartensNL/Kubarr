@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 use crate::models::prelude::*;
-use crate::models::{oauth2_client, role, system_setting, user, user_role};
+use crate::models::{role, system_setting, user, user_role};
 use crate::error::{AppError, Result};
 use crate::state::AppState;
 
@@ -35,7 +35,6 @@ struct SetupRequiredResponse {
 struct SetupStatusResponse {
     setup_required: bool,
     admin_user_exists: bool,
-    oauth2_client_exists: bool,
     storage_configured: bool,
 }
 
@@ -45,10 +44,6 @@ struct SetupRequest {
     admin_email: String,
     admin_password: String,
     storage_path: String,
-    #[serde(default)]
-    base_url: Option<String>,
-    #[serde(default)]
-    oauth2_client_secret: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -56,7 +51,6 @@ struct GeneratedCredentialsResponse {
     admin_username: String,
     admin_email: String,
     admin_password: String,
-    client_secret: String,
 }
 
 /// Check if any user with admin role exists
@@ -93,12 +87,6 @@ async fn get_setup_status(State(state): State<AppState>) -> Result<Json<SetupSta
         ));
     }
 
-    // Check for oauth2-proxy client
-    let oauth2_client_exists = OAuth2Client::find_by_id("oauth2-proxy")
-        .one(&state.db)
-        .await?
-        .is_some();
-
     // Check for storage configuration
     let storage_configured = SystemSetting::find_by_id("storage_path")
         .one(&state.db)
@@ -108,7 +96,6 @@ async fn get_setup_status(State(state): State<AppState>) -> Result<Json<SetupSta
     Ok(Json(SetupStatusResponse {
         setup_required: !admin_exists,
         admin_user_exists: admin_exists,
-        oauth2_client_exists,
         storage_configured,
     }))
 }
@@ -194,70 +181,6 @@ async fn initialize_setup(
         .await
         .map_err(|e| AppError::Internal(format!("Failed to save storage path: {}", e)))?;
 
-    // Create oauth2-proxy client if base_url is provided
-    let mut oauth2_result = serde_json::Value::Null;
-    if let Some(base_url) = &request.base_url {
-        let client_secret = request
-            .oauth2_client_secret
-            .clone()
-            .unwrap_or_else(|| crate::services::security::generate_random_string(32));
-
-        let secret_hash = crate::services::security::hash_client_secret(&client_secret)?;
-        let redirect_uris = serde_json::json!([
-            format!("{}/oauth2/callback", base_url),
-            format!("{}/oauth/callback", base_url)
-        ]);
-
-        let client_model = oauth2_client::ActiveModel {
-            client_id: Set("oauth2-proxy".to_string()),
-            client_secret_hash: Set(secret_hash),
-            name: Set("OAuth2 Proxy".to_string()),
-            redirect_uris: Set(redirect_uris.to_string()),
-            created_at: Set(now),
-        };
-        client_model
-            .insert(&state.db)
-            .await
-            .map_err(|e| AppError::Internal(format!("Failed to create OAuth2 client: {}", e)))?;
-
-        // Store the plain secret in system settings
-        let secret_setting = system_setting::ActiveModel {
-            key: Set("oauth2_client_secret".to_string()),
-            value: Set(client_secret.clone()),
-            description: Set(Some("OAuth2-proxy client secret".to_string())),
-            updated_at: Set(now),
-        };
-        secret_setting
-            .insert(&state.db)
-            .await
-            .map_err(|e| AppError::Internal(format!("Failed to save client secret: {}", e)))?;
-
-        // Sync credentials to Kubernetes secret for oauth2-proxy
-        // Cookie secret must be exactly 32 bytes for AES-256, base64 encoded
-        let cookie_secret = crate::services::security::generate_cookie_secret();
-        let k8s_guard = state.k8s_client.read().await;
-        if let Some(ref k8s) = *k8s_guard {
-            let _ = k8s
-                .sync_oauth2_proxy_secret(
-                    "oauth2-proxy",
-                    &client_secret,
-                    &cookie_secret,
-                    "kubarr-system",
-                )
-                .await;
-        }
-        drop(k8s_guard);
-
-        oauth2_result = serde_json::json!({
-            "client_id": "oauth2-proxy",
-            "client_secret": client_secret,
-            "redirect_uris": [
-                format!("{}/oauth2/callback", base_url),
-                format!("{}/oauth/callback", base_url)
-            ]
-        });
-    }
-
     Ok(Json(serde_json::json!({
         "success": true,
         "message": "Setup completed successfully",
@@ -268,8 +191,7 @@ async fn initialize_setup(
             },
             "storage": {
                 "path": request.storage_path
-            },
-            "oauth2_client": oauth2_result
+            }
         }
     })))
 }
@@ -291,7 +213,6 @@ async fn generate_credentials(
         admin_username: "admin".to_string(),
         admin_email: "admin@example.com".to_string(),
         admin_password: crate::services::security::generate_random_string(16),
-        client_secret: crate::services::security::generate_random_string(32),
     }))
 }
 

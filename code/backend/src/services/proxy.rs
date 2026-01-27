@@ -1,0 +1,221 @@
+//! Reverse proxy service for installed apps
+//!
+//! Proxies HTTP and WebSocket requests to Kubernetes services.
+
+use axum::{
+    body::Body,
+    extract::ws::{Message, WebSocket, WebSocketUpgrade},
+    http::{header, HeaderMap, Method, Response},
+};
+use futures_util::{SinkExt, StreamExt};
+use reqwest::Client;
+use tokio_tungstenite::{connect_async, tungstenite};
+
+use crate::error::{AppError, Result};
+
+/// Proxy service for forwarding requests to apps
+#[derive(Clone)]
+pub struct ProxyService {
+    client: Client,
+}
+
+impl Default for ProxyService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ProxyService {
+    pub fn new() -> Self {
+        Self {
+            client: Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .expect("Failed to create HTTP client"),
+        }
+    }
+
+    /// Proxy an HTTP request to the target URL
+    pub async fn proxy_http(
+        &self,
+        target_url: &str,
+        method: Method,
+        headers: HeaderMap,
+        body: Body,
+    ) -> Result<Response<Body>> {
+        // Convert axum body to bytes
+        let body_bytes = axum::body::to_bytes(body, usize::MAX)
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to read request body: {}", e)))?;
+
+        // Build the request
+        let mut req_builder = self.client.request(method.clone(), target_url);
+
+        // Forward headers, excluding hop-by-hop headers
+        for (name, value) in headers.iter() {
+            let name_str = name.as_str().to_lowercase();
+            // Skip hop-by-hop and problematic headers
+            if matches!(
+                name_str.as_str(),
+                "host"
+                    | "connection"
+                    | "keep-alive"
+                    | "proxy-authenticate"
+                    | "proxy-authorization"
+                    | "te"
+                    | "trailers"
+                    | "transfer-encoding"
+                    | "upgrade"
+                    | "content-length"
+            ) {
+                continue;
+            }
+            if let Ok(v) = value.to_str() {
+                req_builder = req_builder.header(name.as_str(), v);
+            }
+        }
+
+        // Add body if not empty
+        if !body_bytes.is_empty() {
+            req_builder = req_builder.body(body_bytes.to_vec());
+        }
+
+        // Send the request
+        let response = req_builder.send().await.map_err(|e| {
+            if e.is_connect() {
+                AppError::ServiceUnavailable(format!("Failed to connect to app: {}", e))
+            } else if e.is_timeout() {
+                AppError::ServiceUnavailable("Request to app timed out".to_string())
+            } else {
+                AppError::BadGateway(format!("Proxy error: {}", e))
+            }
+        })?;
+
+        // Build the response
+        let status = response.status();
+        let resp_headers = response.headers().clone();
+        let resp_body = response
+            .bytes()
+            .await
+            .map_err(|e| AppError::BadGateway(format!("Failed to read response: {}", e)))?;
+
+        let mut builder = Response::builder().status(status);
+
+        // Forward response headers
+        for (name, value) in resp_headers.iter() {
+            // Skip hop-by-hop headers
+            if matches!(
+                name.as_str(),
+                "connection"
+                    | "keep-alive"
+                    | "proxy-authenticate"
+                    | "proxy-authorization"
+                    | "te"
+                    | "trailers"
+                    | "transfer-encoding"
+            ) {
+                continue;
+            }
+            builder = builder.header(name, value);
+        }
+
+        builder
+            .body(Body::from(resp_body))
+            .map_err(|e| AppError::Internal(format!("Failed to build response: {}", e)))
+    }
+}
+
+/// Check if the request is a WebSocket upgrade request
+pub fn is_websocket_upgrade(headers: &HeaderMap) -> bool {
+    headers
+        .get(header::UPGRADE)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.eq_ignore_ascii_case("websocket"))
+        .unwrap_or(false)
+}
+
+/// Proxy a WebSocket connection
+pub async fn proxy_websocket(ws: WebSocketUpgrade, target_url: String) -> Response<Body> {
+    ws.on_upgrade(move |socket| handle_websocket(socket, target_url))
+}
+
+async fn handle_websocket(client_socket: WebSocket, target_url: String) {
+    // Connect to the backend WebSocket
+    let ws_url = target_url
+        .replace("http://", "ws://")
+        .replace("https://", "wss://");
+
+    let backend_socket = match connect_async(&ws_url).await {
+        Ok((socket, _)) => socket,
+        Err(e) => {
+            tracing::error!("Failed to connect to backend WebSocket {}: {}", ws_url, e);
+            return;
+        }
+    };
+
+    let (mut client_sink, mut client_stream) = client_socket.split();
+    let (mut backend_sink, mut backend_stream) = backend_socket.split();
+
+    // Forward messages in both directions
+    let client_to_backend = async {
+        while let Some(msg) = client_stream.next().await {
+            match msg {
+                Ok(msg) => {
+                    let tungstenite_msg = axum_to_tungstenite(msg);
+                    if let Some(msg) = tungstenite_msg {
+                        if backend_sink.send(msg).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    };
+
+    let backend_to_client = async {
+        while let Some(msg) = backend_stream.next().await {
+            match msg {
+                Ok(msg) => {
+                    let axum_msg = tungstenite_to_axum(msg);
+                    if let Some(msg) = axum_msg {
+                        if client_sink.send(msg).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    };
+
+    // Run both directions concurrently, stop when either ends
+    tokio::select! {
+        _ = client_to_backend => {}
+        _ = backend_to_client => {}
+    }
+}
+
+/// Convert axum WebSocket message to tungstenite message
+fn axum_to_tungstenite(msg: Message) -> Option<tungstenite::Message> {
+    match msg {
+        Message::Text(t) => Some(tungstenite::Message::Text(t.to_string())),
+        Message::Binary(b) => Some(tungstenite::Message::Binary(b.to_vec())),
+        Message::Ping(p) => Some(tungstenite::Message::Ping(p.to_vec())),
+        Message::Pong(p) => Some(tungstenite::Message::Pong(p.to_vec())),
+        Message::Close(_) => Some(tungstenite::Message::Close(None)),
+    }
+}
+
+/// Convert tungstenite message to axum WebSocket message
+fn tungstenite_to_axum(msg: tungstenite::Message) -> Option<Message> {
+    match msg {
+        tungstenite::Message::Text(t) => Some(Message::Text(t.into())),
+        tungstenite::Message::Binary(b) => Some(Message::Binary(b.into())),
+        tungstenite::Message::Ping(p) => Some(Message::Ping(p.into())),
+        tungstenite::Message::Pong(p) => Some(Message::Pong(p.into())),
+        tungstenite::Message::Close(_) => Some(Message::Close(None)),
+        tungstenite::Message::Frame(_) => None,
+    }
+}

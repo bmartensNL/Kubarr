@@ -5,21 +5,18 @@ mod m20260127_000002_create_roles;
 mod m20260127_000003_create_user_roles;
 mod m20260127_000004_create_role_app_permissions;
 mod m20260127_000005_create_role_permissions;
-mod m20260127_000006_create_oauth2_clients;
-mod m20260127_000007_create_oauth2_authorization_codes;
-mod m20260127_000008_create_oauth2_tokens;
-mod m20260127_000009_create_oauth_accounts;
-mod m20260127_000010_create_oauth_providers;
-mod m20260127_000011_create_pending_2fa_challenges;
-mod m20260127_000012_create_system_settings;
-mod m20260127_000013_create_user_preferences;
-mod m20260127_000014_create_invites;
-mod m20260127_000015_create_audit_logs;
-mod m20260127_000016_create_notification_channels;
-mod m20260127_000017_create_notification_events;
-mod m20260127_000018_create_user_notification_prefs;
-mod m20260127_000019_create_notification_logs;
-mod m20260127_000020_create_user_notifications;
+mod m20260127_000006_create_oauth_accounts;
+mod m20260127_000007_create_oauth_providers;
+mod m20260127_000008_create_pending_2fa_challenges;
+mod m20260127_000009_create_system_settings;
+mod m20260127_000010_create_user_preferences;
+mod m20260127_000011_create_invites;
+mod m20260127_000012_create_audit_logs;
+mod m20260127_000013_create_notification_channels;
+mod m20260127_000014_create_notification_events;
+mod m20260127_000015_create_user_notification_prefs;
+mod m20260127_000016_create_notification_logs;
+mod m20260127_000017_create_user_notifications;
 
 pub struct Migrator;
 
@@ -32,21 +29,18 @@ impl MigratorTrait for Migrator {
             Box::new(m20260127_000003_create_user_roles::Migration),
             Box::new(m20260127_000004_create_role_app_permissions::Migration),
             Box::new(m20260127_000005_create_role_permissions::Migration),
-            Box::new(m20260127_000006_create_oauth2_clients::Migration),
-            Box::new(m20260127_000007_create_oauth2_authorization_codes::Migration),
-            Box::new(m20260127_000008_create_oauth2_tokens::Migration),
-            Box::new(m20260127_000009_create_oauth_accounts::Migration),
-            Box::new(m20260127_000010_create_oauth_providers::Migration),
-            Box::new(m20260127_000011_create_pending_2fa_challenges::Migration),
-            Box::new(m20260127_000012_create_system_settings::Migration),
-            Box::new(m20260127_000013_create_user_preferences::Migration),
-            Box::new(m20260127_000014_create_invites::Migration),
-            Box::new(m20260127_000015_create_audit_logs::Migration),
-            Box::new(m20260127_000016_create_notification_channels::Migration),
-            Box::new(m20260127_000017_create_notification_events::Migration),
-            Box::new(m20260127_000018_create_user_notification_prefs::Migration),
-            Box::new(m20260127_000019_create_notification_logs::Migration),
-            Box::new(m20260127_000020_create_user_notifications::Migration),
+            Box::new(m20260127_000006_create_oauth_accounts::Migration),
+            Box::new(m20260127_000007_create_oauth_providers::Migration),
+            Box::new(m20260127_000008_create_pending_2fa_challenges::Migration),
+            Box::new(m20260127_000009_create_system_settings::Migration),
+            Box::new(m20260127_000010_create_user_preferences::Migration),
+            Box::new(m20260127_000011_create_invites::Migration),
+            Box::new(m20260127_000012_create_audit_logs::Migration),
+            Box::new(m20260127_000013_create_notification_channels::Migration),
+            Box::new(m20260127_000014_create_notification_events::Migration),
+            Box::new(m20260127_000015_create_user_notification_prefs::Migration),
+            Box::new(m20260127_000016_create_notification_logs::Migration),
+            Box::new(m20260127_000017_create_user_notifications::Migration),
         ]
     }
 }

@@ -1,11 +1,11 @@
 //! Authentication middleware for API routes
 //!
-//! Requires valid Bearer token for all endpoints except `/auth/*`.
+//! Requires valid Bearer token or session cookie for all endpoints except `/auth/*`.
 //! Fetches user permissions once and stores them in request extensions.
 
 use axum::{
     extract::{Request, State},
-    http::{header::AUTHORIZATION, StatusCode},
+    http::{header, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
     Json,
@@ -16,6 +16,9 @@ use crate::models::prelude::*;
 use crate::models::{role_app_permission, role_permission, user, user_role};
 use crate::services::security::decode_token;
 use crate::state::AppState;
+
+/// Cookie name for session token
+pub const SESSION_COOKIE_NAME: &str = "kubarr_session";
 
 /// Authenticated user with permissions, stored in request extensions
 #[derive(Clone, Debug)]
@@ -38,7 +41,7 @@ impl AuthenticatedUser {
     }
 }
 
-/// Auth middleware that validates Bearer tokens and fetches permissions
+/// Auth middleware that validates Bearer tokens or session cookies and fetches permissions
 ///
 /// Skips authentication for `/auth/*` routes.
 /// Returns 401 Unauthorized if token is missing or invalid.
@@ -54,11 +57,11 @@ pub async fn require_auth(
         return next.run(req).await;
     }
 
-    // Extract Bearer token from Authorization header
-    let token = match extract_bearer_token(&req) {
+    // Extract token from Bearer header or session cookie
+    let token = match extract_token(&req) {
         Some(t) => t,
         None => {
-            return unauthorized_response("Missing or invalid Authorization header");
+            return unauthorized_response("Missing or invalid authentication");
         }
     };
 
@@ -76,12 +79,37 @@ pub async fn require_auth(
     next.run(req).await
 }
 
+/// Extract token from Bearer header or session cookie
+/// Priority: Bearer token (API clients) > Cookie (browser sessions)
+fn extract_token(req: &Request) -> Option<String> {
+    // Try Bearer token first
+    if let Some(token) = extract_bearer_token(req) {
+        return Some(token);
+    }
+    // Fall back to session cookie
+    extract_cookie_token(req)
+}
+
 /// Extract Bearer token from Authorization header
 fn extract_bearer_token(req: &Request) -> Option<String> {
-    let auth_header = req.headers().get(AUTHORIZATION)?;
+    let auth_header = req.headers().get(header::AUTHORIZATION)?;
     let auth_str = auth_header.to_str().ok()?;
     let token = auth_str.strip_prefix("Bearer ")?;
     Some(token.to_string())
+}
+
+/// Extract session token from cookie
+fn extract_cookie_token(req: &Request) -> Option<String> {
+    let cookies = req.headers().get(header::COOKIE)?;
+    let cookie_str = cookies.to_str().ok()?;
+
+    for cookie in cookie_str.split(';') {
+        let cookie = cookie.trim();
+        if let Some(value) = cookie.strip_prefix(&format!("{}=", SESSION_COOKIE_NAME)) {
+            return Some(value.to_string());
+        }
+    }
+    None
 }
 
 /// Validate JWT token, fetch user and their permissions
