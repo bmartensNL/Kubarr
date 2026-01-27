@@ -1,13 +1,3 @@
-mod api;
-mod config;
-mod db;
-mod error;
-mod services;
-mod state;
-
-#[cfg(test)]
-mod test_helpers;
-
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -20,10 +10,11 @@ use tower_http::{
 };
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::config::CONFIG;
-use crate::db::create_pool;
-use crate::services::{AppCatalog, AuditService, K8sClient, NotificationService};
-use crate::state::AppState;
+use kubarr::api;
+use kubarr::config::CONFIG;
+use kubarr::db::create_pool;
+use kubarr::services::{AppCatalog, AuditService, K8sClient, NotificationService};
+use kubarr::state::AppState;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

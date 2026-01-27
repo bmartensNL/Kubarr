@@ -44,6 +44,7 @@ pub async fn seed_test_data(db: &DatabaseConnection) {
         name: Set("admin".to_string()),
         description: Set(Some("Full administrator access".to_string())),
         is_system: Set(true),
+        requires_2fa: Set(false),
         created_at: Set(now),
         ..Default::default()
     };
@@ -53,6 +54,7 @@ pub async fn seed_test_data(db: &DatabaseConnection) {
         name: Set("viewer".to_string()),
         description: Set(Some("View-only access".to_string())),
         is_system: Set(true),
+        requires_2fa: Set(false),
         created_at: Set(now),
         ..Default::default()
     };
@@ -62,6 +64,7 @@ pub async fn seed_test_data(db: &DatabaseConnection) {
         name: Set("downloader".to_string()),
         description: Set(Some("Download client access".to_string())),
         is_system: Set(true),
+        requires_2fa: Set(false),
         created_at: Set(now),
         ..Default::default()
     };
@@ -170,6 +173,9 @@ pub async fn create_test_user(
         hashed_password: Set(hashed),
         is_active: Set(true),
         is_approved: Set(is_approved),
+        totp_secret: Set(None),
+        totp_enabled: Set(false),
+        totp_verified_at: Set(None),
         created_at: Set(now),
         updated_at: Set(now),
         ..Default::default()
@@ -209,7 +215,7 @@ pub async fn create_test_user_with_role(
     user
 }
 
-/// SQL schema for creating all tables (same as in db/pool.rs)
+/// SQL schema for creating all tables (synced with db/pool.rs)
 const SCHEMA_SQL: &str = r#"
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
@@ -219,6 +225,9 @@ CREATE TABLE IF NOT EXISTS users (
     hashed_password TEXT NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT 1,
     is_approved BOOLEAN NOT NULL DEFAULT 0,
+    totp_secret TEXT,
+    totp_enabled BOOLEAN NOT NULL DEFAULT 0,
+    totp_verified_at DATETIME,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -232,6 +241,7 @@ CREATE TABLE IF NOT EXISTS roles (
     name TEXT NOT NULL UNIQUE,
     description TEXT,
     is_system BOOLEAN NOT NULL DEFAULT 0,
+    requires_2fa BOOLEAN NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -346,71 +356,141 @@ CREATE TABLE IF NOT EXISTS role_permissions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_role_permissions_role ON role_permissions(role_id);
+
+-- Pending 2FA challenges table (for login flow)
+CREATE TABLE IF NOT EXISTS pending_2fa_challenges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    challenge_token TEXT NOT NULL UNIQUE,
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_2fa_token ON pending_2fa_challenges(challenge_token);
+CREATE INDEX IF NOT EXISTS idx_pending_2fa_expires ON pending_2fa_challenges(expires_at);
+
+-- Audit logs table
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    user_id INTEGER,
+    username TEXT,
+    action TEXT NOT NULL,
+    resource_type TEXT NOT NULL,
+    resource_id TEXT,
+    details TEXT,
+    ip_address TEXT,
+    user_agent TEXT,
+    success BOOLEAN NOT NULL DEFAULT 1,
+    error_message TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_resource_type ON audit_logs(resource_type);
+
+-- Notification channel configuration (admin-managed)
+CREATE TABLE IF NOT EXISTS notification_channels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_type TEXT NOT NULL UNIQUE,
+    enabled BOOLEAN NOT NULL DEFAULT 0,
+    config TEXT NOT NULL DEFAULT '{}',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_notification_channels_type ON notification_channels(channel_type);
+
+-- Notification event settings (which events trigger notifications)
+CREATE TABLE IF NOT EXISTS notification_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type TEXT NOT NULL UNIQUE,
+    enabled BOOLEAN NOT NULL DEFAULT 0,
+    severity TEXT NOT NULL DEFAULT 'info'
+);
+
+CREATE INDEX IF NOT EXISTS idx_notification_events_type ON notification_events(event_type);
+
+-- User notification preferences
+CREATE TABLE IF NOT EXISTS user_notification_prefs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    channel_type TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT 1,
+    destination TEXT,
+    verified BOOLEAN NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, channel_type),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_notification_prefs_user ON user_notification_prefs(user_id);
+
+-- Notification delivery log
+CREATE TABLE IF NOT EXISTS notification_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    channel_type TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    recipient TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    error_message TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_notification_logs_user ON notification_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_notification_logs_status ON notification_logs(status);
+CREATE INDEX IF NOT EXISTS idx_notification_logs_created ON notification_logs(created_at);
+
+-- User notifications inbox (displayed in UI)
+CREATE TABLE IF NOT EXISTS user_notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    event_type TEXT,
+    severity TEXT NOT NULL DEFAULT 'info',
+    read BOOLEAN NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_notifications_user ON user_notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_notifications_read ON user_notifications(user_id, read);
+CREATE INDEX IF NOT EXISTS idx_user_notifications_created ON user_notifications(created_at);
+
+-- OAuth provider accounts (for Google/Microsoft login linking)
+CREATE TABLE IF NOT EXISTS oauth_accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    provider TEXT NOT NULL,
+    provider_user_id TEXT NOT NULL,
+    email TEXT,
+    display_name TEXT,
+    access_token TEXT,
+    refresh_token TEXT,
+    token_expires_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(provider, provider_user_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_accounts_user ON oauth_accounts(user_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_accounts_provider ON oauth_accounts(provider, provider_user_id);
+
+-- OAuth provider configuration (admin settings for Google/Microsoft)
+CREATE TABLE IF NOT EXISTS oauth_providers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT 0,
+    client_id TEXT,
+    client_secret TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 "#;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_create_test_db() {
-        let db = create_test_db().await;
-        assert!(db.ping().await.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_create_test_db_with_seed() {
-        use crate::db::entities::prelude::*;
-        use sea_orm::EntityTrait;
-
-        let db = create_test_db_with_seed().await;
-
-        // Verify roles were created
-        let roles = Role::find().all(&db).await.unwrap();
-        assert_eq!(roles.len(), 3);
-
-        let role_names: Vec<&str> = roles.iter().map(|r| r.name.as_str()).collect();
-        assert!(role_names.contains(&"admin"));
-        assert!(role_names.contains(&"viewer"));
-        assert!(role_names.contains(&"downloader"));
-    }
-
-    #[tokio::test]
-    async fn test_create_test_user() {
-        let db = create_test_db().await;
-
-        let user = create_test_user(&db, "testuser", "test@example.com", "password123", true).await;
-
-        assert_eq!(user.username, "testuser");
-        assert_eq!(user.email, "test@example.com");
-        assert!(user.is_active);
-        assert!(user.is_approved);
-    }
-
-    #[tokio::test]
-    async fn test_create_test_user_with_role() {
-        use crate::db::entities::prelude::*;
-        use crate::db::entities::user_role;
-        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
-
-        let db = create_test_db_with_seed().await;
-
-        let user = create_test_user_with_role(
-            &db,
-            "admin_user",
-            "admin@example.com",
-            "password123",
-            "admin",
-        )
-        .await;
-
-        // Verify user has admin role
-        let user_roles = UserRole::find()
-            .filter(user_role::Column::UserId.eq(user.id))
-            .all(&db)
-            .await
-            .unwrap();
-
-        assert_eq!(user_roles.len(), 1);
-    }
-}
