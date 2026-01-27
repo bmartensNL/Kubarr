@@ -34,10 +34,34 @@ pub async fn create_test_db_with_seed() -> DatabaseConnection {
 
 /// Seed default test data into the database
 pub async fn seed_test_data(db: &DatabaseConnection) {
-    use crate::models::{role, role_app_permission, role_permission};
+    use crate::models::{role, role_app_permission, role_permission, system_setting};
     use sea_orm::{ActiveModelTrait, Set};
 
     let now = chrono::Utc::now();
+
+    // Create system settings
+    let default_settings = [
+        (
+            "registration_enabled",
+            "true",
+            "Allow new user registration",
+        ),
+        (
+            "registration_require_approval",
+            "true",
+            "Require admin approval for new registrations",
+        ),
+    ];
+
+    for (key, value, description) in default_settings {
+        let setting = system_setting::ActiveModel {
+            key: Set(key.to_string()),
+            value: Set(value.to_string()),
+            description: Set(Some(description.to_string())),
+            updated_at: Set(now),
+        };
+        setting.insert(db).await.unwrap();
+    }
 
     // Create default roles
     let admin_role = role::ActiveModel {
