@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 mod email;
 mod messagebird;
 mod telegram;
@@ -450,8 +452,6 @@ impl NotificationService {
         let db = db_lock.as_ref().ok_or_else(|| {
             AppError::Internal("Database not initialized".to_string())
         })?;
-
-        use sea_orm::QueryTrait;
 
         user_notification::Entity::update_many()
             .filter(user_notification::Column::UserId.eq(user_id))

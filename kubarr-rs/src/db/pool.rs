@@ -5,6 +5,7 @@ use sea_orm::{
 use std::time::Duration;
 
 use crate::config::CONFIG;
+#[allow(unused_imports)]
 use crate::db::entities::{oauth_provider, role, role_app_permission, role_permission, system_setting};
 use crate::error::{AppError, Result};
 

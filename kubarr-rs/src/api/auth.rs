@@ -1139,7 +1139,6 @@ async fn authorize(
     headers: HeaderMap,
     Query(params): Query<AuthorizeQuery>,
 ) -> Result<Response> {
-    use crate::services::security::decode_token;
 
     // Validate response_type
     if params.response_type != "code" {
@@ -1422,8 +1421,8 @@ async fn jwks() -> Result<Json<serde_json::Value>> {
 
 /// OIDC Discovery endpoint
 async fn openid_configuration() -> Json<serde_json::Value> {
-    let base_url = &CONFIG.oauth2_issuer_url;
-    let issuer = format!("{}/auth", base_url);
+    // oauth2_issuer_url should be the full issuer URL (e.g., http://localhost:8080/auth)
+    let issuer = CONFIG.oauth2_issuer_url.clone();
 
     Json(serde_json::json!({
         "issuer": issuer,

@@ -18,9 +18,6 @@ pub struct AuthUser(pub user::Model);
 /// Extractor for admin users
 pub struct AdminUser(pub user::Model);
 
-/// Extractor for optional authentication
-pub struct OptionalUser(pub Option<user::Model>);
-
 #[async_trait]
 impl FromRequestParts<AppState> for AuthUser {
     type Rejection = AppError;
@@ -72,19 +69,6 @@ impl FromRequestParts<AppState> for AdminUser {
                 "Authentication required".to_string(),
             )),
         }
-    }
-}
-
-#[async_trait]
-impl FromRequestParts<AppState> for OptionalUser {
-    type Rejection = AppError;
-
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
-        let user = extract_user_from_token(parts, &state.db).await?;
-        Ok(OptionalUser(user))
     }
 }
 
@@ -275,6 +259,7 @@ pub async fn user_has_permission(db: &DbConn, user_id: i64, permission: &str) ->
 }
 
 /// Check if user has access to a specific app
+#[allow(dead_code)]
 pub async fn user_has_app_access(db: &DbConn, user_id: i64, app_name: &str) -> bool {
     // First check if user has admin role (admin has access to all apps)
     let has_admin_role = UserRole::find()

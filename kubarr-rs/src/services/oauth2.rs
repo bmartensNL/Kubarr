@@ -3,7 +3,7 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, Qu
 
 use crate::api::extractors::{get_user_app_access, get_user_permissions};
 use crate::db::entities::prelude::*;
-use crate::db::entities::{oauth2_authorization_code, oauth2_client, oauth2_token, user};
+use crate::db::entities::{oauth2_authorization_code, oauth2_client, oauth2_token};
 use crate::error::{AppError, Result};
 use crate::services::security::{
     create_access_token, create_refresh_token, generate_authorization_code, verify_client_secret,
@@ -371,6 +371,7 @@ impl<'a> OAuth2Service<'a> {
     }
 
     /// Create an OAuth2 client
+    #[allow(dead_code)]
     pub async fn create_client(
         &self,
         client_id: &str,
@@ -404,6 +405,7 @@ pub struct TokenPair {
     pub access_token: String,
     pub refresh_token: String,
     pub expires_in: i64,
+    #[allow(dead_code)]
     pub refresh_expires_in: i64,
     pub scope: Option<String>,
 }

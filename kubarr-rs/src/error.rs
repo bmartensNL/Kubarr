@@ -21,6 +21,7 @@ pub enum AppError {
     Forbidden(String),
 
     #[error("Conflict: {0}")]
+    #[allow(dead_code)]
     Conflict(String),
 
     #[error("Internal server error: {0}")]

@@ -302,8 +302,6 @@ pub async fn get_audit_stats(db: &DbConn) -> Result<AuditStats> {
 
 /// Clear old audit logs (retention policy)
 pub async fn clear_old_logs(db: &DbConn, days: i64) -> Result<u64> {
-    use sea_orm::DeleteMany;
-
     let cutoff = chrono::Utc::now() - chrono::Duration::days(days);
 
     let result = audit_log::Entity::delete_many()

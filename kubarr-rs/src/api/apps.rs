@@ -6,7 +6,7 @@ use axum::{
     Json, Router,
 };
 use sea_orm::EntityTrait;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::api::extractors::{user_has_permission, AuthUser};
 use crate::config::CONFIG;

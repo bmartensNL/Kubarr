@@ -5,7 +5,7 @@ use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use rand::Rng;
 use rsa::{
-    pkcs8::{DecodePrivateKey, DecodePublicKey, EncodePrivateKey, EncodePublicKey, LineEnding},
+    pkcs8::{DecodePublicKey, EncodePrivateKey, EncodePublicKey, LineEnding},
     RsaPrivateKey, RsaPublicKey,
 };
 use serde::{Deserialize, Serialize};
@@ -302,6 +302,7 @@ pub fn generate_cookie_secret() -> String {
 }
 
 /// Generate a secure random password
+#[allow(dead_code)]
 pub fn generate_secure_password(length: usize) -> String {
     const CHARSET: &[u8] =
         b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()";
@@ -359,6 +360,7 @@ pub fn get_totp_provisioning_uri(secret: &str, account_name: &str) -> Result<Str
 }
 
 /// Get TOTP QR code as base64-encoded PNG data URL
+#[allow(dead_code)]
 pub fn get_totp_qr_code_base64(secret: &str, account_name: &str) -> Result<String> {
     let totp = create_totp(secret, account_name)?;
     let base64 = totp

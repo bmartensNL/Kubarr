@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State},
-    routing::{delete, get, patch, post, put},
+    routing::{get, put},
     Json, Router,
 };
 use chrono::Utc;

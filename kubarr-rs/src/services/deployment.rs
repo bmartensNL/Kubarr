@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::CONFIG;
 use crate::error::{AppError, Result};
-use crate::services::catalog::{AppCatalog, AppConfig};
+use crate::services::catalog::AppCatalog;
 use crate::services::K8sClient;
 
 /// Deployment request

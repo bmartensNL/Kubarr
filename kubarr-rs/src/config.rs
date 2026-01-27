@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 /// Application configuration loaded from environment variables
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Config {
     // Server
     pub host: String,
@@ -74,7 +75,7 @@ impl Config {
                 .map(|v| v.to_lowercase() == "true")
                 .unwrap_or(false),
             oauth2_issuer_url: env::var("KUBARR_OAUTH2_ISSUER_URL")
-                .unwrap_or_else(|_| "http://kubarr:8000".to_string()),
+                .unwrap_or_else(|_| "http://kubarr:8000/auth".to_string()),
 
             // Static files
             static_files_dir: PathBuf::from(

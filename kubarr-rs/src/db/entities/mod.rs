@@ -19,6 +19,7 @@ pub mod user_notification_pref;
 pub mod user_preferences;
 pub mod user_role;
 
+#[allow(unused_imports)]
 pub mod prelude {
     pub use super::audit_log::{self, Entity as AuditLog};
     pub use super::invite::{self, Entity as Invite};

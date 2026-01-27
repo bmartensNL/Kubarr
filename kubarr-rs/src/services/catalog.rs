@@ -307,6 +307,7 @@ impl AppCatalog {
     }
 
     /// Check if an app exists in the catalog
+    #[allow(dead_code)]
     pub fn app_exists(&self, app_name: &str) -> bool {
         self.apps.contains_key(&app_name.to_lowercase())
     }
@@ -325,6 +326,7 @@ impl AppCatalog {
     }
 
     /// Reload apps from charts directory
+    #[allow(dead_code)]
     pub fn reload(&mut self) {
         self.apps.clear();
         self.load_apps();

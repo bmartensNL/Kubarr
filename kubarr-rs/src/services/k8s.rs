@@ -9,7 +9,7 @@ use kube::{
 use serde::Deserialize;
 
 use crate::config::CONFIG;
-use crate::error::{AppError, Result};
+use crate::error::Result;
 
 /// Kubernetes client manager
 pub struct K8sClient {
@@ -43,6 +43,7 @@ impl K8sClient {
     }
 
     /// Test the Kubernetes connection
+    #[allow(dead_code)]
     pub async fn test_connection(&self) -> Result<bool> {
         let pods: Api<Pod> = Api::namespaced(self.client.clone(), "default");
         pods.list(&ListParams::default().limit(1)).await?;
@@ -50,6 +51,7 @@ impl K8sClient {
     }
 
     /// Get Kubernetes server version
+    #[allow(dead_code)]
     pub async fn get_server_version(&self) -> Result<String> {
         let version = self.client.apiserver_version().await?;
         Ok(format!("{}.{}", version.major, version.minor))
@@ -261,7 +263,6 @@ impl K8sClient {
         cookie_secret: &str,
         namespace: &str,
     ) -> Result<bool> {
-        use base64::Engine;
         use k8s_openapi::ByteString;
 
         let secrets: Api<Secret> = Api::namespaced(self.client.clone(), namespace);

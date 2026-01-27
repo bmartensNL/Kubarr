@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use axum::{
     extract::{Path, State},
-    routing::{get, put},
+    routing::get,
     Json, Router,
 };
 use chrono::Utc;
@@ -190,6 +190,7 @@ async fn update_setting(
 }
 
 /// Get a setting value from the database (helper for other modules)
+#[allow(dead_code)]
 pub async fn get_setting_value(db: &DbConn, key: &str) -> Result<Option<String>> {
     let setting = SystemSetting::find_by_id(key).one(db).await?;
 
@@ -206,6 +207,7 @@ pub async fn get_setting_value(db: &DbConn, key: &str) -> Result<Option<String>>
 }
 
 /// Get a boolean setting value (helper for other modules)
+#[allow(dead_code)]
 pub async fn get_setting_bool(db: &DbConn, key: &str) -> Result<bool> {
     let value = get_setting_value(db, key).await?;
     Ok(value

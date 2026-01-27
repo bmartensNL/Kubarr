@@ -1,5 +1,5 @@
 use axum::{extract::State, routing::get, Json, Router};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 
 use crate::api::extractors::AuthUser;
