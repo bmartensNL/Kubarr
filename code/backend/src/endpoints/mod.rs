@@ -22,22 +22,30 @@ use crate::state::AppState;
 
 /// Create the main API router
 pub fn create_router(state: AppState) -> Router {
-    Router::new()
-        .nest("/api", api_routes(state.clone()))
+    // Public routes (no auth required)
+    let public_routes = Router::new()
+        .route("/api/health", axum::routing::get(health_check))
+        .route("/api/system/health", axum::routing::get(health_check))
+        .route("/api/system/version", axum::routing::get(get_version))
         .nest("/auth", auth::auth_routes(state.clone()))
+        .nest("/api/setup", setup::setup_routes(state.clone()));
+
+    // Protected routes (auth required)
+    let protected_routes = Router::new()
+        .nest("/api", api_routes(state.clone()))
         .nest("/proxy", proxy::proxy_routes(state.clone()))
         .layer(axum_middleware::from_fn_with_state(
             state,
             require_auth,
-        ))
+        ));
+
+    // Merge public and protected routes
+    public_routes.merge(protected_routes)
 }
 
-/// API routes under /api/*
+/// API routes under /api/* (protected by auth middleware)
 fn api_routes(state: AppState) -> Router {
     Router::new()
-        .route("/health", axum::routing::get(health_check))
-        .route("/system/health", axum::routing::get(health_check))
-        .route("/system/version", axum::routing::get(get_version))
         .nest("/users", users::users_routes(state.clone()))
         .nest("/roles", roles::roles_routes(state.clone()))
         .nest("/settings", settings::settings_routes(state.clone()))
@@ -49,7 +57,6 @@ fn api_routes(state: AppState) -> Router {
         .nest("/audit", audit::audit_routes(state.clone()))
         .nest("/notifications", notifications::notifications_routes(state.clone()))
         .nest("/oauth", oauth::oauth_routes(state.clone()))
-        .nest("/setup", setup::setup_routes(state))
 }
 
 /// Health check endpoint

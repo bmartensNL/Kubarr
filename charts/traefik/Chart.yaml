@@ -1,6 +1,0 @@
-apiVersion: v2
-name: traefik
-description: Traefik reverse proxy with traefik-forward-auth for OAuth2 authentication
-type: application
-version: 0.1.0
-appVersion: "3.0"
