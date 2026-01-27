@@ -4,13 +4,13 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copy package files
-COPY frontend/package*.json ./
+COPY code/frontend/package*.json ./
 
 # Install dependencies
 RUN npm ci
 
 # Copy source code
-COPY frontend/ ./
+COPY code/frontend/ ./
 
 # Build args for version info
 ARG COMMIT_HASH=unknown

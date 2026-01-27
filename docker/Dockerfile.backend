@@ -5,13 +5,13 @@ FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy package files
-COPY frontend/package*.json ./
+COPY code/frontend/package*.json ./
 
 # Install dependencies
 RUN npm ci
 
 # Copy frontend source
-COPY frontend/ ./
+COPY code/frontend/ ./
 
 # Build args for version info
 ARG COMMIT_HASH=unknown
@@ -43,7 +43,7 @@ ENV OPENSSL_INCLUDE_DIR=/usr/include
 ENV CARGO_INCREMENTAL=1
 
 # Copy Cargo files first for dependency caching
-COPY kubarr-rs/Cargo.toml kubarr-rs/Cargo.lock* ./
+COPY code/backend/Cargo.toml code/backend/Cargo.lock* ./
 
 # Create dummy src to build dependencies
 RUN mkdir src && \
@@ -60,7 +60,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     rm -rf src
 
 # Copy actual source code
-COPY kubarr-rs/src ./src
+COPY code/backend/src ./src
 
 # Build args for version info
 ARG COMMIT_HASH=unknown
@@ -109,7 +109,7 @@ COPY --from=asset-builder /helm /usr/local/bin/helm
 COPY charts/ /app/charts/
 
 # Copy frontend build
-COPY --from=frontend-builder /app/frontend/dist /app/static
+COPY --from=frontend-builder /app/code/frontend/dist /app/static
 
 # Set environment variables
 ENV CHARTS_DIR=/app/charts
