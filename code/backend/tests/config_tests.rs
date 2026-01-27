@@ -62,7 +62,6 @@ fn test_path_types() {
     assert!(config.db_path.to_str().is_some());
     assert!(config.jwt_private_key_path.to_str().is_some());
     assert!(config.jwt_public_key_path.to_str().is_some());
-    assert!(config.static_files_dir.to_str().is_some());
     assert!(config.charts_dir.to_str().is_some());
 }
 

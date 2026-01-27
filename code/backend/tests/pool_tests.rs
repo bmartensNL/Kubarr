@@ -8,10 +8,9 @@ use kubarr::migrations::Migrator;
 use kubarr::models::prelude::*;
 use kubarr::models::{role, role_app_permission, role_permission};
 use kubarr::state::DbConn;
-use kubarr::test_helpers::create_test_db;
+mod common;
 
-// Note: seed_defaults is private, so we test it indirectly through create_test_db_with_seed
-use kubarr::test_helpers::create_test_db_with_seed;
+use common::{create_test_db, create_test_db_with_seed};
 
 #[tokio::test]
 async fn test_migrations_create_tables() {

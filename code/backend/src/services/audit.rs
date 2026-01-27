@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::models::audit_log::{self, AuditAction, ResourceType};
-use crate::db::pool::DbConn;
+use crate::db::DbConn;
 use crate::error::Result;
 
 /// Audit service for logging system events

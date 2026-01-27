@@ -9,7 +9,9 @@ use kubarr::services::audit::AuditService;
 use kubarr::services::catalog::AppCatalog;
 use kubarr::services::notification::NotificationService;
 use kubarr::state::{AppState, DbConn, SharedCatalog, SharedK8sClient};
-use kubarr::test_helpers::create_test_db;
+mod common;
+
+use common::create_test_db;
 
 #[tokio::test]
 async fn test_app_state_new() {

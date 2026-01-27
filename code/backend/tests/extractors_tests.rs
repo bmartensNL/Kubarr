@@ -5,7 +5,9 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use kubarr::api::extractors::{get_user_app_access, get_user_permissions, user_has_app_access, user_has_permission};
 use kubarr::models::prelude::*;
 use kubarr::models::{role, user_role};
-use kubarr::test_helpers::{create_test_db_with_seed, create_test_user, create_test_user_with_role};
+mod common;
+
+use common::{create_test_db_with_seed, create_test_user, create_test_user_with_role};
 
 // ==========================================================================
 // Permission Checking Tests

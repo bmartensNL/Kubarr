@@ -1,7 +1,9 @@
 //! Tests for OAuth2 service
 
 use kubarr::services::oauth2::{OAuth2Service, TokenIntrospection, TokenPair};
-use kubarr::test_helpers::{create_test_db_with_seed, create_test_user_with_role};
+mod common;
+
+use common::{create_test_db_with_seed, create_test_user_with_role};
 
 // ==========================================================================
 // TokenPair Tests

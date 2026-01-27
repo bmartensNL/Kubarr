@@ -1,6 +1,6 @@
-use kubarr::test_helpers::{
-    create_test_db, create_test_db_with_seed, create_test_user, create_test_user_with_role,
-};
+mod common;
+
+use common::{create_test_db, create_test_db_with_seed, create_test_user, create_test_user_with_role};
 
 #[tokio::test]
 async fn test_create_test_db() {

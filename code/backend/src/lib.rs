@@ -1,11 +1,13 @@
 pub mod api;
-pub mod config;
-pub mod db;
-pub mod error;
+pub mod application;
 pub mod migrations;
 pub mod models;
 pub mod schemas;
 pub mod services;
-pub mod state;
 
-pub mod test_helpers;
+// Re-export from application for convenience
+pub use application::bootstrapper;
+pub use application::config;
+pub use application::error;
+pub use application::pool as db;
+pub use application::state;

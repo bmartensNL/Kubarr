@@ -6,7 +6,7 @@
 use sea_orm::{Database, DatabaseConnection};
 use sea_orm_migration::MigratorTrait;
 
-use crate::migrations::Migrator;
+use kubarr::migrations::Migrator;
 
 /// Create an in-memory SQLite database for testing
 pub async fn create_test_db() -> DatabaseConnection {
@@ -34,7 +34,7 @@ pub async fn create_test_db_with_seed() -> DatabaseConnection {
 
 /// Seed default test data into the database
 pub async fn seed_test_data(db: &DatabaseConnection) {
-    use crate::models::{role, role_app_permission, role_permission, system_setting};
+    use kubarr::models::{role, role_app_permission, role_permission, system_setting};
     use sea_orm::{ActiveModelTrait, Set};
 
     let now = chrono::Utc::now();
@@ -183,9 +183,9 @@ pub async fn create_test_user(
     email: &str,
     password: &str,
     is_approved: bool,
-) -> crate::models::user::Model {
-    use crate::models::user;
-    use crate::services::security::hash_password;
+) -> kubarr::models::user::Model {
+    use kubarr::models::user;
+    use kubarr::services::security::hash_password;
     use sea_orm::{ActiveModelTrait, Set};
 
     let hashed = hash_password(password).unwrap();
@@ -215,14 +215,14 @@ pub async fn create_test_user_with_role(
     email: &str,
     password: &str,
     role_name: &str,
-) -> crate::models::user::Model {
-    use crate::models::{role, user_role};
+) -> kubarr::models::user::Model {
+    use kubarr::models::{role, user_role};
     use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 
     let user = create_test_user(db, username, email, password, true).await;
 
     // Find the role
-    let role = crate::models::prelude::Role::find()
+    let role = kubarr::models::prelude::Role::find()
         .filter(role::Column::Name.eq(role_name))
         .one(db)
         .await

@@ -25,8 +25,7 @@ pub struct Config {
     pub oauth2_enabled: bool,
     pub oauth2_issuer_url: String,
 
-    // Static files
-    pub static_files_dir: PathBuf,
+    // Charts
     pub charts_dir: PathBuf,
 
     // Build info
@@ -77,10 +76,7 @@ impl Config {
             oauth2_issuer_url: env::var("KUBARR_OAUTH2_ISSUER_URL")
                 .unwrap_or_else(|_| "http://kubarr:8000/auth".to_string()),
 
-            // Static files
-            static_files_dir: PathBuf::from(
-                env::var("STATIC_FILES_DIR").unwrap_or_else(|_| "/app/static".to_string()),
-            ),
+            // Charts
             charts_dir: PathBuf::from(
                 env::var("KUBARR_CHARTS_DIR").unwrap_or_else(|_| "/app/charts".to_string()),
             ),
