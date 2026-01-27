@@ -10,10 +10,10 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use sea_orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationTrait};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
 use crate::models::prelude::*;
-use crate::models::{role, role_app_permission, role_permission, user, user_role};
+use crate::models::{role_app_permission, role_permission, user, user_role};
 use crate::services::security::decode_token;
 use crate::state::AppState;
 
@@ -22,25 +22,16 @@ use crate::state::AppState;
 pub struct AuthenticatedUser {
     pub user: user::Model,
     pub permissions: Vec<String>,
-    pub is_admin: bool,
 }
 
 impl AuthenticatedUser {
     /// Check if user has a specific permission
     pub fn has_permission(&self, permission: &str) -> bool {
-        // Admin has all permissions
-        if self.is_admin {
-            return true;
-        }
         self.permissions.contains(&permission.to_string())
     }
 
     /// Check if user has access to a specific app
     pub fn has_app_access(&self, app_name: &str) -> bool {
-        // Admin has access to all apps
-        if self.is_admin {
-            return true;
-        }
         // Check for app.* wildcard or specific app permission
         self.permissions.contains(&"app.*".to_string())
             || self.permissions.contains(&format!("app.{}", app_name))
@@ -118,28 +109,10 @@ async fn authenticate_user(state: &AppState, token: &str) -> Result<Authenticate
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or_else(|| "User not found or inactive".to_string())?;
 
-    // Check if user has admin role
-    let is_admin = UserRole::find()
-        .filter(user_role::Column::UserId.eq(user_id))
-        .join(JoinType::InnerJoin, user_role::Relation::Role.def())
-        .filter(role::Column::Name.eq("admin"))
-        .one(&state.db)
-        .await
-        .map(|r| r.is_some())
-        .unwrap_or(false);
+    // Fetch all permissions for this user from their roles
+    let permissions = fetch_user_permissions(state, user_id).await;
 
-    // Fetch permissions (skip if admin - they have all permissions)
-    let permissions = if is_admin {
-        Vec::new() // Admin permissions are handled via is_admin flag
-    } else {
-        fetch_user_permissions(&state, user_id).await
-    };
-
-    Ok(AuthenticatedUser {
-        user,
-        permissions,
-        is_admin,
-    })
+    Ok(AuthenticatedUser { user, permissions })
 }
 
 /// Fetch all permissions for a user from their roles

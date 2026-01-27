@@ -8,7 +8,7 @@ use axum::{
 };
 use sea_orm::EntityTrait;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio_util::io::ReaderStream;
 
 use crate::middleware::permissions::{Authorized, StorageView, StorageWrite, StorageDelete, StorageDownload};
@@ -110,7 +110,7 @@ async fn get_storage_path(db: &DbConn) -> Result<PathBuf> {
 }
 
 /// Validate and resolve a requested path to prevent directory traversal
-fn validate_path(requested_path: &str, storage_path: &PathBuf) -> Result<PathBuf> {
+fn validate_path(requested_path: &str, storage_path: &Path) -> Result<PathBuf> {
     let base_path = storage_path
         .canonicalize()
         .map_err(|e| AppError::Internal(format!("Failed to resolve storage path: {}", e)))?;
@@ -304,8 +304,6 @@ async fn get_storage_stats(
     // Get disk usage
     #[cfg(unix)]
     let stats = {
-        use std::os::unix::fs::MetadataExt;
-
         let output = std::process::Command::new("df")
             .arg("-B1")
             .arg(&storage_path)

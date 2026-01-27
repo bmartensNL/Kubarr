@@ -606,10 +606,12 @@ fn mask_sensitive_config(config: &serde_json::Value) -> serde_json::Value {
     if let Some(obj) = masked.as_object_mut() {
         for (key, value) in obj.iter_mut() {
             let key_lower = key.to_lowercase();
-            if key_lower.contains("password") || key_lower.contains("secret") || key_lower.contains("token") || key_lower.contains("api_key") {
-                if value.is_string() && !value.as_str().unwrap_or("").is_empty() {
-                    *value = serde_json::Value::String("********".to_string());
-                }
+            let is_sensitive = key_lower.contains("password")
+                || key_lower.contains("secret")
+                || key_lower.contains("token")
+                || key_lower.contains("api_key");
+            if is_sensitive && value.is_string() && !value.as_str().unwrap_or("").is_empty() {
+                *value = serde_json::Value::String("********".to_string());
             }
         }
     }

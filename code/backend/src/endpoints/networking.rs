@@ -278,7 +278,7 @@ async fn discover_service_connections(
         if let Ok(cm_list) = configmaps.list(&ListParams::default()).await {
             for cm in cm_list.items {
                 if let Some(data) = &cm.data {
-                    for (_key, value) in data {
+                    for value in data.values() {
                         // Look for URLs or service references in config values
                         for (svc_name, target_ns) in &service_to_namespace {
                             if target_ns != ns && value.contains(svc_name) {
@@ -349,7 +349,7 @@ async fn discover_service_connections(
             for svc in svc_list.items {
                 if let Some(annotations) = svc.metadata.annotations {
                     // Check for upstream/backend annotations (common in ingress/proxy configs)
-                    for (_key, value) in &annotations {
+                    for value in annotations.values() {
                         for (svc_name, target_ns) in &service_to_namespace {
                             if target_ns != ns && value.contains(svc_name) {
                                 let edge_key = (ns.clone(), target_ns.clone());
@@ -412,7 +412,8 @@ async fn discover_service_connections(
     for ns in namespaces {
         let ingresses: Api<Ingress> = Api::namespaced(k8s.client().clone(), ns);
         if let Ok(ing_list) = ingresses.list(&ListParams::default()).await {
-            for ing in ing_list.items {
+            // Only process first ingress - one external edge per namespace is enough
+            if let Some(ing) = ing_list.items.into_iter().next() {
                 // Add external edge for namespaces with Ingress resources
                 let ext_edge_key = ("external".to_string(), ns.clone());
                 if !seen_edges.contains(&ext_edge_key) {
@@ -458,7 +459,6 @@ async fn discover_service_connections(
                         }
                     }
                 }
-                break; // One external edge per namespace is enough
             }
         }
     }
@@ -597,7 +597,7 @@ async fn get_network_stats(
                     let val: f64 = value.parse().unwrap_or(0.0);
                     metrics_map
                         .entry(namespace.to_string())
-                        .or_insert_with(HashMap::new)
+                        .or_default()
                         .insert(metric_name.to_string(), val);
                 }
             }

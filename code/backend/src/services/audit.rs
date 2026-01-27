@@ -8,16 +8,14 @@ use crate::db::DbConn;
 use crate::error::Result;
 
 /// Audit service for logging system events
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct AuditService {
     db: Arc<RwLock<Option<DbConn>>>,
 }
 
 impl AuditService {
     pub fn new() -> Self {
-        Self {
-            db: Arc::new(RwLock::new(None)),
-        }
+        Self::default()
     }
 
     pub async fn set_db(&self, db: DbConn) {

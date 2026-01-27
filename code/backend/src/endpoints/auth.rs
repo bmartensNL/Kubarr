@@ -9,8 +9,7 @@ use chrono::Utc;
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde::{Deserialize, Serialize};
 
-use crate::endpoints::extractors::AdminUser;
-use crate::middleware::permissions::Authenticated;
+use crate::middleware::{Authenticated, Authorized, OAuthManage};
 use crate::config::CONFIG;
 use crate::models::prelude::*;
 use crate::models::{oauth2_client, system_setting};
@@ -322,10 +321,11 @@ async fn openid_configuration() -> Json<serde_json::Value> {
     }))
 }
 
-/// Regenerate oauth2-proxy client secret (admin only)
+/// Regenerate oauth2-proxy client secret
+#[doc = "Requires: oauth.manage"]
 async fn regenerate_client_secret(
     State(state): State<AppState>,
-    AdminUser(_user): AdminUser,
+    _auth: Authorized<OAuthManage>,
 ) -> Result<Json<serde_json::Value>> {
     use crate::services::{generate_random_string, hash_client_secret};
 
