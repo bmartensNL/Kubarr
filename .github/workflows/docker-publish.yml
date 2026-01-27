@@ -30,10 +30,6 @@ jobs:
           - image: frontend
             dockerfile: docker/Dockerfile.frontend
             build-args: true
-          - image: nginx
-            dockerfile: docker/Dockerfile.nginx
-            build-args: false
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
