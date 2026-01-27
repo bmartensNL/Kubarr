@@ -144,8 +144,8 @@ kubectl rollout status deployment/kubarr-backend -n kubarr --timeout=120s
 
 ## Project Structure
 
-- `frontend/` - React frontend (Vite + TypeScript)
-- `kubarr-rs/` - Rust backend (Axum)
+- `code/frontend/` - React frontend (Vite + TypeScript)
+- `code/backend/` - Rust backend (Axum)
 - `charts/` - Helm charts for all apps
 - `docker/` - Dockerfiles for frontend and backend
 
@@ -162,5 +162,5 @@ kubectl rollout status deployment/kubarr-backend -n kubarr --timeout=120s
 3. Update the deployment and delete the pod
 4. Verify the new build is running
 
-**Changes that require frontend rebuild:** `frontend/` directory
-**Changes that require backend rebuild:** `kubarr-rs/` directory
+**Changes that require frontend rebuild:** `code/frontend/` directory
+**Changes that require backend rebuild:** `code/backend/` directory

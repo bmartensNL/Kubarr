@@ -1,93 +1,33 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Poetry
-poetry.lock
-
-# Virtual environments
-venv/
-ENV/
-env/
-.venv
-
 # IDEs
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+
+# OS
 .DS_Store
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-playwright-report/
-test-results/
-
-# MyPy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Kubernetes
-*.kubeconfig
-kubeconfig
-
-# Node.js / Frontend
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-.npm
-.yarn
-.pnp.*
-.pnpm-store/
-dist/
-dist-ssr/
-.vite/
-*.local
+Thumbs.db
+NUL
 
 # Logs
 *.log
-logs/
 
 # Environment
 .env
 .env.local
 .env.*.local
 
-# OS
-Thumbs.db
-nul
+# Kubernetes
+*.kubeconfig
+
+# Rust
+**/target/
+
+# Node.js
+node_modules/
+dist/
+.vite/
 
 # Claude Code
 .claude/
-
-# Rust
-kubarr-rs/target/
-
-# Sensitive keys - NEVER commit these
-scripts/*.pem
-scripts/jwt-keys-secret.yaml
