@@ -1,13 +1,12 @@
 use axum::{
-    extract::{Extension, Path, Query, State},
+    extract::{Path, Query, State},
     routing::{delete, get, post, put},
     Json, Router,
 };
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set};
 use serde::{Deserialize, Serialize};
 
-use crate::endpoints::extractors::user_has_permission;
-use crate::middleware::AuthenticatedUser;
+use crate::middleware::permissions::{Authenticated, Authorized, SettingsView, SettingsManage, AuditView};
 use crate::models::{notification_channel, notification_event, notification_log, user_notification_pref};
 use crate::error::{AppError, Result};
 use crate::services::notification::ChannelType;
@@ -67,7 +66,7 @@ struct InboxQuery {
 
 async fn get_inbox(
     State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    auth: Authenticated,
     Query(query): Query<InboxQuery>,
 ) -> Result<Json<InboxResponse>> {
     let limit = query.limit.unwrap_or(20).min(100);
@@ -75,13 +74,13 @@ async fn get_inbox(
 
     let notifications = state
         .notification
-        .get_user_notifications(auth_user.0.id, limit, offset)
+        .get_user_notifications(auth.user_id(), limit, offset)
         .await?;
 
-    let unread = state.notification.get_unread_count(auth_user.0.id).await?;
+    let unread = state.notification.get_unread_count(auth.user_id()).await?;
 
     let total = crate::models::user_notification::Entity::find()
-        .filter(crate::models::user_notification::Column::UserId.eq(auth_user.0.id))
+        .filter(crate::models::user_notification::Column::UserId.eq(auth.user_id()))
         .count(&state.db)
         .await?;
 
@@ -112,35 +111,35 @@ struct UnreadCountResponse {
 
 async fn get_unread_count(
     State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    auth: Authenticated,
 ) -> Result<Json<UnreadCountResponse>> {
-    let count = state.notification.get_unread_count(auth_user.0.id).await?;
+    let count = state.notification.get_unread_count(auth.user_id()).await?;
     Ok(Json(UnreadCountResponse { count }))
 }
 
 async fn mark_as_read(
     State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    auth: Authenticated,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>> {
-    state.notification.mark_as_read(id, auth_user.0.id).await?;
+    state.notification.mark_as_read(id, auth.user_id()).await?;
     Ok(Json(serde_json::json!({ "success": true })))
 }
 
 async fn mark_all_as_read(
     State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    auth: Authenticated,
 ) -> Result<Json<serde_json::Value>> {
-    state.notification.mark_all_as_read(auth_user.0.id).await?;
+    state.notification.mark_all_as_read(auth.user_id()).await?;
     Ok(Json(serde_json::json!({ "success": true })))
 }
 
 async fn delete_notification(
     State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    auth: Authenticated,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>> {
-    state.notification.delete_notification(id, auth_user.0.id).await?;
+    state.notification.delete_notification(id, auth.user_id()).await?;
     Ok(Json(serde_json::json!({ "success": true })))
 }
 
@@ -159,12 +158,8 @@ struct ChannelDto {
 
 async fn list_channels(
     State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<SettingsView>,
 ) -> Result<Json<Vec<ChannelDto>>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "settings.view").await {
-        return Err(AppError::Forbidden("Permission denied".to_string()));
-    }
-
     let channels = notification_channel::Entity::find()
         .order_by_asc(notification_channel::Column::ChannelType)
         .all(&state.db)
@@ -205,13 +200,9 @@ async fn list_channels(
 
 async fn get_channel(
     State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<SettingsView>,
     Path(channel_type): Path<String>,
 ) -> Result<Json<ChannelDto>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "settings.view").await {
-        return Err(AppError::Forbidden("Permission denied".to_string()));
-    }
-
     let channel = notification_channel::Entity::find()
         .filter(notification_channel::Column::ChannelType.eq(&channel_type))
         .one(&state.db)
@@ -249,14 +240,10 @@ struct UpdateChannelRequest {
 
 async fn update_channel(
     State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<SettingsManage>,
     Path(channel_type): Path<String>,
     Json(req): Json<UpdateChannelRequest>,
 ) -> Result<Json<ChannelDto>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "settings.manage").await {
-        return Err(AppError::Forbidden("Permission denied".to_string()));
-    }
-
     // Validate channel type
     if ChannelType::from_str(&channel_type).is_none() {
         return Err(AppError::BadRequest(format!("Invalid channel type: {}", channel_type)));
@@ -325,14 +312,10 @@ struct TestChannelResponse {
 
 async fn test_channel(
     State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<SettingsManage>,
     Path(channel_type): Path<String>,
     Json(req): Json<TestChannelRequest>,
 ) -> Result<Json<TestChannelResponse>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "settings.manage").await {
-        return Err(AppError::Forbidden("Permission denied".to_string()));
-    }
-
     let result = state.notification.test_channel(&channel_type, &req.destination).await;
 
     Ok(Json(TestChannelResponse {
@@ -354,12 +337,8 @@ struct EventSettingDto {
 
 async fn list_events(
     State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<SettingsView>,
 ) -> Result<Json<Vec<EventSettingDto>>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "settings.view").await {
-        return Err(AppError::Forbidden("Permission denied".to_string()));
-    }
-
     let events = notification_event::Entity::find()
         .order_by_asc(notification_event::Column::EventType)
         .all(&state.db)
@@ -399,14 +378,10 @@ struct UpdateEventRequest {
 
 async fn update_event(
     State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<SettingsManage>,
     Path(event_type): Path<String>,
     Json(req): Json<UpdateEventRequest>,
 ) -> Result<Json<EventSettingDto>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "settings.manage").await {
-        return Err(AppError::Forbidden("Permission denied".to_string()));
-    }
-
     let existing = notification_event::Entity::find()
         .filter(notification_event::Column::EventType.eq(&event_type))
         .one(&state.db)
@@ -454,10 +429,10 @@ struct UserPrefDto {
 
 async fn get_preferences(
     State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    auth: Authenticated,
 ) -> Result<Json<Vec<UserPrefDto>>> {
     let prefs = user_notification_pref::Entity::find()
-        .filter(user_notification_pref::Column::UserId.eq(auth_user.0.id))
+        .filter(user_notification_pref::Column::UserId.eq(auth.user_id()))
         .all(&state.db)
         .await?;
 
@@ -494,7 +469,7 @@ struct UpdatePrefRequest {
 
 async fn update_preference(
     State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    auth: Authenticated,
     Path(channel_type): Path<String>,
     Json(req): Json<UpdatePrefRequest>,
 ) -> Result<Json<UserPrefDto>> {
@@ -505,7 +480,7 @@ async fn update_preference(
     let now = chrono::Utc::now();
 
     let existing = user_notification_pref::Entity::find()
-        .filter(user_notification_pref::Column::UserId.eq(auth_user.0.id))
+        .filter(user_notification_pref::Column::UserId.eq(auth.user_id()))
         .filter(user_notification_pref::Column::ChannelType.eq(&channel_type))
         .one(&state.db)
         .await?;
@@ -528,7 +503,7 @@ async fn update_preference(
         active.update(&state.db).await?
     } else {
         let new_pref = user_notification_pref::ActiveModel {
-            user_id: Set(auth_user.0.id),
+            user_id: Set(auth.user_id()),
             channel_type: Set(channel_type.clone()),
             enabled: Set(req.enabled.unwrap_or(false)),
             destination: Set(req.destination),
@@ -580,13 +555,9 @@ struct LogsResponse {
 
 async fn list_logs(
     State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<AuditView>,
     Query(query): Query<LogsQuery>,
 ) -> Result<Json<LogsResponse>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "audit.view").await {
-        return Err(AppError::Forbidden("Permission denied".to_string()));
-    }
-
     let limit = query.limit.unwrap_or(50).min(100);
     let offset = query.offset.unwrap_or(0);
 

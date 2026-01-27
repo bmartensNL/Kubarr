@@ -1,8 +1,8 @@
-use axum::{extract::{Extension, State}, routing::get, Json, Router};
+use axum::{extract::State, routing::get, Json, Router};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 
-use crate::middleware::AuthenticatedUser;
+use crate::middleware::permissions::{Authorized, NetworkingView};
 use crate::error::Result;
 use crate::state::AppState;
 
@@ -105,7 +105,7 @@ async fn query_vm(query: &str) -> Vec<serde_json::Value> {
 /// Get network topology with nodes and edges
 async fn get_network_topology(
     State(state): State<AppState>,
-    Extension(_auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<NetworkingView>,
 ) -> Result<Json<NetworkTopology>> {
     // Query network metrics from VictoriaMetrics - get ALL namespaces
     let rx_query =
@@ -539,8 +539,7 @@ async fn discover_service_connections(
 
 /// Get detailed network statistics per app
 async fn get_network_stats(
-    State(_state): State<AppState>,
-    Extension(_auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<NetworkingView>,
 ) -> Result<Json<Vec<NetworkStats>>> {
     // Query all network metrics - get ALL namespaces
     let queries = [

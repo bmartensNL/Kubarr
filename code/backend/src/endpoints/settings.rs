@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use axum::{
-    extract::{Extension, Path, State},
+    extract::{Path, State},
     routing::get,
     Json, Router,
 };
@@ -10,8 +10,7 @@ use once_cell::sync::Lazy;
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde::{Deserialize, Serialize};
 
-use crate::endpoints::extractors::user_has_permission;
-use crate::middleware::AuthenticatedUser;
+use crate::middleware::permissions::{Authorized, SettingsView, SettingsManage};
 use crate::models::prelude::*;
 use crate::models::system_setting;
 use crate::error::{AppError, Result};
@@ -71,13 +70,8 @@ pub struct SettingsResponse {
 /// List all system settings (requires settings.view permission)
 async fn list_settings(
     State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<SettingsView>,
 ) -> Result<Json<SettingsResponse>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "settings.view").await {
-        return Err(AppError::Forbidden(
-            "Permission denied: settings.view required".to_string(),
-        ));
-    }
     // Get all settings from database
     let db_settings = SystemSetting::find().all(&state.db).await?;
 
@@ -115,13 +109,8 @@ async fn list_settings(
 async fn get_setting(
     State(state): State<AppState>,
     Path(key): Path<String>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<SettingsView>,
 ) -> Result<Json<SettingResponse>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "settings.view").await {
-        return Err(AppError::Forbidden(
-            "Permission denied: settings.view required".to_string(),
-        ));
-    }
     let db_setting = SystemSetting::find_by_id(&key).one(&state.db).await?;
 
     if let Some(setting) = db_setting {
@@ -148,14 +137,9 @@ async fn get_setting(
 async fn update_setting(
     State(state): State<AppState>,
     Path(key): Path<String>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<SettingsManage>,
     Json(data): Json<SettingUpdate>,
 ) -> Result<Json<SettingResponse>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "settings.manage").await {
-        return Err(AppError::Forbidden(
-            "Permission denied: settings.manage required".to_string(),
-        ));
-    }
     // Validate key exists in defaults
     let (_, description) = DEFAULT_SETTINGS
         .get(key.as_str())

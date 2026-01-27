@@ -1,6 +1,6 @@
 use axum::{
     body::Body,
-    extract::{Extension, Query, State},
+    extract::{Query, State},
     http::{header, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
@@ -11,8 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio_util::io::ReaderStream;
 
-use crate::endpoints::extractors::user_has_permission;
-use crate::middleware::AuthenticatedUser;
+use crate::middleware::permissions::{Authorized, StorageView, StorageWrite, StorageDelete, StorageDownload};
 use crate::models::prelude::*;
 use crate::error::{AppError, Result};
 use crate::state::{AppState, DbConn};
@@ -199,13 +198,8 @@ fn get_file_info_internal(file_path: &PathBuf, base_path: &PathBuf) -> Result<Fi
 async fn browse_directory(
     State(state): State<AppState>,
     Query(query): Query<BrowseQuery>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<StorageView>,
 ) -> Result<Json<DirectoryListing>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "storage.view").await {
-        return Err(AppError::Forbidden(
-            "Permission denied: storage.view required".to_string(),
-        ));
-    }
     let storage_path = get_storage_path(&state.db).await?;
     let base_path = storage_path
         .canonicalize()
@@ -299,13 +293,8 @@ async fn browse_directory(
 /// Get storage usage statistics
 async fn get_storage_stats(
     State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<StorageView>,
 ) -> Result<Json<StorageStats>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "storage.view").await {
-        return Err(AppError::Forbidden(
-            "Permission denied: storage.view required".to_string(),
-        ));
-    }
     let storage_path = get_storage_path(&state.db).await?;
 
     if !storage_path.exists() {
@@ -370,13 +359,8 @@ async fn get_storage_stats(
 async fn get_file_info(
     State(state): State<AppState>,
     Query(query): Query<PathQuery>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<StorageView>,
 ) -> Result<Json<FileInfo>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "storage.view").await {
-        return Err(AppError::Forbidden(
-            "Permission denied: storage.view required".to_string(),
-        ));
-    }
     let storage_path = get_storage_path(&state.db).await?;
     let base_path = storage_path
         .canonicalize()
@@ -398,14 +382,9 @@ async fn get_file_info(
 /// Create a new directory (requires storage.write permission)
 async fn create_directory(
     State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<StorageWrite>,
     Json(request): Json<CreateDirectoryRequest>,
 ) -> Result<Json<serde_json::Value>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "storage.write").await {
-        return Err(AppError::Forbidden(
-            "Permission denied: storage.write required".to_string(),
-        ));
-    }
     let storage_path = get_storage_path(&state.db).await?;
     let base_path = storage_path
         .canonicalize()
@@ -449,13 +428,8 @@ async fn create_directory(
 async fn delete_path(
     State(state): State<AppState>,
     Query(query): Query<PathQuery>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<StorageDelete>,
 ) -> Result<Json<serde_json::Value>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "storage.delete").await {
-        return Err(AppError::Forbidden(
-            "Permission denied: storage.delete required".to_string(),
-        ));
-    }
     let storage_path = get_storage_path(&state.db).await?;
     let base_path = storage_path
         .canonicalize()
@@ -524,13 +498,8 @@ async fn delete_path(
 async fn download_file(
     State(state): State<AppState>,
     Query(query): Query<PathQuery>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<StorageDownload>,
 ) -> Result<Response> {
-    if !user_has_permission(&state.db, auth_user.0.id, "storage.download").await {
-        return Err(AppError::Forbidden(
-            "Permission denied: storage.download required".to_string(),
-        ));
-    }
     let storage_path = get_storage_path(&state.db).await?;
     let file_path = validate_path(&query.path, &storage_path)?;
 

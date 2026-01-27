@@ -28,7 +28,7 @@ impl FromRequestParts<AppState> for AdminUser {
             .get::<AuthenticatedUser>()
             .ok_or_else(|| AppError::Unauthorized("Authentication required".to_string()))?;
 
-        let user = auth_user.0.clone();
+        let user = auth_user.user.clone();
 
         // Check if user has admin role
         let has_admin_role = UserRole::find()

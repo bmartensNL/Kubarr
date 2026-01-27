@@ -1,6 +1,7 @@
 //! Authentication middleware for API routes
 //!
 //! Requires valid Bearer token for all endpoints except `/auth/*`.
+//! Fetches user permissions once and stores them in request extensions.
 
 use axum::{
     extract::{Request, State},
@@ -9,18 +10,44 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationTrait};
 
 use crate::models::prelude::*;
-use crate::models::user;
+use crate::models::{role, role_app_permission, role_permission, user, user_role};
 use crate::services::security::decode_token;
 use crate::state::AppState;
 
-/// Authenticated user stored in request extensions
-#[derive(Clone)]
-pub struct AuthenticatedUser(pub user::Model);
+/// Authenticated user with permissions, stored in request extensions
+#[derive(Clone, Debug)]
+pub struct AuthenticatedUser {
+    pub user: user::Model,
+    pub permissions: Vec<String>,
+    pub is_admin: bool,
+}
 
-/// Auth middleware that validates Bearer tokens
+impl AuthenticatedUser {
+    /// Check if user has a specific permission
+    pub fn has_permission(&self, permission: &str) -> bool {
+        // Admin has all permissions
+        if self.is_admin {
+            return true;
+        }
+        self.permissions.contains(&permission.to_string())
+    }
+
+    /// Check if user has access to a specific app
+    pub fn has_app_access(&self, app_name: &str) -> bool {
+        // Admin has access to all apps
+        if self.is_admin {
+            return true;
+        }
+        // Check for app.* wildcard or specific app permission
+        self.permissions.contains(&"app.*".to_string())
+            || self.permissions.contains(&format!("app.{}", app_name))
+    }
+}
+
+/// Auth middleware that validates Bearer tokens and fetches permissions
 ///
 /// Skips authentication for `/auth/*` routes.
 /// Returns 401 Unauthorized if token is missing or invalid.
@@ -44,8 +71,8 @@ pub async fn require_auth(
         }
     };
 
-    // Validate token and get user
-    let user = match validate_token_and_get_user(&state, &token).await {
+    // Validate token and get user with permissions
+    let auth_user = match authenticate_user(&state, &token).await {
         Ok(u) => u,
         Err(msg) => {
             return unauthorized_response(&msg);
@@ -53,7 +80,7 @@ pub async fn require_auth(
     };
 
     // Add authenticated user to request extensions
-    req.extensions_mut().insert(AuthenticatedUser(user));
+    req.extensions_mut().insert(auth_user);
 
     next.run(req).await
 }
@@ -66,8 +93,8 @@ fn extract_bearer_token(req: &Request) -> Option<String> {
     Some(token.to_string())
 }
 
-/// Validate JWT token and fetch user from database
-async fn validate_token_and_get_user(state: &AppState, token: &str) -> Result<user::Model, String> {
+/// Validate JWT token, fetch user and their permissions
+async fn authenticate_user(state: &AppState, token: &str) -> Result<AuthenticatedUser, String> {
     // Decode and validate the token
     let claims = decode_token(token).map_err(|_| "Invalid or expired token".to_string())?;
 
@@ -83,14 +110,77 @@ async fn validate_token_and_get_user(state: &AppState, token: &str) -> Result<us
         .map_err(|_| "Invalid token subject".to_string())?;
 
     // Fetch user from database
-    let found_user = User::find_by_id(user_id)
+    let user = User::find_by_id(user_id)
         .filter(user::Column::IsActive.eq(true))
         .filter(user::Column::IsApproved.eq(true))
         .one(&state.db)
         .await
-        .map_err(|e| format!("Database error: {}", e))?;
+        .map_err(|e| format!("Database error: {}", e))?
+        .ok_or_else(|| "User not found or inactive".to_string())?;
 
-    found_user.ok_or_else(|| "User not found or inactive".to_string())
+    // Check if user has admin role
+    let is_admin = UserRole::find()
+        .filter(user_role::Column::UserId.eq(user_id))
+        .join(JoinType::InnerJoin, user_role::Relation::Role.def())
+        .filter(role::Column::Name.eq("admin"))
+        .one(&state.db)
+        .await
+        .map(|r| r.is_some())
+        .unwrap_or(false);
+
+    // Fetch permissions (skip if admin - they have all permissions)
+    let permissions = if is_admin {
+        Vec::new() // Admin permissions are handled via is_admin flag
+    } else {
+        fetch_user_permissions(&state, user_id).await
+    };
+
+    Ok(AuthenticatedUser {
+        user,
+        permissions,
+        is_admin,
+    })
+}
+
+/// Fetch all permissions for a user from their roles
+async fn fetch_user_permissions(state: &AppState, user_id: i64) -> Vec<String> {
+    // Get all role IDs for this user
+    let user_roles = UserRole::find()
+        .filter(user_role::Column::UserId.eq(user_id))
+        .all(&state.db)
+        .await
+        .unwrap_or_default();
+
+    let role_ids: Vec<i64> = user_roles.iter().map(|ur| ur.role_id).collect();
+
+    if role_ids.is_empty() {
+        return Vec::new();
+    }
+
+    // Get all permissions from all roles
+    let permissions = RolePermission::find()
+        .filter(role_permission::Column::RoleId.is_in(role_ids.clone()))
+        .all(&state.db)
+        .await
+        .unwrap_or_default();
+
+    let mut perms: Vec<String> = permissions.iter().map(|p| p.permission.clone()).collect();
+
+    // Get app permissions and convert to app.{name} format
+    let app_permissions = RoleAppPermission::find()
+        .filter(role_app_permission::Column::RoleId.is_in(role_ids))
+        .all(&state.db)
+        .await
+        .unwrap_or_default();
+
+    for app_perm in app_permissions {
+        perms.push(format!("app.{}", app_perm.app_name));
+    }
+
+    // Deduplicate
+    perms.sort();
+    perms.dedup();
+    perms
 }
 
 /// Create a 401 Unauthorized JSON response

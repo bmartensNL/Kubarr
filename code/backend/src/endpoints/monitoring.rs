@@ -1,13 +1,12 @@
 use axum::{
-    extract::{Extension, Path, Query, State},
+    extract::{Path, Query, State},
     routing::get,
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::endpoints::extractors::user_has_permission;
-use crate::middleware::AuthenticatedUser;
-use crate::error::{AppError, Result};
+use crate::middleware::permissions::{Authorized, MonitoringView};
+use crate::error::Result;
 use crate::services::k8s::{PodMetrics, PodStatus, ServiceEndpoint};
 use crate::state::AppState;
 
@@ -185,13 +184,8 @@ async fn query_vm_range(query: &str, start: f64, end: f64, step: &str) -> Vec<se
 /// Get resource metrics for all installed apps from VictoriaMetrics
 async fn get_app_metrics(
     State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<MonitoringView>,
 ) -> Result<Json<Vec<AppMetrics>>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "monitoring.view").await {
-        return Err(AppError::Forbidden(
-            "Permission denied: monitoring.view required".to_string(),
-        ));
-    }
     // Get list of known app namespaces from catalog
     let catalog = state.catalog.read().await;
     let mut allowed_namespaces: std::collections::HashSet<String> = catalog
@@ -323,14 +317,8 @@ async fn get_app_metrics(
 
 /// Get overall cluster resource metrics from VictoriaMetrics
 async fn get_cluster_metrics(
-    State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<MonitoringView>,
 ) -> Result<Json<ClusterMetrics>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "monitoring.view").await {
-        return Err(AppError::Forbidden(
-            "Permission denied: monitoring.view required".to_string(),
-        ));
-    }
     // Total CPU cores
     let total_cpu = query_vm("sum(machine_cpu_cores)")
         .await
@@ -451,13 +439,8 @@ async fn get_app_detail_metrics(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
     Query(query): Query<AppDetailQuery>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<MonitoringView>,
 ) -> Result<Json<AppDetailMetrics>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "monitoring.view").await {
-        return Err(AppError::Forbidden(
-            "Permission denied: monitoring.view required".to_string(),
-        ));
-    }
     use std::time::{SystemTime, UNIX_EPOCH};
 
     let duration = query.duration.unwrap_or_else(|| "1h".to_string());
@@ -678,14 +661,8 @@ async fn get_app_detail_metrics(
 
 /// Check if VictoriaMetrics is available
 async fn check_vm_available(
-    State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<MonitoringView>,
 ) -> Result<Json<serde_json::Value>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "monitoring.view").await {
-        return Err(AppError::Forbidden(
-            "Permission denied: monitoring.view required".to_string(),
-        ));
-    }
     let client = reqwest::Client::new();
     // VictoriaMetrics uses /health endpoint for health checks
     let url = format!("{}/health", VICTORIAMETRICS_URL);
@@ -708,13 +685,8 @@ async fn check_vm_available(
 async fn get_pods(
     State(state): State<AppState>,
     Query(query): Query<PodQuery>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<MonitoringView>,
 ) -> Result<Json<Vec<PodStatus>>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "monitoring.view").await {
-        return Err(AppError::Forbidden(
-            "Permission denied: monitoring.view required".to_string(),
-        ));
-    }
     let namespace = query.namespace.unwrap_or_else(|| "media".to_string());
 
     let pods = if let Some(client) = state.k8s_client.read().await.as_ref() {
@@ -733,13 +705,8 @@ async fn get_pods(
 async fn get_metrics(
     State(state): State<AppState>,
     Query(query): Query<PodQuery>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<MonitoringView>,
 ) -> Result<Json<Vec<PodMetrics>>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "monitoring.view").await {
-        return Err(AppError::Forbidden(
-            "Permission denied: monitoring.view required".to_string(),
-        ));
-    }
     let namespace = query.namespace.unwrap_or_else(|| "media".to_string());
 
     let metrics = if let Some(client) = state.k8s_client.read().await.as_ref() {
@@ -759,13 +726,8 @@ async fn get_app_health(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
     Query(query): Query<PodQuery>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<MonitoringView>,
 ) -> Result<Json<AppHealth>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "monitoring.view").await {
-        return Err(AppError::Forbidden(
-            "Permission denied: monitoring.view required".to_string(),
-        ));
-    }
     let namespace = query.namespace.unwrap_or_else(|| "media".to_string());
 
     let (pods, metrics, endpoints) = if let Some(client) = state.k8s_client.read().await.as_ref() {
@@ -826,13 +788,8 @@ async fn get_endpoints(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
     Query(query): Query<PodQuery>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<MonitoringView>,
 ) -> Result<Json<Vec<ServiceEndpoint>>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "monitoring.view").await {
-        return Err(AppError::Forbidden(
-            "Permission denied: monitoring.view required".to_string(),
-        ));
-    }
     let namespace = query.namespace.unwrap_or_else(|| "media".to_string());
 
     let endpoints = if let Some(client) = state.k8s_client.read().await.as_ref() {
@@ -850,13 +807,8 @@ async fn get_endpoints(
 /// Check if metrics-server is available
 async fn check_metrics_available(
     State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<MonitoringView>,
 ) -> Result<Json<serde_json::Value>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "monitoring.view").await {
-        return Err(AppError::Forbidden(
-            "Permission denied: monitoring.view required".to_string(),
-        ));
-    }
     let available = if let Some(client) = state.k8s_client.read().await.as_ref() {
         client.check_metrics_server_available().await
     } else {

@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Extension, Path, Query, State},
+    extract::{Path, Query, State},
     http::{header::SET_COOKIE, HeaderMap, HeaderValue},
     response::{IntoResponse, Redirect, Response},
     routing::{delete, get},
@@ -9,8 +9,7 @@ use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, ModelTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 
-use crate::endpoints::extractors::user_has_permission;
-use crate::middleware::AuthenticatedUser;
+use crate::middleware::permissions::{Authenticated, Authorized, SettingsView, SettingsManage};
 use crate::config::CONFIG;
 use crate::models::prelude::*;
 use crate::models::{oauth_account, oauth_provider, user};
@@ -110,14 +109,8 @@ async fn list_available_providers(
 /// List all OAuth providers
 async fn list_providers(
     State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<SettingsView>,
 ) -> Result<Json<Vec<ProviderResponse>>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "settings.view").await {
-        return Err(AppError::Forbidden(
-            "Permission denied: settings.view required".to_string(),
-        ));
-    }
-
     let providers = OauthProvider::find().all(&state.db).await?;
 
     let responses: Vec<ProviderResponse> = providers
@@ -138,14 +131,8 @@ async fn list_providers(
 async fn get_provider(
     State(state): State<AppState>,
     Path(provider): Path<String>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<SettingsView>,
 ) -> Result<Json<ProviderResponse>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "settings.view").await {
-        return Err(AppError::Forbidden(
-            "Permission denied: settings.view required".to_string(),
-        ));
-    }
-
     let provider_model = OauthProvider::find_by_id(&provider)
         .one(&state.db)
         .await?
@@ -164,15 +151,9 @@ async fn get_provider(
 async fn update_provider(
     State(state): State<AppState>,
     Path(provider): Path<String>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    _auth: Authorized<SettingsManage>,
     Json(data): Json<UpdateProviderRequest>,
 ) -> Result<Json<ProviderResponse>> {
-    if !user_has_permission(&state.db, auth_user.0.id, "settings.manage").await {
-        return Err(AppError::Forbidden(
-            "Permission denied: settings.manage required".to_string(),
-        ));
-    }
-
     // Find or create provider
     let existing = OauthProvider::find_by_id(&provider).one(&state.db).await?;
 
@@ -598,10 +579,10 @@ async fn oauth_callback(
 /// List OAuth accounts linked to current user
 async fn list_linked_accounts(
     State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    auth: Authenticated,
 ) -> Result<Json<Vec<LinkedAccountResponse>>> {
     let accounts = OauthAccount::find()
-        .filter(oauth_account::Column::UserId.eq(auth_user.0.id))
+        .filter(oauth_account::Column::UserId.eq(auth.user_id()))
         .all(&state.db)
         .await?;
 
@@ -622,10 +603,10 @@ async fn list_linked_accounts(
 async fn unlink_account(
     State(state): State<AppState>,
     Path(provider): Path<String>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    auth: Authenticated,
 ) -> Result<Json<serde_json::Value>> {
     let account = OauthAccount::find()
-        .filter(oauth_account::Column::UserId.eq(auth_user.0.id))
+        .filter(oauth_account::Column::UserId.eq(auth.user_id()))
         .filter(oauth_account::Column::Provider.eq(&provider))
         .one(&state.db)
         .await?
@@ -645,11 +626,11 @@ async fn unlink_account(
 async fn link_account_start(
     State(state): State<AppState>,
     Path(provider): Path<String>,
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    auth: Authenticated,
 ) -> Result<Response> {
     // Check if already linked
     let existing = OauthAccount::find()
-        .filter(oauth_account::Column::UserId.eq(auth_user.0.id))
+        .filter(oauth_account::Column::UserId.eq(auth.user_id()))
         .filter(oauth_account::Column::Provider.eq(&provider))
         .one(&state.db)
         .await?;
@@ -662,6 +643,6 @@ async fn link_account_start(
     }
 
     // Redirect to OAuth login with link parameter
-    let redirect_url = format!("/api/oauth/{}/login?link={}", provider, auth_user.0.id);
+    let redirect_url = format!("/api/oauth/{}/login?link={}", provider, auth.user_id());
     Ok(Redirect::to(&redirect_url).into_response())
 }

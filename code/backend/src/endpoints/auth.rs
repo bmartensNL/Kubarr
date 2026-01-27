@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Extension, Query, State},
+    extract::{Query, State},
     response::Response,
     routing::{get, post},
     Form, Json, Router,
@@ -10,7 +10,7 @@ use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde::{Deserialize, Serialize};
 
 use crate::endpoints::extractors::AdminUser;
-use crate::middleware::AuthenticatedUser;
+use crate::middleware::permissions::Authenticated;
 use crate::config::CONFIG;
 use crate::models::prelude::*;
 use crate::models::{oauth2_client, system_setting};
@@ -266,9 +266,9 @@ async fn token(
 
 /// OIDC UserInfo endpoint
 async fn userinfo(
-    Extension(auth_user): Extension<AuthenticatedUser>,
+    auth: Authenticated,
 ) -> Json<serde_json::Value> {
-    let user = auth_user.0;
+    let user = auth.user();
     Json(serde_json::json!({
         "sub": user.id.to_string(),
         "name": user.username,
