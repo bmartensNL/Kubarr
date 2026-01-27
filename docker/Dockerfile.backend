@@ -1,30 +1,5 @@
 # syntax=docker/dockerfile:1.4
-# Stage 1: Build Frontend
-FROM node:20-alpine AS frontend-builder
-
-WORKDIR /app/frontend
-
-# Copy package files
-COPY code/frontend/package*.json ./
-
-# Install dependencies
-RUN npm ci
-
-# Copy frontend source
-COPY code/frontend/ ./
-
-# Build args for version info
-ARG COMMIT_HASH=unknown
-ARG BUILD_TIME=unknown
-
-# Set environment variables for Vite build
-ENV VITE_COMMIT_HASH=${COMMIT_HASH}
-ENV VITE_BUILD_TIME=${BUILD_TIME}
-
-# Build the frontend
-RUN npm run build
-
-# Stage 2: Build Rust backend (fully static with musl)
+# Stage 1: Build Rust backend (fully static with musl)
 FROM rust:alpine AS rust-builder
 
 # Install build dependencies including static SSL libs
@@ -35,6 +10,9 @@ RUN apk add --no-cache \
     openssl-libs-static
 
 WORKDIR /app
+
+# Build profile: "release" (slow, optimized) or "dev-release" (fast, still optimized)
+ARG PROFILE=release
 
 # Set static linking environment
 ENV OPENSSL_STATIC=1
@@ -56,28 +34,24 @@ RUN mkdir src && \
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-    cargo build --release && \
+    cargo build --profile ${PROFILE} && \
     rm -rf src
 
 # Copy actual source code
 COPY code/backend/src ./src
 
-# Build args for version info
-ARG COMMIT_HASH=unknown
-ARG BUILD_TIME=unknown
-
-# Build the release binary with version info
+# Build the binary
 # Touch main.rs to force rebuild after copying real source, clear cached binary
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-    rm -f /app/target/release/kubarr /app/target/release/deps/kubarr* && \
+    PROFILE_DIR=$(if [ "$PROFILE" = "release" ]; then echo "release"; else echo "$PROFILE"; fi) && \
+    rm -f /app/target/${PROFILE_DIR}/kubarr /app/target/${PROFILE_DIR}/deps/kubarr* && \
     touch src/main.rs && \
-    COMMIT_HASH=${COMMIT_HASH} BUILD_TIME=${BUILD_TIME} \
-    cargo build --release && \
-    cp target/release/kubarr /kubarr
+    cargo build --profile ${PROFILE} && \
+    cp target/${PROFILE_DIR}/kubarr /kubarr
 
-# Stage 3: Download Helm and prepare assets
+# Stage 2: Download Helm and prepare assets
 FROM alpine:3.19 AS asset-builder
 
 ARG TARGETARCH=amd64
@@ -87,7 +61,7 @@ RUN apk add --no-cache curl tar tzdata ca-certificates && \
     mv linux-${TARGETARCH}/helm /helm && \
     chmod +x /helm
 
-# Stage 4: Final Alpine image (includes DNS resolution)
+# Stage 3: Final Alpine image (includes DNS resolution)
 FROM alpine:3.19
 
 # Build args for environment
@@ -108,13 +82,9 @@ COPY --from=asset-builder /helm /usr/local/bin/helm
 # Copy Helm charts
 COPY charts/ /app/charts/
 
-# Copy frontend build
-COPY --from=frontend-builder /app/code/frontend/dist /app/static
-
 # Set environment variables
 ENV CHARTS_DIR=/app/charts
 ENV DATABASE_URL=sqlite:///app/data/kubarr.db
-ENV STATIC_DIR=/app/static
 ENV COMMIT_HASH=${COMMIT_HASH}
 ENV BUILD_TIME=${BUILD_TIME}
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
