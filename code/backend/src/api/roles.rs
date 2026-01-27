@@ -8,8 +8,8 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, ModelTrait, QueryFilte
 use serde::{Deserialize, Serialize};
 
 use crate::api::extractors::{user_has_permission, AuthUser};
-use crate::db::entities::prelude::*;
-use crate::db::entities::{role, role_app_permission, role_permission};
+use crate::models::prelude::*;
+use crate::models::{role, role_app_permission, role_permission};
 use crate::error::{AppError, Result};
 use crate::state::AppState;
 

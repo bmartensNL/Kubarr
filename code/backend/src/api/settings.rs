@@ -11,8 +11,8 @@ use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde::{Deserialize, Serialize};
 
 use crate::api::extractors::{user_has_permission, AuthUser};
-use crate::db::entities::prelude::*;
-use crate::db::entities::system_setting;
+use crate::models::prelude::*;
+use crate::models::system_setting;
 use crate::error::{AppError, Result};
 use crate::state::{AppState, DbConn};
 

@@ -10,8 +10,8 @@ use serde::Deserialize;
 
 use crate::api::extractors::{user_has_permission, AuthUser};
 use crate::config::CONFIG;
-use crate::db::entities::audit_log::AuditAction;
-use crate::db::entities::prelude::*;
+use crate::models::audit_log::AuditAction;
+use crate::models::prelude::*;
 use crate::error::{AppError, Result};
 use crate::services::{AppConfig, DeploymentManager, DeploymentRequest, DeploymentStatus};
 use crate::state::AppState;
@@ -397,7 +397,7 @@ async fn log_app_access(
     Path(app_name): Path<String>,
     AuthUser(user): AuthUser,
 ) -> Result<Json<serde_json::Value>> {
-    use crate::db::entities::audit_log::ResourceType;
+    use crate::models::audit_log::ResourceType;
 
     // Log the access in audit trail
     let _ = state

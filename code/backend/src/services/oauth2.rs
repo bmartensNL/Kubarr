@@ -2,8 +2,8 @@ use chrono::{Duration, Utc};
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 
 use crate::api::extractors::{get_user_app_access, get_user_permissions};
-use crate::db::entities::prelude::*;
-use crate::db::entities::{oauth2_authorization_code, oauth2_client, oauth2_token};
+use crate::models::prelude::*;
+use crate::models::{oauth2_authorization_code, oauth2_client, oauth2_token};
 use crate::error::{AppError, Result};
 use crate::services::security::{
     create_access_token, create_refresh_token, generate_authorization_code, verify_client_secret,

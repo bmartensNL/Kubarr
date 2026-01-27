@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use crate::api::extractors::{
     get_user_app_access, get_user_permissions, user_has_permission, AuthUser,
 };
-use crate::db::entities::prelude::*;
-use crate::db::entities::{invite, role, user, user_preferences, user_role};
+use crate::models::prelude::*;
+use crate::models::{invite, role, user, user_preferences, user_role};
 use crate::error::{AppError, Result};
 use crate::services::{
     generate_totp_secret, get_totp_provisioning_uri, hash_password, verify_password, verify_totp,

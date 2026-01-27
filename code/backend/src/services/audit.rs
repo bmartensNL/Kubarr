@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::db::entities::audit_log::{self, AuditAction, ResourceType};
+use crate::models::audit_log::{self, AuditAction, ResourceType};
 use crate::db::pool::DbConn;
 use crate::error::Result;
 

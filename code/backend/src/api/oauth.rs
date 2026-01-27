@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::extractors::{user_has_permission, AuthUser};
 use crate::config::CONFIG;
-use crate::db::entities::prelude::*;
-use crate::db::entities::{oauth_account, oauth_provider, user};
+use crate::models::prelude::*;
+use crate::models::{oauth_account, oauth_provider, user};
 use crate::error::{AppError, Result};
 use crate::services::{create_access_token, generate_random_string, hash_password};
 use crate::state::AppState;

@@ -34,7 +34,7 @@ pub async fn create_test_db_with_seed() -> DatabaseConnection {
 
 /// Seed default test data into the database
 pub async fn seed_test_data(db: &DatabaseConnection) {
-    use crate::db::entities::{role, role_app_permission, role_permission};
+    use crate::models::{role, role_app_permission, role_permission};
     use sea_orm::{ActiveModelTrait, Set};
 
     let now = chrono::Utc::now();
@@ -159,8 +159,8 @@ pub async fn create_test_user(
     email: &str,
     password: &str,
     is_approved: bool,
-) -> crate::db::entities::user::Model {
-    use crate::db::entities::user;
+) -> crate::models::user::Model {
+    use crate::models::user;
     use crate::services::security::hash_password;
     use sea_orm::{ActiveModelTrait, Set};
 
@@ -191,14 +191,14 @@ pub async fn create_test_user_with_role(
     email: &str,
     password: &str,
     role_name: &str,
-) -> crate::db::entities::user::Model {
-    use crate::db::entities::{role, user_role};
+) -> crate::models::user::Model {
+    use crate::models::{role, user_role};
     use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 
     let user = create_test_user(db, username, email, password, true).await;
 
     // Find the role
-    let role = crate::db::entities::prelude::Role::find()
+    let role = crate::models::prelude::Role::find()
         .filter(role::Column::Name.eq(role_name))
         .one(db)
         .await

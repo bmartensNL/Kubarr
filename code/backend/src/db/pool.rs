@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use crate::config::CONFIG;
 #[allow(unused_imports)]
-use crate::db::entities::{oauth_provider, role, role_app_permission, role_permission, system_setting};
+use crate::models::{oauth_provider, role, role_app_permission, role_permission, system_setting};
 use crate::error::{AppError, Result};
 
 pub type DbConn = DatabaseConnection;
@@ -122,7 +122,7 @@ async fn run_alter_migrations(db: &DbConn) -> Result<()> {
 
 /// Seed default roles and settings
 async fn seed_defaults(db: &DbConn) -> Result<()> {
-    use crate::db::entities::prelude::*;
+    use crate::models::prelude::*;
 
     // Check if roles exist
     let role_count = Role::find().count(db).await?;
@@ -754,7 +754,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_seed_defaults_creates_roles() {
-        use crate::db::entities::prelude::*;
+        use crate::models::prelude::*;
 
         let db = create_test_db().await;
 
@@ -777,7 +777,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_seed_defaults_creates_system_settings() {
-        use crate::db::entities::prelude::*;
+        use crate::models::prelude::*;
 
         let db = create_test_db().await;
 
@@ -795,7 +795,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_seed_defaults_creates_role_permissions() {
-        use crate::db::entities::prelude::*;
+        use crate::models::prelude::*;
 
         let db = create_test_db().await;
 
@@ -828,7 +828,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_seed_defaults_creates_app_permissions() {
-        use crate::db::entities::prelude::*;
+        use crate::models::prelude::*;
 
         let db = create_test_db().await;
 
@@ -877,7 +877,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_seed_defaults_is_idempotent() {
-        use crate::db::entities::prelude::*;
+        use crate::models::prelude::*;
 
         let db = create_test_db().await;
 

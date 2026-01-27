@@ -12,9 +12,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::extractors::{AdminUser, AuthUser};
 use crate::config::CONFIG;
-use crate::db::entities::audit_log::{AuditAction, ResourceType};
-use crate::db::entities::prelude::*;
-use crate::db::entities::{
+use crate::models::audit_log::{AuditAction, ResourceType};
+use crate::models::prelude::*;
+use crate::models::{
     invite, oauth2_client, pending_2fa_challenge, role, system_setting, user, user_role,
 };
 use crate::error::{AppError, Result};

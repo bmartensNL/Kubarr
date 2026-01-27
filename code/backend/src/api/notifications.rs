@@ -7,7 +7,7 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryF
 use serde::{Deserialize, Serialize};
 
 use crate::api::extractors::{user_has_permission, AuthUser};
-use crate::db::entities::{notification_channel, notification_event, notification_log, user_notification_pref};
+use crate::models::{notification_channel, notification_event, notification_log, user_notification_pref};
 use crate::error::{AppError, Result};
 use crate::services::notification::ChannelType;
 use crate::state::AppState;
@@ -79,8 +79,8 @@ async fn get_inbox(
 
     let unread = state.notification.get_unread_count(user.id).await?;
 
-    let total = crate::db::entities::user_notification::Entity::find()
-        .filter(crate::db::entities::user_notification::Column::UserId.eq(user.id))
+    let total = crate::models::user_notification::Entity::find()
+        .filter(crate::models::user_notification::Column::UserId.eq(user.id))
         .count(&state.db)
         .await?;
 
@@ -670,7 +670,7 @@ fn mask_destination(dest: &str) -> String {
 }
 
 fn get_all_event_types() -> Vec<String> {
-    use crate::db::entities::audit_log::AuditAction;
+    use crate::models::audit_log::AuditAction;
 
     vec![
         AuditAction::Login.to_string(),

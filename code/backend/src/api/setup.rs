@@ -11,8 +11,8 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-use crate::db::entities::prelude::*;
-use crate::db::entities::{oauth2_client, role, system_setting, user, user_role};
+use crate::models::prelude::*;
+use crate::models::{oauth2_client, role, system_setting, user, user_role};
 use crate::error::{AppError, Result};
 use crate::state::AppState;
 

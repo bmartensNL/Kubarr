@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use tokio_util::io::ReaderStream;
 
 use crate::api::extractors::{user_has_permission, AuthUser};
-use crate::db::entities::prelude::*;
+use crate::models::prelude::*;
 use crate::error::{AppError, Result};
 use crate::state::{AppState, DbConn};
 

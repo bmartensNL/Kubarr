@@ -10,7 +10,7 @@ async fn test_create_test_db() {
 
 #[tokio::test]
 async fn test_create_test_db_with_seed() {
-    use kubarr::db::entities::prelude::*;
+    use kubarr::models::prelude::*;
     use sea_orm::EntityTrait;
 
     let db = create_test_db_with_seed().await;
@@ -39,8 +39,8 @@ async fn test_create_test_user() {
 
 #[tokio::test]
 async fn test_create_test_user_with_role() {
-    use kubarr::db::entities::prelude::*;
-    use kubarr::db::entities::user_role;
+    use kubarr::models::prelude::*;
+    use kubarr::models::user_role;
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
     let db = create_test_db_with_seed().await;

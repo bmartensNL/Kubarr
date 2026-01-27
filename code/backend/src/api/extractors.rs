@@ -6,8 +6,8 @@ use axum::{
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationTrait, Set};
 
-use crate::db::entities::prelude::*;
-use crate::db::entities::{role, role_app_permission, role_permission, user, user_role};
+use crate::models::prelude::*;
+use crate::models::{role, role_app_permission, role_permission, user, user_role};
 use crate::error::AppError;
 use crate::services::security::{decode_token, generate_random_string, hash_password};
 use crate::state::{AppState, DbConn};
@@ -613,11 +613,11 @@ mod tests {
         let user = create_test_user(&db, "multi_user", "multi@test.com", "password", true).await;
 
         // Assign both viewer and downloader roles
-        use crate::db::entities::{role, user_role};
+        use crate::models::{role, user_role};
         use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 
         for role_name in ["viewer", "downloader"] {
-            let role = crate::db::entities::prelude::Role::find()
+            let role = crate::models::prelude::Role::find()
                 .filter(role::Column::Name.eq(role_name))
                 .one(&db)
                 .await
