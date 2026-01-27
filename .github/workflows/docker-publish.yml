@@ -14,11 +14,25 @@ env:
 
 jobs:
   build-and-push:
-    name: Build and Push Images
+    name: Build ${{ matrix.image }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: backend
+            dockerfile: docker/Dockerfile.backend
+            build-args: true
+          - image: frontend
+            dockerfile: docker/Dockerfile.frontend
+            build-args: true
+          - image: nginx
+            dockerfile: docker/Dockerfile.nginx
+            build-args: false
 
     steps:
       - name: Checkout code
@@ -35,11 +49,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata for backend
-        id: meta-backend
+      - name: Extract metadata
+        id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-backend
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.image }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -48,78 +62,24 @@ jobs:
             type=sha,prefix=
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
-      - name: Extract metadata for frontend
-        id: meta-frontend
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-
-      - name: Extract metadata for nginx
-        id: meta-nginx
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-nginx
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-
-      - name: Build and push backend
+      - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: docker/Dockerfile.backend
+          file: ${{ matrix.dockerfile }}
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta-backend.outputs.tags }}
-          labels: ${{ steps.meta-backend.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            COMMIT_HASH=${{ github.sha }}
-            BUILD_TIME=${{ github.event.head_commit.timestamp }}
-
-      - name: Build and push frontend
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: docker/Dockerfile.frontend
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta-frontend.outputs.tags }}
-          labels: ${{ steps.meta-frontend.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            COMMIT_HASH=${{ github.sha }}
-            BUILD_TIME=${{ github.event.head_commit.timestamp }}
-
-      - name: Build and push nginx
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: docker/Dockerfile.nginx
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta-nginx.outputs.tags }}
-          labels: ${{ steps.meta-nginx.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,scope=${{ matrix.image }},mode=max
+          build-args: ${{ matrix.build-args && format('COMMIT_HASH={0}\nBUILD_TIME={1}', github.sha, github.event.head_commit.timestamp) || '' }}
 
       - name: Summary
         if: github.event_name != 'pull_request'
         run: |
-          echo "## Published Images" >> $GITHUB_STEP_SUMMARY
+          echo "## ${{ matrix.image }} Image Published" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Image | Tags |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Backend | \`${{ steps.meta-backend.outputs.tags }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Frontend | \`${{ steps.meta-frontend.outputs.tags }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Nginx | \`${{ steps.meta-nginx.outputs.tags }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags:**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
