@@ -10,3 +10,4 @@ annotations:
   kubarr.io/category: "monitoring"
   kubarr.io/system: "true"
   kubarr.io/hidden: "true"
+  kubarr.io/browseable: "false"

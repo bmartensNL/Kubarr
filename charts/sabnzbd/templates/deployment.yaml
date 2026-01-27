@@ -121,6 +121,10 @@ spec:
             - name: downloads
               mountPath: /downloads
             {{- end }}
+            # Setup script for API key configuration
+            - name: setup-script
+              mountPath: /custom-services.d/setup-apikey
+              subPath: setup-apikey.sh
       volumes:
         {{- if .Values.persistence.config.enabled }}
         - name: config
@@ -133,6 +137,11 @@ spec:
             path: {{ .Values.storage.hostPath.rootPath }}/downloads/sabnzbd
             type: DirectoryOrCreate
         {{- end }}
+        # Setup script configmap for API key configuration
+        - name: setup-script
+          configMap:
+            name: {{ include "sabnzbd.fullname" . }}-setup
+            defaultMode: 0755
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

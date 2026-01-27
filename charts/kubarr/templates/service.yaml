@@ -2,10 +2,11 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "kubarr.fullname" . }}
+  name: {{ include "kubarr.fullname" . }}-backend
   namespace: {{ .Values.namespace.name }}
   labels:
     {{- include "kubarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
 spec:
   type: {{ .Values.backend.service.type }}
   ports:
@@ -14,7 +15,8 @@ spec:
       protocol: TCP
       name: http
   selector:
-    {{- include "kubarr.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/name: {{ include "kubarr.name" . }}-backend
+    app.kubernetes.io/instance: {{ .Release.Name }}
 ---
 # Frontend service (BusyBox httpd)
 apiVersion: v1

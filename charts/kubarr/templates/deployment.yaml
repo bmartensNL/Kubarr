@@ -1,15 +1,17 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "kubarr.fullname" . }}
+  name: {{ include "kubarr.fullname" . }}-backend
   namespace: {{ .Values.namespace.name }}
   labels:
     {{- include "kubarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
 spec:
   replicas: {{ .Values.backend.replicaCount }}
   selector:
     matchLabels:
-      {{- include "kubarr.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/name: {{ include "kubarr.name" . }}-backend
+      app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       {{- with .Values.podAnnotations }}
@@ -17,7 +19,8 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        {{- include "kubarr.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/name: {{ include "kubarr.name" . }}-backend
+        app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:

@@ -1,6 +1,8 @@
-import { useState, FormEvent, useEffect, useRef } from 'react'
+import { useState, FormEvent, useEffect, useRef, useMemo } from 'react'
 import { Ship, Shield, ArrowLeft, Loader2 } from 'lucide-react'
 import { sessionLogin, verify2FA, SessionLoginResponse } from '../api/auth'
+import { getCurrentUser } from '../api/users'
+import { oauthApi, AvailableProvider } from '../api/oauth'
 
 type LoginStep = 'credentials' | '2fa_required' | '2fa_setup_required'
 
@@ -9,12 +11,78 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [checkingSession, setCheckingSession] = useState(true)
 
   // 2FA state
   const [step, setStep] = useState<LoginStep>('credentials')
   const [challengeToken, setChallengeToken] = useState<string | null>(null)
   const [totpCode, setTotpCode] = useState('')
   const totpInputRef = useRef<HTMLInputElement>(null)
+
+  // OAuth providers
+  const [oauthProviders, setOauthProviders] = useState<AvailableProvider[]>([])
+
+  // Capture OAuth parameters from URL for redirect after login
+  const oauthParams = useMemo(() => {
+    const params = new URLSearchParams(window.location.search)
+    return {
+      client_id: params.get('client_id'),
+      redirect_uri: params.get('redirect_uri'),
+      scope: params.get('scope'),
+      state: params.get('state'),
+      code_challenge: params.get('code_challenge'),
+      code_challenge_method: params.get('code_challenge_method'),
+    }
+  }, [])
+
+  // Get the final redirect destination from OAuth state parameter
+  // The state format from oauth2-proxy is: "<csrf_token>:<original_path>"
+  const getRedirectUrl = () => {
+    // Extract the original path from the state parameter if present
+    // oauth2-proxy encodes the original path after the colon in the state
+    if (oauthParams.state) {
+      const colonIndex = oauthParams.state.indexOf(':')
+      if (colonIndex !== -1) {
+        const originalPath = oauthParams.state.substring(colonIndex + 1)
+        if (originalPath && originalPath !== '/') {
+          // Redirect to the original path - oauth2-proxy will handle the rest
+          return originalPath
+        }
+      }
+    }
+    // Default to home page - oauth2-proxy will start a fresh OAuth flow
+    return '/'
+  }
+
+  // Check if user is already logged in on mount (via session OR oauth2-proxy)
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        // Try to get current user - works with both session cookie and oauth2-proxy headers
+        await getCurrentUser()
+        // User is authenticated, redirect to dashboard
+        window.location.href = getRedirectUrl()
+        return
+      } catch {
+        // Not authenticated, show login form
+        setCheckingSession(false)
+      }
+    }
+    checkSession()
+  }, [getRedirectUrl])
+
+  // Fetch available OAuth providers
+  useEffect(() => {
+    const fetchProviders = async () => {
+      try {
+        const providers = await oauthApi.getAvailableProviders()
+        setOauthProviders(providers)
+      } catch {
+        // Silently fail - OAuth providers are optional
+      }
+    }
+    fetchProviders()
+  }, [])
 
   // Focus TOTP input when entering 2FA step
   useEffect(() => {
@@ -33,8 +101,8 @@ export default function LoginPage() {
 
       switch (response.status) {
         case 'success':
-          // Session cookie is set by backend - just redirect
-          window.location.href = '/'
+          // Session cookie is set by backend - redirect to complete OAuth flow or home
+          window.location.href = getRedirectUrl()
           break
         case '2fa_required':
           // Need to enter TOTP code
@@ -68,8 +136,8 @@ export default function LoginPage() {
       const response = await verify2FA({ challenge_token: challengeToken, code: totpCode })
 
       if (response.status === 'success') {
-        // Session cookie is set by backend - just redirect
-        window.location.href = '/'
+        // Session cookie is set by backend - redirect to complete OAuth flow or home
+        window.location.href = getRedirectUrl()
       } else {
         throw new Error('Unexpected response')
       }
@@ -87,6 +155,56 @@ export default function LoginPage() {
     setTotpCode('')
     setError(null)
     setPassword('') // Clear password for security
+  }
+
+  const handleOAuthLogin = (providerId: string) => {
+    window.location.href = `/api/oauth/${providerId}/login`
+  }
+
+  const getProviderIcon = (providerId: string) => {
+    switch (providerId) {
+      case 'google':
+        return (
+          <svg className="w-5 h-5" viewBox="0 0 24 24">
+            <path
+              fill="currentColor"
+              d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+            />
+            <path
+              fill="currentColor"
+              d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+            />
+            <path
+              fill="currentColor"
+              d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+            />
+            <path
+              fill="currentColor"
+              d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+            />
+          </svg>
+        )
+      case 'microsoft':
+        return (
+          <svg className="w-5 h-5" viewBox="0 0 24 24">
+            <path fill="#f25022" d="M1 1h10v10H1z" />
+            <path fill="#00a4ef" d="M1 13h10v10H1z" />
+            <path fill="#7fba00" d="M13 1h10v10H13z" />
+            <path fill="#ffb900" d="M13 13h10v10H13z" />
+          </svg>
+        )
+      default:
+        return null
+    }
+  }
+
+  // Show loading while checking session
+  if (checkingSession) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+        <Loader2 size={32} className="animate-spin text-blue-500" />
+      </div>
+    )
   }
 
   // 2FA Setup Required View
@@ -270,6 +388,33 @@ export default function LoginPage() {
               {loading ? 'Signing in...' : 'Sign in'}
             </button>
           </div>
+
+          {oauthProviders.length > 0 && (
+            <>
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-600" />
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="px-2 bg-gray-900 text-gray-400">Or continue with</span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                {oauthProviders.map((provider) => (
+                  <button
+                    key={provider.id}
+                    type="button"
+                    onClick={() => handleOAuthLogin(provider.id)}
+                    className="w-full flex items-center justify-center gap-3 py-2 px-4 border border-gray-600 rounded-md bg-gray-800 hover:bg-gray-700 text-gray-200 transition-colors"
+                  >
+                    {getProviderIcon(provider.id)}
+                    <span>Sign in with {provider.name}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </form>
       </div>
     </div>

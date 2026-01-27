@@ -3,12 +3,13 @@ use axum::{
     extract::FromRequestParts,
     http::{header::AUTHORIZATION, request::Parts},
 };
-use sea_orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationTrait};
+use chrono::Utc;
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationTrait, Set};
 
 use crate::db::entities::prelude::*;
 use crate::db::entities::{role, role_app_permission, role_permission, user, user_role};
 use crate::error::AppError;
-use crate::services::security::decode_token;
+use crate::services::security::{decode_token, generate_random_string, hash_password};
 use crate::state::{AppState, DbConn};
 
 /// Extractor for authenticated users
@@ -107,17 +108,72 @@ async fn extract_user_from_token(
         // Look up user by email
         let found_user = User::find()
             .filter(user::Column::Email.eq(email.as_str()))
-            .filter(user::Column::IsActive.eq(true))
-            .filter(user::Column::IsApproved.eq(true))
             .one(db)
             .await
             .map_err(|e| AppError::Internal(format!("Database error: {}", e)))?;
 
-        if found_user.is_some() {
-            return Ok(found_user);
+        if let Some(existing_user) = found_user {
+            // User exists - check if active and approved
+            if existing_user.is_active && existing_user.is_approved {
+                return Ok(Some(existing_user));
+            }
+            // User exists but is inactive or not approved
+            tracing::warn!("User {} exists but is inactive or not approved", email);
+            return Ok(None);
         }
 
-        tracing::warn!("User not found for email from auth proxy: {}", email);
+        // User doesn't exist - auto-create from oauth2-proxy authentication
+        tracing::info!("Auto-creating user from oauth2-proxy: {}", email);
+
+        // Generate username from email
+        let username = email
+            .split('@')
+            .next()
+            .unwrap_or("user")
+            .to_lowercase()
+            .replace('.', "_")
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '_')
+            .collect::<String>();
+
+        // Make username unique if needed
+        let mut final_username = username.clone();
+        let mut counter = 1;
+        while User::find()
+            .filter(user::Column::Username.eq(&final_username))
+            .one(db)
+            .await
+            .map_err(|e| AppError::Internal(format!("Database error: {}", e)))?
+            .is_some()
+        {
+            final_username = format!("{}_{}", username, counter);
+            counter += 1;
+        }
+
+        // Create user with random password (they'll use oauth2-proxy to login)
+        let random_password = generate_random_string(32);
+        let password_hash = hash_password(&random_password)
+            .map_err(|e| AppError::Internal(format!("Failed to hash password: {}", e)))?;
+
+        let now = Utc::now();
+        let new_user = user::ActiveModel {
+            username: Set(final_username),
+            email: Set(email.clone()),
+            hashed_password: Set(password_hash),
+            is_active: Set(true),
+            is_approved: Set(true), // Auto-approve users from oauth2-proxy
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        };
+
+        let created_user = new_user
+            .insert(db)
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to create user: {}", e)))?;
+
+        tracing::info!("Created user {} from oauth2-proxy", created_user.email);
+        return Ok(Some(created_user));
     }
 
     // Fall back to Authorization header

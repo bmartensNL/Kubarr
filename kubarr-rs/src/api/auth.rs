@@ -12,13 +12,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::extractors::{AdminUser, AuthUser};
 use crate::config::CONFIG;
+use crate::db::entities::audit_log::{AuditAction, ResourceType};
 use crate::db::entities::prelude::*;
 use crate::db::entities::{
-    oauth2_client, pending_2fa_challenge, role, system_setting, user, user_role,
+    invite, oauth2_client, pending_2fa_challenge, role, system_setting, user, user_role,
 };
 use crate::error::{AppError, Result};
 use crate::services::{
-    generate_2fa_challenge_token, get_jwks, verify_password, verify_totp, OAuth2Service,
+    generate_2fa_challenge_token, get_jwks, hash_password, verify_password, verify_totp,
+    OAuth2Service,
 };
 use crate::state::AppState;
 
@@ -27,6 +29,10 @@ pub fn auth_routes(state: AppState) -> Router {
     Router::new()
         // Login endpoints - redirect to frontend, handle form POST
         .route("/login", get(login_page).post(login_submit))
+        // Registration endpoint
+        .route("/register", get(register_page).post(register_submit))
+        // 2FA verification page for OAuth flow
+        .route("/2fa", get(twofa_page).post(twofa_submit))
         // OAuth2/OIDC endpoints
         .route("/authorize", get(authorize))
         .route("/token", post(token))
@@ -380,6 +386,324 @@ async fn login_submit(
         return Ok(Redirect::to(&error_url).into_response());
     }
 
+    // Check if 2FA is enabled
+    if found_user.totp_enabled {
+        use chrono::Duration;
+
+        // Create a pending 2FA challenge with OAuth params
+        let challenge_token = generate_2fa_challenge_token();
+        let expires_at = Utc::now() + Duration::minutes(5);
+
+        // Store OAuth params in the challenge (we'll encode them in a simple way)
+        // Delete any existing challenges for this user
+        Pending2faChallenge::delete_many()
+            .filter(pending_2fa_challenge::Column::UserId.eq(found_user.id))
+            .exec(&state.db)
+            .await?;
+
+        let challenge = pending_2fa_challenge::ActiveModel {
+            user_id: Set(found_user.id),
+            challenge_token: Set(challenge_token.clone()),
+            expires_at: Set(expires_at),
+            ..Default::default()
+        };
+        challenge.insert(&state.db).await?;
+
+        // Redirect to 2FA page with challenge token and OAuth params
+        let twofa_url = format!(
+            "/auth/2fa?challenge_token={}&client_id={}&redirect_uri={}&scope={}&state={}&code_challenge={}&code_challenge_method={}",
+            urlencoding::encode(&challenge_token),
+            urlencoding::encode(&form.client_id),
+            urlencoding::encode(&form.redirect_uri),
+            urlencoding::encode(&form.scope),
+            urlencoding::encode(&form.state),
+            urlencoding::encode(&form.code_challenge),
+            urlencoding::encode(&form.code_challenge_method),
+        );
+        return Ok(Redirect::to(&twofa_url).into_response());
+    }
+
+    // Check if 2FA is required by role but not enabled
+    if user_requires_2fa(&state.db, found_user.id).await && !found_user.totp_enabled {
+        let error_url = format!(
+            "/auth/login?client_id={}&redirect_uri={}&scope={}&state={}&code_challenge={}&code_challenge_method={}&error={}",
+            urlencoding::encode(&form.client_id),
+            urlencoding::encode(&form.redirect_uri),
+            urlencoding::encode(&form.scope),
+            urlencoding::encode(&form.state),
+            urlencoding::encode(&form.code_challenge),
+            urlencoding::encode(&form.code_challenge_method),
+            urlencoding::encode("Two-factor authentication required. Please set up 2FA in your account settings.")
+        );
+        return Ok(Redirect::to(&error_url).into_response());
+    }
+
+    // Create authorization code
+    let oauth2_service = OAuth2Service::new(&state.db);
+    let code = oauth2_service
+        .create_authorization_code(
+            &form.client_id,
+            found_user.id,
+            &form.redirect_uri,
+            Some(&form.scope),
+            Some(&form.code_challenge),
+            Some(&form.code_challenge_method),
+            600, // 10 minutes expiry
+        )
+        .await?;
+
+    // Redirect to callback with authorization code
+    let callback_url = if form.redirect_uri.contains('?') {
+        format!("{}&code={}&state={}", form.redirect_uri, code, form.state)
+    } else {
+        format!("{}?code={}&state={}", form.redirect_uri, code, form.state)
+    };
+
+    Ok(Redirect::to(&callback_url).into_response())
+}
+
+// ============================================================================
+// 2FA Page for OAuth Flow
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+struct TwoFAPageQuery {
+    challenge_token: String,
+    client_id: String,
+    redirect_uri: String,
+    scope: String,
+    state: String,
+    code_challenge: String,
+    code_challenge_method: String,
+    error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TwoFAFormData {
+    challenge_token: String,
+    code: String,
+    client_id: String,
+    redirect_uri: String,
+    scope: String,
+    state: String,
+    code_challenge: String,
+    code_challenge_method: String,
+}
+
+/// 2FA verification page for OAuth flow
+async fn twofa_page(Query(params): Query<TwoFAPageQuery>) -> Html<String> {
+    let error_html = if let Some(error) = &params.error {
+        format!(
+            r#"<div class="rounded-md bg-red-100 dark:bg-red-900/50 border border-red-300 dark:border-red-700 p-4 mb-6">
+                <div class="text-sm text-red-700 dark:text-red-200">{}</div>
+            </div>"#,
+            html_escape(&error)
+        )
+    } else {
+        String::new()
+    };
+
+    let html = format!(
+        r#"<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Two-Factor Authentication - Kubarr</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {{
+            darkMode: 'class',
+        }}
+    </script>
+</head>
+<body class="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center px-4">
+    <div class="max-w-md w-full space-y-8">
+        <div class="text-center">
+            <div class="flex justify-center mb-4">
+                <div class="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-full">
+                    <svg class="w-8 h-8 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                    </svg>
+                </div>
+            </div>
+            <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
+                Two-Factor Authentication
+            </h2>
+            <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                Enter the 6-digit code from your authenticator app
+            </p>
+        </div>
+
+        {error_html}
+
+        <form class="mt-8 space-y-6" method="POST" action="/auth/2fa">
+            <input type="hidden" name="challenge_token" value="{challenge_token}">
+            <input type="hidden" name="client_id" value="{client_id}">
+            <input type="hidden" name="redirect_uri" value="{redirect_uri}">
+            <input type="hidden" name="scope" value="{scope}">
+            <input type="hidden" name="state" value="{state}">
+            <input type="hidden" name="code_challenge" value="{code_challenge}">
+            <input type="hidden" name="code_challenge_method" value="{code_challenge_method}">
+
+            <div class="flex justify-center">
+                <input
+                    type="text"
+                    name="code"
+                    inputmode="numeric"
+                    pattern="[0-9]*"
+                    autocomplete="one-time-code"
+                    placeholder="000000"
+                    maxlength="6"
+                    autofocus
+                    required
+                    class="w-48 px-4 py-3 text-center text-2xl font-mono tracking-[0.5em] border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+            </div>
+
+            <button
+                type="submit"
+                id="submit-btn"
+                class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors disabled:opacity-50"
+            >
+                <span id="btn-text">Verify</span>
+                <span id="btn-loading" class="hidden items-center">
+                    <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Verifying...
+                </span>
+            </button>
+        </form>
+    </div>
+    <script>
+        const input = document.querySelector('input[name="code"]');
+        const form = document.querySelector('form');
+        const submitBtn = document.getElementById('submit-btn');
+        const btnText = document.getElementById('btn-text');
+        const btnLoading = document.getElementById('btn-loading');
+
+        // Only allow digits
+        input.addEventListener('input', function(e) {{
+            this.value = this.value.replace(/\D/g, '').slice(0, 6);
+
+            // Auto-submit when 6 digits entered
+            if (this.value.length === 6) {{
+                // Show loading state
+                btnText.classList.add('hidden');
+                btnLoading.classList.remove('hidden');
+                btnLoading.classList.add('flex');
+                submitBtn.disabled = true;
+                // Don't disable input - disabled inputs are not submitted!
+                input.readOnly = true;
+
+                // Small delay for visual feedback
+                setTimeout(() => form.submit(), 100);
+            }}
+        }});
+
+        // Show loading on manual submit too
+        form.addEventListener('submit', function() {{
+            btnText.classList.add('hidden');
+            btnLoading.classList.remove('hidden');
+            btnLoading.classList.add('flex');
+            submitBtn.disabled = true;
+            // Use readOnly instead of disabled to keep the value
+            input.readOnly = true;
+        }});
+    </script>
+</body>
+</html>"#,
+        error_html = error_html,
+        challenge_token = html_escape(&params.challenge_token),
+        client_id = html_escape(&params.client_id),
+        redirect_uri = html_escape(&params.redirect_uri),
+        scope = html_escape(&params.scope),
+        state = html_escape(&params.state),
+        code_challenge = html_escape(&params.code_challenge),
+        code_challenge_method = html_escape(&params.code_challenge_method),
+    );
+
+    Html(html)
+}
+
+/// 2FA form submission for OAuth flow
+async fn twofa_submit(
+    State(state): State<AppState>,
+    Form(form): Form<TwoFAFormData>,
+) -> Result<Response> {
+    // Find the challenge
+    let challenge = Pending2faChallenge::find()
+        .filter(pending_2fa_challenge::Column::ChallengeToken.eq(&form.challenge_token))
+        .one(&state.db)
+        .await?;
+
+    let challenge = match challenge {
+        Some(c) => c,
+        None => {
+            let error_url = format!(
+                "/auth/2fa?challenge_token={}&client_id={}&redirect_uri={}&scope={}&state={}&code_challenge={}&code_challenge_method={}&error={}",
+                urlencoding::encode(&form.challenge_token),
+                urlencoding::encode(&form.client_id),
+                urlencoding::encode(&form.redirect_uri),
+                urlencoding::encode(&form.scope),
+                urlencoding::encode(&form.state),
+                urlencoding::encode(&form.code_challenge),
+                urlencoding::encode(&form.code_challenge_method),
+                urlencoding::encode("Invalid or expired challenge. Please try logging in again.")
+            );
+            return Ok(Redirect::to(&error_url).into_response());
+        }
+    };
+
+    // Check if challenge is expired
+    if challenge.expires_at < Utc::now() {
+        challenge.clone().delete(&state.db).await?;
+        let error_url = format!(
+            "/auth/login?client_id={}&redirect_uri={}&scope={}&state={}&code_challenge={}&code_challenge_method={}&error={}",
+            urlencoding::encode(&form.client_id),
+            urlencoding::encode(&form.redirect_uri),
+            urlencoding::encode(&form.scope),
+            urlencoding::encode(&form.state),
+            urlencoding::encode(&form.code_challenge),
+            urlencoding::encode(&form.code_challenge_method),
+            urlencoding::encode("Challenge has expired. Please try logging in again.")
+        );
+        return Ok(Redirect::to(&error_url).into_response());
+    }
+
+    // Get the user
+    let found_user = User::find_by_id(challenge.user_id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::BadRequest("User not found".to_string()))?;
+
+    // Get the TOTP secret
+    let totp_secret = found_user
+        .totp_secret
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("User has 2FA enabled but no secret".to_string()))?;
+
+    // Verify the TOTP code
+    if !verify_totp(totp_secret, &form.code, &found_user.email)? {
+        let error_url = format!(
+            "/auth/2fa?challenge_token={}&client_id={}&redirect_uri={}&scope={}&state={}&code_challenge={}&code_challenge_method={}&error={}",
+            urlencoding::encode(&form.challenge_token),
+            urlencoding::encode(&form.client_id),
+            urlencoding::encode(&form.redirect_uri),
+            urlencoding::encode(&form.scope),
+            urlencoding::encode(&form.state),
+            urlencoding::encode(&form.code_challenge),
+            urlencoding::encode(&form.code_challenge_method),
+            urlencoding::encode("Invalid verification code")
+        );
+        return Ok(Redirect::to(&error_url).into_response());
+    }
+
+    // Delete the challenge (it's been used)
+    challenge.delete(&state.db).await?;
+
     // Create authorization code
     let oauth2_service = OAuth2Service::new(&state.db);
     let code = oauth2_service
@@ -532,6 +856,19 @@ async fn session_login(
     let found_user = match found_user {
         Some(u) => u,
         None => {
+            // Log failed login attempt
+            let _ = state.audit.log_failure(
+                AuditAction::LoginFailed,
+                ResourceType::Session,
+                None,
+                None,
+                Some(login.username.clone()),
+                Some(serde_json::json!({"reason": "user_not_found"})),
+                None,
+                None,
+                "Invalid username or password",
+            ).await;
+
             return Err(AppError::Unauthorized(
                 "Invalid username or password".to_string(),
             ))
@@ -540,6 +877,19 @@ async fn session_login(
 
     // Verify password
     if !verify_password(&login.password, &found_user.hashed_password) {
+        // Log failed login attempt
+        let _ = state.audit.log_failure(
+            AuditAction::LoginFailed,
+            ResourceType::Session,
+            None,
+            Some(found_user.id),
+            Some(found_user.username.clone()),
+            Some(serde_json::json!({"reason": "invalid_password"})),
+            None,
+            None,
+            "Invalid username or password",
+        ).await;
+
         return Err(AppError::Unauthorized(
             "Invalid username or password".to_string(),
         ));
@@ -547,11 +897,35 @@ async fn session_login(
 
     // Check if user is active
     if !found_user.is_active {
+        let _ = state.audit.log_failure(
+            AuditAction::LoginFailed,
+            ResourceType::Session,
+            None,
+            Some(found_user.id),
+            Some(found_user.username.clone()),
+            Some(serde_json::json!({"reason": "account_inactive"})),
+            None,
+            None,
+            "Account is inactive",
+        ).await;
+
         return Err(AppError::Forbidden("Account is inactive".to_string()));
     }
 
     // Check if user is approved
     if !found_user.is_approved {
+        let _ = state.audit.log_failure(
+            AuditAction::LoginFailed,
+            ResourceType::Session,
+            None,
+            Some(found_user.id),
+            Some(found_user.username.clone()),
+            Some(serde_json::json!({"reason": "account_not_approved"})),
+            None,
+            None,
+            "Account pending approval",
+        ).await;
+
         return Err(AppError::Forbidden("Account pending approval".to_string()));
     }
 
@@ -587,6 +961,18 @@ async fn session_login(
     if user_requires_2fa(&state.db, found_user.id).await {
         return Ok(Json(SessionLoginResponse::TwoFactorSetupRequired).into_response());
     }
+
+    // Log successful login
+    let _ = state.audit.log_success(
+        AuditAction::Login,
+        ResourceType::Session,
+        Some(found_user.id.to_string()),
+        Some(found_user.id),
+        Some(found_user.username.clone()),
+        None,
+        None,
+        None,
+    ).await;
 
     // No 2FA required - complete login
     complete_session_login(&state, &found_user).await
@@ -625,6 +1011,19 @@ async fn verify_2fa_challenge(
 
     // Verify the TOTP code
     if !verify_totp(totp_secret, &request.code, &found_user.email)? {
+        // Log failed 2FA attempt
+        let _ = state.audit.log_failure(
+            AuditAction::TwoFactorFailed,
+            ResourceType::Session,
+            None,
+            Some(found_user.id),
+            Some(found_user.username.clone()),
+            Some(serde_json::json!({"reason": "invalid_code"})),
+            None,
+            None,
+            "Invalid verification code",
+        ).await;
+
         return Err(AppError::BadRequest(
             "Invalid verification code".to_string(),
         ));
@@ -632,6 +1031,29 @@ async fn verify_2fa_challenge(
 
     // Delete the challenge (it's been used)
     challenge.delete(&state.db).await?;
+
+    // Log successful 2FA verification and login
+    let _ = state.audit.log_success(
+        AuditAction::TwoFactorVerified,
+        ResourceType::Session,
+        Some(found_user.id.to_string()),
+        Some(found_user.id),
+        Some(found_user.username.clone()),
+        None,
+        None,
+        None,
+    ).await;
+
+    let _ = state.audit.log_success(
+        AuditAction::Login,
+        ResourceType::Session,
+        Some(found_user.id.to_string()),
+        Some(found_user.id),
+        Some(found_user.username.clone()),
+        Some(serde_json::json!({"method": "2fa"})),
+        None,
+        None,
+    ).await;
 
     // Complete the login
     complete_session_login(&state, &found_user).await
@@ -685,13 +1107,30 @@ async fn session_verify(headers: HeaderMap, State(_state): State<AppState>) -> R
 }
 
 /// Logout - clears session cookie
-async fn session_logout() -> Response {
+async fn session_logout(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Response {
+    // Try to extract user from session for audit logging
+    if let Some(found_user) = extract_session_user(&headers, &state).await {
+        let _ = state.audit.log_success(
+            AuditAction::Logout,
+            ResourceType::Session,
+            Some(found_user.id.to_string()),
+            Some(found_user.id),
+            Some(found_user.username.clone()),
+            None,
+            None,
+            None,
+        ).await;
+    }
+
     let cookie = "kubarr_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0";
 
-    let mut headers = HeaderMap::new();
-    headers.insert(SET_COOKIE, HeaderValue::from_str(cookie).unwrap());
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(SET_COOKIE, HeaderValue::from_str(cookie).unwrap());
 
-    (headers, Json(serde_json::json!({"success": true}))).into_response()
+    (response_headers, Json(serde_json::json!({"success": true}))).into_response()
 }
 
 /// OAuth2 authorization endpoint
@@ -1064,4 +1503,232 @@ async fn regenerate_client_secret(
         "synced_to_kubernetes": false,
         "message": "Client secret regenerated. Kubernetes sync not yet implemented in Rust backend.",
     })))
+}
+
+// ============================================================================
+// Registration
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct RegisterPageQuery {
+    pub invite: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RegisterFormData {
+    pub username: String,
+    pub email: String,
+    pub password: String,
+    pub invite_code: String,
+}
+
+/// Registration page - serves HTML registration form
+async fn register_page(Query(params): Query<RegisterPageQuery>) -> Response {
+    let error_html = params
+        .error
+        .as_ref()
+        .map(|err| {
+            format!(
+                r#"<div class="rounded-md bg-red-900 p-4 mb-4">
+            <div class="text-sm text-red-200">{}</div>
+        </div>"#,
+                html_escape(err)
+            )
+        })
+        .unwrap_or_default();
+
+    let invite_code = params.invite.as_deref().unwrap_or("");
+
+    let html = format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kubarr - Register</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-gray-900 flex items-center justify-center px-4">
+    <div class="max-w-md w-full space-y-8">
+        <div>
+            <h2 class="mt-6 text-center text-3xl font-extrabold text-white">
+                Kubarr Dashboard
+            </h2>
+            <p class="mt-2 text-center text-sm text-gray-400">
+                Create your account
+            </p>
+        </div>
+        <form class="mt-8 space-y-6" method="POST" action="/auth/register">
+            {}
+            <div class="rounded-md shadow-sm space-y-3">
+                <div>
+                    <label for="username" class="block text-sm font-medium text-gray-300 mb-1">Username</label>
+                    <input id="username" name="username" type="text" required autofocus
+                        class="appearance-none relative block w-full px-3 py-2 border border-gray-700 placeholder-gray-500 text-white bg-gray-800 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                        placeholder="Choose a username" />
+                </div>
+                <div>
+                    <label for="email" class="block text-sm font-medium text-gray-300 mb-1">Email</label>
+                    <input id="email" name="email" type="email" required
+                        class="appearance-none relative block w-full px-3 py-2 border border-gray-700 placeholder-gray-500 text-white bg-gray-800 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                        placeholder="you@example.com" />
+                </div>
+                <div>
+                    <label for="password" class="block text-sm font-medium text-gray-300 mb-1">Password</label>
+                    <input id="password" name="password" type="password" required minlength="8"
+                        class="appearance-none relative block w-full px-3 py-2 border border-gray-700 placeholder-gray-500 text-white bg-gray-800 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                        placeholder="Minimum 8 characters" />
+                </div>
+                <input type="hidden" name="invite_code" value="{}">
+            </div>
+            <div>
+                <button type="submit"
+                    class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                    Create Account
+                </button>
+            </div>
+            <div class="text-center">
+                <a href="/login" class="text-sm text-blue-400 hover:text-blue-300">
+                    Already have an account? Sign in
+                </a>
+            </div>
+        </form>
+    </div>
+</body>
+</html>"#,
+        error_html,
+        html_escape(invite_code),
+    );
+
+    Html(html).into_response()
+}
+
+/// Registration form submission
+async fn register_submit(
+    State(state): State<AppState>,
+    Form(form): Form<RegisterFormData>,
+) -> Result<Response> {
+    // Validate invite code
+    let found_invite = Invite::find()
+        .filter(invite::Column::Code.eq(&form.invite_code))
+        .one(&state.db)
+        .await?;
+
+    let found_invite = match found_invite {
+        Some(inv) => inv,
+        None => {
+            let error_url = format!(
+                "/auth/register?invite={}&error={}",
+                urlencoding::encode(&form.invite_code),
+                urlencoding::encode("Invalid invite code")
+            );
+            return Ok(Redirect::to(&error_url).into_response());
+        }
+    };
+
+    // Check if invite is already used
+    if found_invite.is_used {
+        let error_url = format!(
+            "/auth/register?invite={}&error={}",
+            urlencoding::encode(&form.invite_code),
+            urlencoding::encode("This invite code has already been used")
+        );
+        return Ok(Redirect::to(&error_url).into_response());
+    }
+
+    // Check if invite is expired
+    if let Some(expires_at) = found_invite.expires_at {
+        if expires_at < Utc::now() {
+            let error_url = format!(
+                "/auth/register?invite={}&error={}",
+                urlencoding::encode(&form.invite_code),
+                urlencoding::encode("This invite code has expired")
+            );
+            return Ok(Redirect::to(&error_url).into_response());
+        }
+    }
+
+    // Validate password length
+    if form.password.len() < 8 {
+        let error_url = format!(
+            "/auth/register?invite={}&error={}",
+            urlencoding::encode(&form.invite_code),
+            urlencoding::encode("Password must be at least 8 characters")
+        );
+        return Ok(Redirect::to(&error_url).into_response());
+    }
+
+    // Check if username is taken
+    let existing_user = User::find()
+        .filter(user::Column::Username.eq(&form.username))
+        .one(&state.db)
+        .await?;
+
+    if existing_user.is_some() {
+        let error_url = format!(
+            "/auth/register?invite={}&error={}",
+            urlencoding::encode(&form.invite_code),
+            urlencoding::encode("Username is already taken")
+        );
+        return Ok(Redirect::to(&error_url).into_response());
+    }
+
+    // Check if email is taken
+    let existing_email = User::find()
+        .filter(user::Column::Email.eq(&form.email))
+        .one(&state.db)
+        .await?;
+
+    if existing_email.is_some() {
+        let error_url = format!(
+            "/auth/register?invite={}&error={}",
+            urlencoding::encode(&form.invite_code),
+            urlencoding::encode("Email is already registered")
+        );
+        return Ok(Redirect::to(&error_url).into_response());
+    }
+
+    // Hash password
+    let password_hash = hash_password(&form.password)?;
+
+    // Create user (auto-approved since they have a valid invite)
+    let now = Utc::now();
+    let new_user = user::ActiveModel {
+        username: Set(form.username.clone()),
+        email: Set(form.email.clone()),
+        hashed_password: Set(password_hash),
+        is_active: Set(true),
+        is_approved: Set(true), // Auto-approve invited users
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    };
+
+    let created_user = new_user.insert(&state.db).await?;
+
+    // Mark invite as used
+    let mut invite_model: invite::ActiveModel = found_invite.into();
+    invite_model.is_used = Set(true);
+    invite_model.used_by_id = Set(Some(created_user.id));
+    invite_model.used_at = Set(Some(now));
+    invite_model.update(&state.db).await?;
+
+    // Log the registration
+    let _ = state
+        .audit
+        .log_success(
+            AuditAction::UserCreated,
+            ResourceType::User,
+            Some(created_user.id.to_string()),
+            Some(created_user.id),
+            Some(form.username.clone()),
+            Some(serde_json::json!({"method": "invite"})),
+            None,
+            None,
+        )
+        .await;
+
+    // Redirect to login with success message
+    Ok(Redirect::to("/login").into_response())
 }

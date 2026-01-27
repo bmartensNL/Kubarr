@@ -3,8 +3,10 @@ use tokio::sync::RwLock;
 
 use sea_orm::DatabaseConnection;
 
+use crate::services::audit::AuditService;
 use crate::services::catalog::AppCatalog;
 use crate::services::k8s::K8sClient;
+use crate::services::notification::NotificationService;
 
 /// Database connection type alias
 pub type DbConn = DatabaseConnection;
@@ -21,14 +23,24 @@ pub struct AppState {
     pub db: DbConn,
     pub k8s_client: SharedK8sClient,
     pub catalog: SharedCatalog,
+    pub audit: AuditService,
+    pub notification: NotificationService,
 }
 
 impl AppState {
-    pub fn new(db: DbConn, k8s_client: SharedK8sClient, catalog: SharedCatalog) -> Self {
+    pub fn new(
+        db: DbConn,
+        k8s_client: SharedK8sClient,
+        catalog: SharedCatalog,
+        audit: AuditService,
+        notification: NotificationService,
+    ) -> Self {
         Self {
             db,
             k8s_client,
             catalog,
+            audit,
+            notification,
         }
     }
 }
@@ -36,7 +48,9 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::audit::AuditService;
     use crate::services::catalog::AppCatalog;
+    use crate::services::notification::NotificationService;
     use crate::test_helpers::create_test_db;
 
     #[tokio::test]
@@ -45,8 +59,10 @@ mod tests {
         let k8s_client: SharedK8sClient = Arc::new(RwLock::new(None));
         let catalog = AppCatalog::default();
         let catalog: SharedCatalog = Arc::new(RwLock::new(catalog));
+        let audit = AuditService::new();
+        let notification = NotificationService::new();
 
-        let state = AppState::new(db, k8s_client, catalog);
+        let state = AppState::new(db, k8s_client, catalog, audit, notification);
 
         // Should be cloneable
         let _cloned = state.clone();
@@ -58,8 +74,10 @@ mod tests {
         let k8s_client: SharedK8sClient = Arc::new(RwLock::new(None));
         let catalog = AppCatalog::default();
         let catalog: SharedCatalog = Arc::new(RwLock::new(catalog));
+        let audit = AuditService::new();
+        let notification = NotificationService::new();
 
-        let state1 = AppState::new(db.clone(), k8s_client.clone(), catalog.clone());
+        let state1 = AppState::new(db.clone(), k8s_client.clone(), catalog.clone(), audit, notification);
         let state2 = state1.clone();
 
         // Both states should share the same Arc references

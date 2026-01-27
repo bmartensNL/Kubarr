@@ -9,3 +9,4 @@ annotations:
   kubarr.io/icon: "victoria"
   kubarr.io/category: "monitoring"
   kubarr.io/system: "true"
+  kubarr.io/browseable: "false"

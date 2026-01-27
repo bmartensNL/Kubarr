@@ -8,8 +8,8 @@ metadata:
 data:
   setup-downloadclients.sh: |
     #!/bin/bash
-    # Setup script to manage torrent download clients in Radarr
-    # Supports: qBittorrent, Transmission, Deluge, ruTorrent
+    # Setup script to manage download clients in Radarr
+    # Supports: qBittorrent, Transmission, Deluge, ruTorrent, SABnzbd
     # Adds clients when available, removes when unavailable
 
     CONFIG_FILE="/config/config.xml"
@@ -17,13 +17,18 @@ data:
     API_BASE="/radarr"
     CHECK_INTERVAL=10
 
+    # SABnzbd API key (must match what's set in SABnzbd setup script)
+    SABNZBD_API_KEY="kubarr-sabnzbd-api-key-12345"
+
     # Download client configurations
     # Format: NAME|IMPLEMENTATION|HOST|PORT|CHECK_PATH|CATEGORY_FIELD|CATEGORY_VALUE
+    # For SABnzbd, CHECK_PATH includes the API key query param
     CLIENTS="
     qBittorrent|QBittorrent|qbittorrent.qbittorrent.svc.cluster.local|8080|/api/v2/app/version|movieCategory|Movies
     Transmission|Transmission|transmission.transmission.svc.cluster.local|9091|/transmission/web/|movieCategory|Movies
     Deluge|Deluge|deluge.deluge.svc.cluster.local|8112|/|movieCategory|movies
     ruTorrent|RTorrent|rutorrent.rutorrent.svc.cluster.local|8000|/RPC2|movieCategory|Movies
+    SABnzbd|Sabnzbd|sabnzbd.sabnzbd.svc.cluster.local|8080|/sabnzbd/api?mode=version&apikey=${SABNZBD_API_KEY}|movieCategory|movies
     "
 
     get_api_key() {
@@ -154,6 +159,33 @@ data:
         }'
     }
 
+    add_sabnzbd() {
+      local api_key="$1"
+      local host="$2"
+      local port="$3"
+      curl -s -X POST \
+        -H "X-Api-Key: $api_key" \
+        -H "Content-Type: application/json" \
+        "http://localhost:$API_PORT$API_BASE/api/v3/downloadclient" \
+        -d '{
+          "name": "SABnzbd",
+          "implementation": "Sabnzbd",
+          "configContract": "SabnzbdSettings",
+          "protocol": "usenet",
+          "enable": true,
+          "priority": 1,
+          "fields": [
+            {"name": "host", "value": "'"$host"'"},
+            {"name": "port", "value": '"$port"'},
+            {"name": "useSsl", "value": false},
+            {"name": "apiKey", "value": "'"$SABNZBD_API_KEY"'"},
+            {"name": "movieCategory", "value": "movies"},
+            {"name": "recentMoviePriority", "value": -100},
+            {"name": "olderMoviePriority", "value": -100}
+          ]
+        }'
+    }
+
     add_client() {
       local api_key="$1"
       local name="$2"
@@ -165,6 +197,7 @@ data:
         Transmission) add_transmission "$api_key" "$host" "$port" ;;
         Deluge) add_deluge "$api_key" "$host" "$port" ;;
         ruTorrent) add_rutorrent "$api_key" "$host" "$port" ;;
+        SABnzbd) add_sabnzbd "$api_key" "$host" "$port" ;;
       esac
     }
 

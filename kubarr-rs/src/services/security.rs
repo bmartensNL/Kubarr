@@ -358,11 +358,14 @@ pub fn get_totp_provisioning_uri(secret: &str, account_name: &str) -> Result<Str
     Ok(totp.get_url())
 }
 
-/// Get TOTP QR code as base64-encoded PNG
+/// Get TOTP QR code as base64-encoded PNG data URL
 pub fn get_totp_qr_code_base64(secret: &str, account_name: &str) -> Result<String> {
     let totp = create_totp(secret, account_name)?;
-    totp.get_qr_base64()
-        .map_err(|e| AppError::Internal(format!("Failed to generate QR code: {}", e)))
+    let base64 = totp
+        .get_qr_base64()
+        .map_err(|e| AppError::Internal(format!("Failed to generate QR code: {}", e)))?;
+    // Return as data URL for direct use in <img src="">
+    Ok(format!("data:image/png;base64,{}", base64))
 }
 
 /// Generate a 2FA challenge token

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { User, CreateUserRequest, UpdateUserRequest } from '../../api/users';
+import { User, CreateUserRequest, UpdateUserRequest, adminResetPassword } from '../../api/users';
 import { Role } from '../../api/roles';
+import { Key } from 'lucide-react';
 
 interface UserFormProps {
   user?: User | null;
@@ -8,9 +9,10 @@ interface UserFormProps {
   onSubmit: (data: CreateUserRequest | UpdateUserRequest) => Promise<void>;
   onCancel: () => void;
   isEdit?: boolean;
+  canResetPassword?: boolean;
 }
 
-const UserForm: React.FC<UserFormProps> = ({ user, roles = [], onSubmit, onCancel, isEdit = false }) => {
+const UserForm: React.FC<UserFormProps> = ({ user, roles = [], onSubmit, onCancel, isEdit = false, canResetPassword = false }) => {
   const [formData, setFormData] = useState<CreateUserRequest>({
     username: '',
     email: '',
@@ -19,6 +21,10 @@ const UserForm: React.FC<UserFormProps> = ({ user, roles = [], onSubmit, onCance
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPasswordReset, setShowPasswordReset] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [passwordResetLoading, setPasswordResetLoading] = useState(false);
+  const [passwordResetSuccess, setPasswordResetSuccess] = useState(false);
 
   useEffect(() => {
     if (user && isEdit) {
@@ -75,6 +81,32 @@ const UserForm: React.FC<UserFormProps> = ({ user, roles = [], onSubmit, onCance
         return { ...prev, role_ids: [...currentRoles, roleId] };
       }
     });
+  };
+
+  const handlePasswordReset = async () => {
+    if (!user || !newPassword) return;
+
+    if (newPassword.length < 8) {
+      setError('Password must be at least 8 characters');
+      return;
+    }
+
+    setPasswordResetLoading(true);
+    setError(null);
+    setPasswordResetSuccess(false);
+
+    try {
+      await adminResetPassword(user.id, { new_password: newPassword });
+      setPasswordResetSuccess(true);
+      setNewPassword('');
+      setShowPasswordReset(false);
+      setTimeout(() => setPasswordResetSuccess(false), 3000);
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { detail?: string } } };
+      setError(error.response?.data?.detail || 'Failed to reset password');
+    } finally {
+      setPasswordResetLoading(false);
+    }
   };
 
   return (
@@ -169,6 +201,66 @@ const UserForm: React.FC<UserFormProps> = ({ user, roles = [], onSubmit, onCance
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Password Reset Section - only shown when editing and user has permission */}
+        {isEdit && canResetPassword && user && (
+          <div className="border-t border-gray-700 pt-4 mt-4">
+            <div className="flex items-center justify-between mb-3">
+              <label className="block text-sm font-medium text-gray-300">
+                Reset Password
+              </label>
+              {passwordResetSuccess && (
+                <span className="text-sm text-green-400">Password reset successfully!</span>
+              )}
+            </div>
+            {!showPasswordReset ? (
+              <button
+                type="button"
+                onClick={() => setShowPasswordReset(true)}
+                className="flex items-center gap-2 px-3 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-md text-sm font-medium transition-colors"
+              >
+                <Key size={16} />
+                Reset User Password
+              </button>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <input
+                    type="password"
+                    placeholder="Enter new password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
+                    minLength={8}
+                  />
+                  <p className="mt-1 text-xs text-gray-400">
+                    Minimum 8 characters
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePasswordReset}
+                    disabled={passwordResetLoading || newPassword.length < 8}
+                    className="px-3 py-2 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-md text-sm font-medium transition-colors"
+                  >
+                    {passwordResetLoading ? 'Resetting...' : 'Confirm Reset'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPasswordReset(false);
+                      setNewPassword('');
+                    }}
+                    className="px-3 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-md text-sm font-medium transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

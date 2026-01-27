@@ -21,6 +21,7 @@ pub struct AppConfig {
     pub category: String,
     pub is_system: bool,
     pub is_hidden: bool,
+    pub is_browseable: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -257,6 +258,13 @@ impl AppCatalog {
             .map(|h| h.to_lowercase() == "true")
             .unwrap_or(false);
 
+        // Apps are browseable by default unless explicitly set to false
+        let is_browseable = annotations
+            .get(&serde_yaml::Value::String("kubarr.io/browseable".to_string()))
+            .and_then(|b| b.as_str())
+            .map(|b| b.to_lowercase() != "false")
+            .unwrap_or(true);
+
         let description = chart
             .get("description")
             .and_then(|d| d.as_str())
@@ -276,6 +284,7 @@ impl AppCatalog {
             category,
             is_system,
             is_hidden,
+            is_browseable,
         }))
     }
 
@@ -404,6 +413,7 @@ persistence:
             category: "media".to_string(),
             is_system: false,
             is_hidden: false,
+            is_browseable: true,
         };
 
         let json = serde_json::to_string(&config).unwrap();
@@ -483,6 +493,7 @@ persistence:
                 category: "media".to_string(),
                 is_system: false,
                 is_hidden: false,
+                is_browseable: true,
             },
         );
 
@@ -518,6 +529,7 @@ persistence:
                 category: "media".to_string(),
                 is_system: false,
                 is_hidden: false,
+                is_browseable: true,
             },
         );
 
@@ -542,6 +554,7 @@ persistence:
                 category: "download".to_string(),
                 is_system: false,
                 is_hidden: false,
+                is_browseable: true,
             },
         );
 
@@ -583,6 +596,7 @@ persistence:
                 category: "media".to_string(),
                 is_system: false,
                 is_hidden: false,
+                is_browseable: true,
             },
         );
 
@@ -606,6 +620,7 @@ persistence:
                 category: "download".to_string(),
                 is_system: false,
                 is_hidden: false,
+                is_browseable: true,
             },
         );
 
@@ -629,6 +644,7 @@ persistence:
                 category: "media".to_string(), // Duplicate category
                 is_system: false,
                 is_hidden: false,
+                is_browseable: true,
             },
         );
 
@@ -663,6 +679,7 @@ persistence:
                 category: "test".to_string(),
                 is_system: false,
                 is_hidden: false,
+                is_browseable: true,
             },
         );
 
@@ -701,6 +718,7 @@ persistence:
             category: "media".to_string(),
             is_system: false,
             is_hidden: false,
+            is_browseable: true,
         };
 
         let cloned = config.clone();
@@ -732,6 +750,7 @@ persistence:
             category: "system".to_string(),
             is_system: true,
             is_hidden: false,
+            is_browseable: true,
         };
 
         let hidden_app = AppConfig {
@@ -752,6 +771,7 @@ persistence:
             category: "other".to_string(),
             is_system: false,
             is_hidden: true,
+            is_browseable: true,
         };
 
         assert!(system_app.is_system);

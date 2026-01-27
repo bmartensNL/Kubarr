@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::extractors::{user_has_permission, AuthUser};
 use crate::config::CONFIG;
+use crate::db::entities::audit_log::AuditAction;
 use crate::db::entities::prelude::*;
 use crate::error::{AppError, Result};
 use crate::services::{AppConfig, DeploymentManager, DeploymentRequest, DeploymentStatus};
@@ -30,6 +31,7 @@ pub fn apps_routes(state: AppState) -> Router {
         .route("/:app_name/health", get(check_app_health))
         .route("/:app_name/exists", get(check_app_exists))
         .route("/:app_name/status", get(get_app_status))
+        .route("/:app_name/access", post(log_app_access))
         .with_state(state)
 }
 
@@ -387,4 +389,35 @@ async fn get_app_status(
             "message": e.to_string()
         }))),
     }
+}
+
+/// Log app access - called when user opens an app
+async fn log_app_access(
+    State(state): State<AppState>,
+    Path(app_name): Path<String>,
+    AuthUser(user): AuthUser,
+) -> Result<Json<serde_json::Value>> {
+    use crate::db::entities::audit_log::ResourceType;
+
+    // Log the access in audit trail
+    let _ = state
+        .audit
+        .log(
+            AuditAction::AppAccessed,
+            ResourceType::App,
+            Some(app_name.clone()),
+            Some(user.id),
+            Some(user.username.clone()),
+            Some(serde_json::json!({ "app": app_name })),
+            None,
+            None,
+            true,
+            None,
+        )
+        .await;
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": "Access logged"
+    })))
 }

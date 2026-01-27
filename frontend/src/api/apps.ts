@@ -77,4 +77,9 @@ export const appsApi = {
     const response = await apiClient.get<AppConfig[]>(`/apps/category/${category}`);
     return response.data;
   },
+
+  // Log app access - called when user opens an app
+  logAccess: async (appName: string): Promise<void> => {
+    await apiClient.post(`/apps/${appName}/access`);
+  },
 };

@@ -17,8 +17,7 @@ use crate::db::entities::prelude::*;
 use crate::db::entities::{invite, role, user, user_preferences, user_role};
 use crate::error::{AppError, Result};
 use crate::services::{
-    generate_totp_secret, get_totp_provisioning_uri, get_totp_qr_code_base64, hash_password,
-    verify_password, verify_totp,
+    generate_totp_secret, get_totp_provisioning_uri, hash_password, verify_password, verify_totp,
 };
 use crate::state::AppState;
 
@@ -108,7 +107,6 @@ pub struct AdminResetPasswordRequest {
 pub struct TwoFactorSetupResponse {
     pub secret: String,
     pub provisioning_uri: String,
-    pub qr_code_base64: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -708,7 +706,7 @@ async fn change_own_password(
     ))
 }
 
-/// Admin reset password for another user (requires users.manage permission)
+/// Admin reset password for another user (requires users.reset_password permission)
 async fn admin_reset_password(
     State(state): State<AppState>,
     Path(user_id): Path<i64>,
@@ -716,9 +714,9 @@ async fn admin_reset_password(
     Json(data): Json<AdminResetPasswordRequest>,
 ) -> Result<Json<serde_json::Value>> {
     // Check permission
-    if !user_has_permission(&state.db, admin_user.id, "users.manage").await {
+    if !user_has_permission(&state.db, admin_user.id, "users.reset_password").await {
         return Err(AppError::Forbidden(
-            "Permission denied: users.manage required".to_string(),
+            "Permission denied: users.reset_password required".to_string(),
         ));
     }
 
@@ -795,9 +793,8 @@ async fn setup_2fa(
     let secret = generate_totp_secret();
     let account_name = &user_record.email;
 
-    // Get provisioning URI and QR code
+    // Get provisioning URI (frontend generates QR code)
     let provisioning_uri = get_totp_provisioning_uri(&secret, account_name)?;
-    let qr_code_base64 = get_totp_qr_code_base64(&secret, account_name)?;
 
     // Store the secret (but don't enable yet - user must verify first)
     let now = Utc::now();
@@ -809,7 +806,6 @@ async fn setup_2fa(
     Ok(Json(TwoFactorSetupResponse {
         secret,
         provisioning_uri,
-        qr_code_base64,
     }))
 }
 

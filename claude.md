@@ -73,14 +73,14 @@ docker save kubarr-frontend:<tag> | docker exec -i kubarr-test-control-plane ctr
 Simply updating the image is NOT enough. You must also delete the existing pod:
 
 ```bash
-# Update the deployment image
-kubectl set image deployment/kubarr frontend=kubarr-frontend:<tag> -n kubarr
+# Update the deployment image (backend)
+kubectl set image deployment/kubarr-backend backend=kubarr-backend:<tag> -n kubarr
 
 # Delete the pod to force recreation with new image
-kubectl delete pod -l app=kubarr -n kubarr
+kubectl delete pod -l app.kubernetes.io/name=kubarr-backend -n kubarr
 
 # Wait for rollout
-kubectl rollout status deployment/kubarr -n kubarr --timeout=60s
+kubectl rollout status deployment/kubarr-backend -n kubarr --timeout=120s
 ```
 
 ### Step 4: Verify the deployment
@@ -89,10 +89,10 @@ Always verify the new image is running:
 
 ```bash
 # Check the version endpoint
-kubectl exec deployment/kubarr -n kubarr -c backend -- curl -s http://localhost:8000/api/system/version
+kubectl exec deployment/kubarr-backend -n kubarr -c backend -- curl -s http://localhost:8000/api/system/version
 
 # Check actual image being used
-kubectl get pod -n kubarr -l app=kubarr -o jsonpath='{.items[0].spec.containers[*].image}'
+kubectl get pod -n kubarr -l app.kubernetes.io/name=kubarr-backend -o jsonpath='{.items[0].spec.containers[*].image}'
 ```
 
 ## Common Issues
@@ -137,9 +137,9 @@ docker build -f docker/Dockerfile.backend -t kubarr-backend:$TAG \
   --build-arg COMMIT_HASH=$(git rev-parse --short HEAD) \
   --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") . && \
 docker save kubarr-backend:$TAG | docker exec -i kubarr-test-control-plane ctr -n k8s.io images import - && \
-kubectl set image deployment/kubarr backend=kubarr-backend:$TAG -n kubarr && \
-kubectl delete pod -l app.kubernetes.io/name=kubarr -n kubarr && \
-kubectl rollout status deployment/kubarr -n kubarr --timeout=120s
+kubectl set image deployment/kubarr-backend backend=kubarr-backend:$TAG -n kubarr && \
+kubectl delete pod -l app.kubernetes.io/name=kubarr-backend -n kubarr && \
+kubectl rollout status deployment/kubarr-backend -n kubarr --timeout=120s
 ```
 
 ## Project Structure

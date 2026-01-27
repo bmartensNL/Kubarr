@@ -20,3 +20,4 @@ annotations:
   kubarr.io/category: "system"
   kubarr.io/system: "true"
   kubarr.io/hidden: "true"
+  kubarr.io/browseable: "false"

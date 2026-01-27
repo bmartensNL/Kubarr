@@ -1,9 +1,12 @@
 pub mod apps;
+pub mod audit;
 pub mod auth;
 pub mod extractors;
 pub mod logs;
 pub mod monitoring;
 pub mod networking;
+pub mod notifications;
+pub mod oauth;
 pub mod roles;
 pub mod settings;
 pub mod setup;
@@ -36,6 +39,9 @@ fn api_routes(state: AppState) -> Router {
         .nest("/apps", apps::apps_routes(state.clone()))
         .nest("/storage", storage::storage_routes(state.clone()))
         .nest("/logs", logs::logs_routes(state.clone()))
+        .nest("/audit", audit::audit_routes(state.clone()))
+        .nest("/notifications", notifications::notifications_routes(state.clone()))
+        .nest("/oauth", oauth::oauth_routes(state.clone()))
         .nest("/setup", setup::setup_routes(state))
 }
 

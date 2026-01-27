@@ -125,7 +125,12 @@ async fn get_network_topology(
     for result in &rx_results {
         if let Some(namespace) = result["metric"]["namespace"].as_str() {
             // Skip kube-system and other internal k8s namespaces
-            if namespace.starts_with("kube-") || namespace == "local-path-storage" {
+            if namespace.starts_with("kube-")
+                || namespace == "local-path-storage"
+                || namespace == "default"
+                || namespace == "linux"
+                || namespace.is_empty()
+            {
                 continue;
             }
             if let Some(value) = result["value"][1].as_str() {
@@ -141,7 +146,12 @@ async fn get_network_topology(
     // Process TX results
     for result in &tx_results {
         if let Some(namespace) = result["metric"]["namespace"].as_str() {
-            if namespace.starts_with("kube-") || namespace == "local-path-storage" {
+            if namespace.starts_with("kube-")
+                || namespace == "local-path-storage"
+                || namespace == "default"
+                || namespace == "linux"
+                || namespace.is_empty()
+            {
                 continue;
             }
             if let Some(value) = result["value"][1].as_str() {
@@ -157,7 +167,12 @@ async fn get_network_topology(
     // Process pod count results
     for result in &pod_results {
         if let Some(namespace) = result["metric"]["namespace"].as_str() {
-            if namespace.starts_with("kube-") || namespace == "local-path-storage" {
+            if namespace.starts_with("kube-")
+                || namespace == "local-path-storage"
+                || namespace == "default"
+                || namespace == "linux"
+                || namespace.is_empty()
+            {
                 continue;
             }
             if let Some(value) = result["value"][1].as_str() {
@@ -237,6 +252,7 @@ async fn discover_service_connections(
     use kube::api::{Api, ListParams};
 
     let mut edges: Vec<NetworkEdge> = Vec::new();
+    let mut seen_edges: HashSet<(String, String)> = HashSet::new(); // Track source-target pairs
     let mut service_to_namespace: HashMap<String, String> = HashMap::new();
 
     // Build a map of service names to their namespaces
@@ -266,14 +282,18 @@ async fn discover_service_connections(
                         // Look for URLs or service references in config values
                         for (svc_name, target_ns) in &service_to_namespace {
                             if target_ns != ns && value.contains(svc_name) {
-                                edges.push(NetworkEdge {
-                                    source: ns.clone(),
-                                    target: target_ns.clone(),
-                                    edge_type: "config".to_string(),
-                                    port: None,
-                                    protocol: Some("HTTP".to_string()),
-                                    label: String::new(),
-                                });
+                                let edge_key = (ns.clone(), target_ns.clone());
+                                if !seen_edges.contains(&edge_key) {
+                                    seen_edges.insert(edge_key);
+                                    edges.push(NetworkEdge {
+                                        source: ns.clone(),
+                                        target: target_ns.clone(),
+                                        edge_type: "config".to_string(),
+                                        port: None,
+                                        protocol: Some("HTTP".to_string()),
+                                        label: String::new(),
+                                    });
+                                }
                             }
                         }
                     }
@@ -293,19 +313,23 @@ async fn discover_service_connections(
                                 if let Some(target_ref) = &addr.target_ref {
                                     if let Some(target_ns) = &target_ref.namespace {
                                         if target_ns != ns && namespaces.contains(target_ns) {
-                                            let port = subset
-                                                .ports
-                                                .as_ref()
-                                                .and_then(|p| p.first())
-                                                .map(|p| p.port);
-                                            edges.push(NetworkEdge {
-                                                source: ns.clone(),
-                                                target: target_ns.clone(),
-                                                edge_type: "endpoint".to_string(),
-                                                port,
-                                                protocol: Some("TCP".to_string()),
-                                                label: String::new(),
-                                            });
+                                            let edge_key = (ns.clone(), target_ns.clone());
+                                            if !seen_edges.contains(&edge_key) {
+                                                seen_edges.insert(edge_key);
+                                                let port = subset
+                                                    .ports
+                                                    .as_ref()
+                                                    .and_then(|p| p.first())
+                                                    .map(|p| p.port);
+                                                edges.push(NetworkEdge {
+                                                    source: ns.clone(),
+                                                    target: target_ns.clone(),
+                                                    edge_type: "endpoint".to_string(),
+                                                    port,
+                                                    protocol: Some("TCP".to_string()),
+                                                    label: String::new(),
+                                                });
+                                            }
                                         }
                                     }
                                 }
@@ -328,20 +352,24 @@ async fn discover_service_connections(
                     for (_key, value) in &annotations {
                         for (svc_name, target_ns) in &service_to_namespace {
                             if target_ns != ns && value.contains(svc_name) {
-                                let port = svc
-                                    .spec
-                                    .as_ref()
-                                    .and_then(|s| s.ports.as_ref())
-                                    .and_then(|p| p.first())
-                                    .map(|p| p.port);
-                                edges.push(NetworkEdge {
-                                    source: ns.clone(),
-                                    target: target_ns.clone(),
-                                    edge_type: "upstream".to_string(),
-                                    port,
-                                    protocol: Some("HTTP".to_string()),
-                                    label: String::new(),
-                                });
+                                let edge_key = (ns.clone(), target_ns.clone());
+                                if !seen_edges.contains(&edge_key) {
+                                    seen_edges.insert(edge_key);
+                                    let port = svc
+                                        .spec
+                                        .as_ref()
+                                        .and_then(|s| s.ports.as_ref())
+                                        .and_then(|p| p.first())
+                                        .map(|p| p.port);
+                                    edges.push(NetworkEdge {
+                                        source: ns.clone(),
+                                        target: target_ns.clone(),
+                                        edge_type: "upstream".to_string(),
+                                        port,
+                                        protocol: Some("HTTP".to_string()),
+                                        label: String::new(),
+                                    });
+                                }
                             }
                         }
                     }
@@ -352,12 +380,17 @@ async fn discover_service_connections(
 
     // Add external edge to namespaces that have LoadBalancer or NodePort services
     for ns in namespaces {
+        let edge_key = ("external".to_string(), ns.clone());
+        if seen_edges.contains(&edge_key) {
+            continue;
+        }
         let services: Api<Service> = Api::namespaced(k8s.client().clone(), ns);
         if let Ok(svc_list) = services.list(&ListParams::default()).await {
             for svc in svc_list.items {
                 if let Some(spec) = &svc.spec {
                     if let Some(svc_type) = &spec.type_ {
                         if svc_type == "LoadBalancer" || svc_type == "NodePort" {
+                            seen_edges.insert(edge_key.clone());
                             edges.push(NetworkEdge {
                                 source: "external".to_string(),
                                 target: ns.clone(),
@@ -370,6 +403,133 @@ async fn discover_service_connections(
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // Check for Ingress resources that indicate external access
+    use k8s_openapi::api::networking::v1::{Ingress, NetworkPolicy};
+    for ns in namespaces {
+        let ingresses: Api<Ingress> = Api::namespaced(k8s.client().clone(), ns);
+        if let Ok(ing_list) = ingresses.list(&ListParams::default()).await {
+            for ing in ing_list.items {
+                // Add external edge for namespaces with Ingress resources
+                let ext_edge_key = ("external".to_string(), ns.clone());
+                if !seen_edges.contains(&ext_edge_key) {
+                    seen_edges.insert(ext_edge_key);
+                    edges.push(NetworkEdge {
+                        source: "external".to_string(),
+                        target: ns.clone(),
+                        edge_type: "ingress".to_string(),
+                        port: Some(443),
+                        protocol: Some("HTTPS".to_string()),
+                        label: String::new(),
+                    });
+                }
+
+                // Also check ingress backend services for connections
+                if let Some(spec) = &ing.spec {
+                    if let Some(rules) = &spec.rules {
+                        for rule in rules {
+                            if let Some(http) = &rule.http {
+                                for path in &http.paths {
+                                    if let Some(backend) = &path.backend.service {
+                                        if let Some(target_ns) =
+                                            service_to_namespace.get(&backend.name)
+                                        {
+                                            if target_ns != ns {
+                                                let backend_edge_key = (ns.clone(), target_ns.clone());
+                                                if !seen_edges.contains(&backend_edge_key) {
+                                                    seen_edges.insert(backend_edge_key);
+                                                    edges.push(NetworkEdge {
+                                                        source: ns.clone(),
+                                                        target: target_ns.clone(),
+                                                        edge_type: "ingress-backend".to_string(),
+                                                        port: backend.port.as_ref().and_then(|p| p.number),
+                                                        protocol: Some("HTTP".to_string()),
+                                                        label: String::new(),
+                                                    });
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                break; // One external edge per namespace is enough
+            }
+        }
+    }
+
+    // Check NetworkPolicies to determine egress access to the internet
+    // By default, Kubernetes allows all egress traffic. Only if there's a NetworkPolicy
+    // that explicitly restricts egress would a namespace be blocked from the internet.
+    for ns in namespaces {
+        let netpols: Api<NetworkPolicy> = Api::namespaced(k8s.client().clone(), ns);
+        let mut egress_blocked = false;
+
+        if let Ok(np_list) = netpols.list(&ListParams::default()).await {
+            for np in np_list.items {
+                if let Some(spec) = &np.spec {
+                    // Check if this policy has egress rules
+                    if let Some(policy_types) = &spec.policy_types {
+                        if policy_types.iter().any(|t| t == "Egress") {
+                            // If there's an Egress policy type, check if it allows external
+                            if let Some(egress_rules) = &spec.egress {
+                                // If egress rules exist but are empty, all egress is blocked
+                                if egress_rules.is_empty() {
+                                    egress_blocked = true;
+                                    break;
+                                }
+                                // If there are rules, check if they only allow cluster-internal
+                                let allows_external = egress_rules.iter().any(|rule| {
+                                    // Rule with no 'to' field allows all destinations
+                                    if rule.to.is_none() {
+                                        return true;
+                                    }
+                                    // Check if any 'to' allows external (0.0.0.0/0 or no ipBlock)
+                                    if let Some(to_list) = &rule.to {
+                                        to_list.iter().any(|peer| {
+                                            if let Some(ip_block) = &peer.ip_block {
+                                                // 0.0.0.0/0 allows all external
+                                                ip_block.cidr == "0.0.0.0/0"
+                                            } else {
+                                                // No ipBlock means it could be namespace/pod selector
+                                                // which doesn't restrict external access by itself
+                                                peer.namespace_selector.is_none()
+                                                    && peer.pod_selector.is_none()
+                                            }
+                                        })
+                                    } else {
+                                        true
+                                    }
+                                });
+                                if !allows_external {
+                                    egress_blocked = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // If egress is not blocked, this namespace can reach the internet
+        if !egress_blocked {
+            let egress_edge_key = (ns.clone(), "external".to_string());
+            if !seen_edges.contains(&egress_edge_key) {
+                seen_edges.insert(egress_edge_key);
+                edges.push(NetworkEdge {
+                    source: ns.clone(),
+                    target: "external".to_string(),
+                    edge_type: "egress".to_string(),
+                    port: None,
+                    protocol: Some("TCP".to_string()),
+                    label: String::new(),
+                });
             }
         }
     }
@@ -426,7 +586,12 @@ async fn get_network_stats(
         for result in results {
             if let Some(namespace) = result["metric"]["namespace"].as_str() {
                 // Skip internal k8s namespaces
-                if namespace.starts_with("kube-") || namespace == "local-path-storage" {
+                if namespace.starts_with("kube-")
+                    || namespace == "local-path-storage"
+                    || namespace == "default"
+                    || namespace == "linux"
+                    || namespace.is_empty()
+                {
                     continue;
                 }
                 if let Some(value) = result["value"][1].as_str() {

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { networkingApi, NetworkTopology, formatBandwidth, formatPackets } from '../api/networking'
 import { AppIcon } from '../components/AppIcon'
@@ -11,6 +11,7 @@ import {
   MiniMap,
   useNodesState,
   useEdgesState,
+  useReactFlow,
   Position,
   Handle,
   BaseEdge,
@@ -31,6 +32,8 @@ import {
   Wifi,
   WifiOff,
   Zap,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react'
 
 // ============================================================================
@@ -45,12 +48,27 @@ interface TrafficNodeData {
   total: number
   podCount: number
   appId: string
+  isHighlighted: boolean
+  isFaded: boolean
+  isSelected: boolean
   [key: string]: unknown
 }
 
 function TrafficNode({ data }: { data: TrafficNodeData }) {
+  // Determine opacity based on highlight/fade state
+  const opacity = data.isFaded ? 0.2 : 1
+  const scale = data.isHighlighted ? 1.05 : 1
+  const zIndex = data.isHighlighted ? 50 : 1
+
   return (
-    <div className="relative">
+    <div
+      className="relative transition-all duration-300 ease-out cursor-pointer"
+      style={{
+        opacity,
+        transform: `scale(${scale})`,
+        zIndex,
+      }}
+    >
       {/* Handles for connections */}
       <Handle
         type="target"
@@ -64,7 +82,13 @@ function TrafficNode({ data }: { data: TrafficNodeData }) {
       />
 
       {/* Node Card */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border-2 border-gray-200 dark:border-gray-600 shadow-lg hover:shadow-xl hover:border-blue-500 transition-all duration-200 min-w-[100px]">
+      <div className={`bg-white dark:bg-gray-800 rounded-xl p-3 border-2 shadow-lg transition-all duration-200 min-w-[100px] ${
+        data.isSelected
+          ? 'border-blue-500 shadow-blue-500/30 shadow-xl ring-2 ring-blue-500/50'
+          : data.isHighlighted
+            ? 'border-blue-400 shadow-xl'
+            : 'border-gray-200 dark:border-gray-600 hover:shadow-xl hover:border-blue-500'
+      }`}>
         {/* Icon */}
         <div className="flex justify-center mb-2">
           {data.type === 'external' ? (
@@ -113,6 +137,8 @@ function TrafficNode({ data }: { data: TrafficNodeData }) {
 interface AnimatedEdgeData {
   traffic: number
   maxTraffic: number
+  isHighlighted: boolean
+  isFaded: boolean
   [key: string]: unknown
 }
 
@@ -144,44 +170,87 @@ function AnimatedEdge({
   // Animation speed based on traffic (faster = more traffic)
   const animationDuration = Math.max(1, 4 - (traffic / maxTraffic) * 3)
 
+  // Handle fading
+  const isFaded = data?.isFaded ?? false
+  const isHighlighted = data?.isHighlighted ?? false
+  const opacity = isFaded ? 0.1 : isHighlighted ? 1 : 0.6
+  const strokeColor = isHighlighted ? 'rgba(59, 130, 246, 0.6)' : 'rgba(59, 130, 246, 0.2)'
+  const particleColor = isHighlighted ? '#3b82f6' : '#94a3b8'
+
   return (
-    <>
+    <g style={{ opacity, transition: 'opacity 0.3s ease-out' }}>
       {/* Background path */}
       <BaseEdge
         id={id}
         path={edgePath}
         style={{
           ...style,
-          strokeWidth,
-          stroke: 'rgba(59, 130, 246, 0.2)',
+          strokeWidth: isHighlighted ? strokeWidth + 1 : strokeWidth,
+          stroke: strokeColor,
         }}
       />
 
-      {/* Animated particles */}
-      <circle r="4" fill="#3b82f6">
-        <animateMotion
-          dur={`${animationDuration}s`}
-          repeatCount="indefinite"
-          path={edgePath}
-        />
-      </circle>
-      <circle r="4" fill="#3b82f6" style={{ opacity: 0.6 }}>
-        <animateMotion
-          dur={`${animationDuration}s`}
-          repeatCount="indefinite"
-          path={edgePath}
-          begin={`${animationDuration / 3}s`}
-        />
-      </circle>
-      <circle r="4" fill="#3b82f6" style={{ opacity: 0.3 }}>
-        <animateMotion
-          dur={`${animationDuration}s`}
-          repeatCount="indefinite"
-          path={edgePath}
-          begin={`${(animationDuration / 3) * 2}s`}
-        />
-      </circle>
-    </>
+      {/* Animated particles - bidirectional flow */}
+      {!isFaded && (
+        <>
+          {/* Forward direction (source -> target) */}
+          <circle r="4" fill={particleColor}>
+            <animateMotion
+              dur={`${animationDuration}s`}
+              repeatCount="indefinite"
+              path={edgePath}
+            />
+          </circle>
+          <circle r="4" fill={particleColor} style={{ opacity: 0.6 }}>
+            <animateMotion
+              dur={`${animationDuration}s`}
+              repeatCount="indefinite"
+              path={edgePath}
+              begin={`${animationDuration / 3}s`}
+            />
+          </circle>
+          <circle r="4" fill={particleColor} style={{ opacity: 0.3 }}>
+            <animateMotion
+              dur={`${animationDuration}s`}
+              repeatCount="indefinite"
+              path={edgePath}
+              begin={`${(animationDuration / 3) * 2}s`}
+            />
+          </circle>
+          {/* Reverse direction (target -> source) */}
+          <circle r="4" fill={particleColor}>
+            <animateMotion
+              dur={`${animationDuration}s`}
+              repeatCount="indefinite"
+              path={edgePath}
+              keyPoints="1;0"
+              keyTimes="0;1"
+              begin={`${animationDuration / 6}s`}
+            />
+          </circle>
+          <circle r="4" fill={particleColor} style={{ opacity: 0.6 }}>
+            <animateMotion
+              dur={`${animationDuration}s`}
+              repeatCount="indefinite"
+              path={edgePath}
+              keyPoints="1;0"
+              keyTimes="0;1"
+              begin={`${animationDuration / 2}s`}
+            />
+          </circle>
+          <circle r="4" fill={particleColor} style={{ opacity: 0.3 }}>
+            <animateMotion
+              dur={`${animationDuration}s`}
+              repeatCount="indefinite"
+              path={edgePath}
+              keyPoints="1;0"
+              keyTimes="0;1"
+              begin={`${(animationDuration / 6) * 5}s`}
+            />
+          </circle>
+        </>
+      )}
+    </g>
   )
 }
 
@@ -238,9 +307,48 @@ const edgeTypes = { animated: AnimatedEdge }
 
 interface FlowVisualizationProps {
   topology: NetworkTopology
+  isFullscreen?: boolean
 }
 
-function NetworkFlowVisualizationInner({ topology }: FlowVisualizationProps) {
+function NetworkFlowVisualizationInner({ topology, isFullscreen }: FlowVisualizationProps) {
+  // State for selected and hovered nodes
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
+
+  // Get ReactFlow instance for fitView
+  const { fitView } = useReactFlow()
+
+  // Fit to screen when entering/exiting fullscreen
+  useEffect(() => {
+    // Small delay to allow the container to resize
+    const timer = setTimeout(() => {
+      fitView({ padding: 0.2, duration: 200 })
+    }, 100)
+    return () => clearTimeout(timer)
+  }, [isFullscreen, fitView])
+
+  // Helper to get connected node IDs for a given node
+  const getConnectedNodeIds = useMemo(() => {
+    const connectionMap = new Map<string, Set<string>>()
+
+    topology.edges.forEach(edge => {
+      if (!connectionMap.has(edge.source)) {
+        connectionMap.set(edge.source, new Set())
+      }
+      if (!connectionMap.has(edge.target)) {
+        connectionMap.set(edge.target, new Set())
+      }
+      connectionMap.get(edge.source)!.add(edge.target)
+      connectionMap.get(edge.target)!.add(edge.source)
+    })
+
+    return (nodeId: string): Set<string> => {
+      const connected = connectionMap.get(nodeId) || new Set()
+      connected.add(nodeId) // Include the node itself
+      return connected
+    }
+  }, [topology.edges])
+
   // Convert topology to React Flow nodes and edges
   const { initialNodes, initialEdges } = useMemo(() => {
     const maxTraffic = Math.max(...topology.nodes.map(n => n.total_traffic), 1)
@@ -257,6 +365,9 @@ function NetworkFlowVisualizationInner({ topology }: FlowVisualizationProps) {
         total: node.total_traffic,
         podCount: node.pod_count,
         appId: node.id,
+        isHighlighted: false,
+        isFaded: false,
+        isSelected: false,
       },
     }))
 
@@ -270,7 +381,7 @@ function NetworkFlowVisualizationInner({ topology }: FlowVisualizationProps) {
         source: edge.source,
         target: edge.target,
         type: 'animated',
-        data: { traffic, maxTraffic },
+        data: { traffic, maxTraffic, isHighlighted: false, isFaded: false },
       }
     })
 
@@ -286,16 +397,153 @@ function NetworkFlowVisualizationInner({ topology }: FlowVisualizationProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState(layoutedNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(layoutedEdges)
 
-  // Update nodes when topology changes
+  // Track the structure (node IDs and edge connections) to detect when layout needs recalculating
+  const structureKey = useMemo(() => {
+    const nodeIds = topology.nodes.map(n => n.id).sort().join(',')
+    const edgeKeys = topology.edges.map(e => `${e.source}->${e.target}`).sort().join(',')
+    return `${nodeIds}|${edgeKeys}`
+  }, [topology])
+
+  // Update nodes when topology changes - only recalculate layout if structure changed
+  const prevStructureRef = useRef(structureKey)
   useEffect(() => {
-    const { nodes: newLayoutedNodes, edges: newLayoutedEdges } = getLayoutedElements(
-      initialNodes,
-      initialEdges,
-      'TB'
+    const structureChanged = prevStructureRef.current !== structureKey
+    prevStructureRef.current = structureKey
+
+    if (structureChanged) {
+      // Structure changed - recalculate layout
+      const { nodes: newLayoutedNodes, edges: newLayoutedEdges } = getLayoutedElements(
+        initialNodes,
+        initialEdges,
+        'TB'
+      )
+      setNodes(newLayoutedNodes)
+      setEdges(newLayoutedEdges)
+    } else {
+      // Only data changed - update data without changing positions
+      setNodes(nodes =>
+        nodes.map(node => {
+          const newNodeData = initialNodes.find(n => n.id === node.id)
+          if (newNodeData) {
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                rx: newNodeData.data.rx,
+                tx: newNodeData.data.tx,
+                total: newNodeData.data.total,
+                podCount: newNodeData.data.podCount,
+              },
+            }
+          }
+          return node
+        })
+      )
+      setEdges(edges =>
+        edges.map(edge => {
+          const newEdgeData = initialEdges.find(e => e.id === edge.id)
+          if (newEdgeData) {
+            return {
+              ...edge,
+              data: {
+                ...edge.data,
+                traffic: newEdgeData.data?.traffic || 0,
+                maxTraffic: newEdgeData.data?.maxTraffic || 1,
+              },
+            }
+          }
+          return edge
+        })
+      )
+    }
+  }, [initialNodes, initialEdges, structureKey, setNodes, setEdges])
+
+  // Update highlight/fade state based on selected/hovered node
+  useEffect(() => {
+    const activeNodeId = selectedNodeId || hoveredNodeId
+    const isClickMode = selectedNodeId !== null
+
+    if (!activeNodeId) {
+      // No selection or hover - reset all to normal
+      setNodes(nodes =>
+        nodes.map(node => ({
+          ...node,
+          data: {
+            ...node.data,
+            isHighlighted: false,
+            isFaded: false,
+            isSelected: false,
+          },
+        }))
+      )
+      setEdges(edges =>
+        edges.map(edge => ({
+          ...edge,
+          data: {
+            ...edge.data,
+            isHighlighted: false,
+            isFaded: false,
+          },
+        }))
+      )
+      return
+    }
+
+    const connectedIds = getConnectedNodeIds(activeNodeId)
+
+    setNodes(nodes =>
+      nodes.map(node => {
+        const isConnected = connectedIds.has(node.id)
+        const isActive = node.id === activeNodeId
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            isHighlighted: isConnected,
+            isFaded: isClickMode && !isConnected, // Only fade in click mode, not hover
+            isSelected: isActive && isClickMode,
+          },
+          hidden: isClickMode && !isConnected, // Hide non-connected nodes in click mode
+        }
+      })
     )
-    setNodes(newLayoutedNodes)
-    setEdges(newLayoutedEdges)
-  }, [initialNodes, initialEdges, setNodes, setEdges])
+
+    setEdges(edges =>
+      edges.map(edge => {
+        const isConnected = edge.source === activeNodeId || edge.target === activeNodeId
+        return {
+          ...edge,
+          data: {
+            ...edge.data,
+            isHighlighted: isConnected,
+            isFaded: !isConnected,
+          },
+          hidden: isClickMode && !isConnected, // Hide non-connected edges in click mode
+        }
+      })
+    )
+  }, [selectedNodeId, hoveredNodeId, getConnectedNodeIds, setNodes, setEdges])
+
+  // Handle node click
+  const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
+    setSelectedNodeId(prev => (prev === node.id ? null : node.id)) // Toggle selection
+  }, [])
+
+  // Handle node mouse enter/leave for hover effect
+  const onNodeMouseEnter = useCallback((_event: React.MouseEvent, node: Node) => {
+    if (!selectedNodeId) {
+      setHoveredNodeId(node.id)
+    }
+  }, [selectedNodeId])
+
+  const onNodeMouseLeave = useCallback(() => {
+    setHoveredNodeId(null)
+  }, [])
+
+  // Handle pane click to clear selection
+  const onPaneClick = useCallback(() => {
+    setSelectedNodeId(null)
+  }, [])
 
   if (topology.nodes.length === 0) {
     return (
@@ -309,39 +557,61 @@ function NetworkFlowVisualizationInner({ topology }: FlowVisualizationProps) {
   }
 
   return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      onNodesChange={onNodesChange}
-      onEdgesChange={onEdgesChange}
-      nodeTypes={nodeTypes}
-      edgeTypes={edgeTypes}
-      fitView
-      fitViewOptions={{ padding: 0.2 }}
-      minZoom={0.5}
-      maxZoom={1.5}
-      proOptions={{ hideAttribution: true }}
-      className="bg-gray-50 dark:bg-gray-900"
-    >
-      <Background color="#e5e7eb" gap={20} className="dark:!bg-gray-900" />
-      <Controls className="!bg-white dark:!bg-gray-800 !border-gray-200 dark:!border-gray-700 !shadow-lg [&>button]:!bg-white [&>button]:dark:!bg-gray-800 [&>button]:!border-gray-200 [&>button]:dark:!border-gray-700 [&>button]:!text-gray-600 [&>button]:dark:!text-gray-300 [&>button:hover]:!bg-gray-100 [&>button:hover]:dark:!bg-gray-700" />
-      <MiniMap
-        nodeColor={(node) => {
-          const data = node.data as TrafficNodeData
-          if (data.type === 'external') return '#3b82f6'
-          return '#10b981'
-        }}
-        className="!bg-white dark:!bg-gray-800 !border-gray-200 dark:!border-gray-700"
-        maskColor="rgba(0, 0, 0, 0.1)"
-      />
-    </ReactFlow>
+    <div className="relative w-full h-full">
+      {/* Selection indicator */}
+      {selectedNodeId && (
+        <div className="absolute top-4 left-4 z-10 bg-blue-500 text-white px-3 py-1.5 rounded-lg shadow-lg flex items-center gap-2 text-sm">
+          <span>Showing connections for: <strong>{selectedNodeId}</strong></span>
+          <button
+            onClick={() => setSelectedNodeId(null)}
+            className="ml-2 hover:bg-blue-600 rounded p-0.5 transition-colors"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onNodeClick={onNodeClick}
+        onNodeMouseEnter={onNodeMouseEnter}
+        onNodeMouseLeave={onNodeMouseLeave}
+        onPaneClick={onPaneClick}
+        nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        fitView
+        fitViewOptions={{ padding: 0.2 }}
+        minZoom={0.5}
+        maxZoom={1.5}
+        proOptions={{ hideAttribution: true }}
+        className="bg-gray-50 dark:bg-gray-900"
+      >
+        <Background color="#e5e7eb" gap={20} className="dark:!bg-gray-900" />
+        <Controls className="!bg-white dark:!bg-gray-800 !border-gray-200 dark:!border-gray-700 !shadow-lg [&>button]:!bg-white [&>button]:dark:!bg-gray-800 [&>button]:!border-gray-200 [&>button]:dark:!border-gray-700 [&>button]:!text-gray-600 [&>button]:dark:!text-gray-300 [&>button:hover]:!bg-gray-100 [&>button:hover]:dark:!bg-gray-700" />
+        <MiniMap
+          nodeColor={(node) => {
+            const data = node.data as TrafficNodeData
+            if (data.type === 'external') return '#3b82f6'
+            return '#10b981'
+          }}
+          className="!bg-white dark:!bg-gray-800 !border-gray-200 dark:!border-gray-700"
+          maskColor="rgba(0, 0, 0, 0.1)"
+        />
+      </ReactFlow>
+    </div>
   )
 }
 
-function NetworkFlowVisualization({ topology }: FlowVisualizationProps) {
+function NetworkFlowVisualization({ topology, isFullscreen }: FlowVisualizationProps) {
   return (
     <ReactFlowProvider>
-      <NetworkFlowVisualizationInner topology={topology} />
+      <NetworkFlowVisualizationInner topology={topology} isFullscreen={isFullscreen} />
     </ReactFlowProvider>
   )
 }
@@ -456,8 +726,42 @@ function NetworkStatsTable({ stats }: { stats: any[] }) {
 // Main Page Component
 // ============================================================================
 
+// Infrastructure namespaces to hide by default
+const INFRA_NAMESPACES = ['promtail', 'victoriametrics', 'loki']
+
 export default function NetworkingPage() {
   const [autoRefresh, setAutoRefresh] = useState(true)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [showInfra, setShowInfra] = useState(false)
+  const networkFlowRef = useRef<HTMLDivElement>(null)
+
+  // Fullscreen toggle
+  const toggleFullscreen = useCallback(() => {
+    if (!networkFlowRef.current) return
+
+    if (!document.fullscreenElement) {
+      networkFlowRef.current.requestFullscreen().then(() => {
+        setIsFullscreen(true)
+      }).catch((err: unknown) => {
+        console.error('Failed to enter fullscreen:', err)
+      })
+    } else {
+      document.exitFullscreen().then(() => {
+        setIsFullscreen(false)
+      }).catch((err: unknown) => {
+        console.error('Failed to exit fullscreen:', err)
+      })
+    }
+  }, [])
+
+  // Listen for fullscreen change events (e.g., Escape key)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement)
+    }
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  }, [])
 
   // Fetch topology
   const {
@@ -496,6 +800,22 @@ export default function NetworkingPage() {
   // Get internet traffic from the external node
   const externalNode = topology?.nodes.find(n => n.type === 'external')
   const internetTraffic = externalNode ? externalNode.rx_bytes_per_sec + externalNode.tx_bytes_per_sec : totalRx + totalTx
+
+  // Filter topology based on showInfra toggle
+  const filteredTopology = useMemo(() => {
+    if (!topology) return null
+    if (showInfra) return topology
+
+    const filteredNodes = topology.nodes.filter(
+      node => !INFRA_NAMESPACES.includes(node.id)
+    )
+    const filteredNodeIds = new Set(filteredNodes.map(n => n.id))
+    const filteredEdges = topology.edges.filter(
+      edge => filteredNodeIds.has(edge.source) && filteredNodeIds.has(edge.target)
+    )
+
+    return { nodes: filteredNodes, edges: filteredEdges }
+  }, [topology, showInfra])
 
   if (topologyError) {
     return (
@@ -596,23 +916,61 @@ export default function NetworkingPage() {
 
       {/* Network Flow Visualization */}
       <div>
-        <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
-          <Globe size={20} />
-          Network Flow
-          <span className="text-sm font-normal text-gray-500 dark:text-gray-400 ml-2">
-            Drag to pan • Scroll to zoom • Use controls for navigation
-          </span>
-        </h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold flex items-center gap-2 text-gray-900 dark:text-white">
+            <Globe size={20} />
+            Network Flow
+            <span className="text-sm font-normal text-gray-500 dark:text-gray-400 ml-2">
+              Click app to focus • Hover to highlight • Drag to pan
+            </span>
+          </h2>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowInfra(!showInfra)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${
+                showInfra
+                  ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
+              }`}
+              title={showInfra ? 'Hide infrastructure' : 'Show infrastructure (promtail, loki, victoriametrics)'}
+            >
+              <span>{showInfra ? 'Infra: ON' : 'Infra: OFF'}</span>
+            </button>
+            <button
+              onClick={toggleFullscreen}
+              className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors text-gray-700 dark:text-gray-300"
+              title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+            >
+              {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+              <span className="text-sm">{isFullscreen ? 'Exit' : 'Fullscreen'}</span>
+            </button>
+          </div>
+        </div>
         <div
-          className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden"
-          style={{ height: '500px' }}
+          ref={networkFlowRef}
+          className={`bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden ${
+            isFullscreen ? 'fixed inset-0 z-50 rounded-none border-0' : ''
+          }`}
+          style={{ height: isFullscreen ? '100vh' : '665px' }}
         >
+          {/* Fullscreen header */}
+          {isFullscreen && (
+            <div className="absolute top-4 right-4 z-20">
+              <button
+                onClick={toggleFullscreen}
+                className="flex items-center gap-2 px-3 py-2 bg-gray-900/80 hover:bg-gray-900 text-white rounded-lg transition-colors shadow-lg"
+              >
+                <Minimize2 size={18} />
+                <span className="text-sm">Exit Fullscreen</span>
+              </button>
+            </div>
+          )}
           {topologyLoading ? (
             <div className="flex items-center justify-center h-full">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
             </div>
-          ) : topology ? (
-            <NetworkFlowVisualization topology={topology} />
+          ) : filteredTopology ? (
+            <NetworkFlowVisualization topology={filteredTopology} isFullscreen={isFullscreen} />
           ) : null}
         </div>
       </div>

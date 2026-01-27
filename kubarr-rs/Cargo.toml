@@ -39,8 +39,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
 
-# HTTP client (for Prometheus/Loki)
+# HTTP client (for Prometheus/Loki and notification APIs)
 reqwest = { version = "0.12", features = ["json"] }
+
+# Email notifications
+lettre = { version = "0.11", default-features = false, features = ["tokio1-native-tls", "smtp-transport", "builder"] }
 
 # URL encoding
 urlencoding = "2"

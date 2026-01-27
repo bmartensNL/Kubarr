@@ -7,4 +7,4 @@ appVersion: "1.9.0"
 annotations:
   kubarr.io/display-name: "Jellyseerr"
   kubarr.io/icon: "🔍"
-  kubarr.io/category: "request-manager"
+  kubarr.io/category: "media-manager"

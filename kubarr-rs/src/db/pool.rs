@@ -5,7 +5,7 @@ use sea_orm::{
 use std::time::Duration;
 
 use crate::config::CONFIG;
-use crate::db::entities::{role, role_app_permission, role_permission, system_setting};
+use crate::db::entities::{oauth_provider, role, role_app_permission, role_permission, system_setting};
 use crate::error::{AppError, Result};
 
 pub type DbConn = DatabaseConnection;
@@ -214,10 +214,13 @@ async fn seed_defaults(db: &DbConn) -> Result<()> {
             "monitoring.view",
             "users.view",
             "users.manage",
+            "users.reset_password",
             "roles.view",
             "roles.manage",
             "settings.view",
             "settings.manage",
+            "audit.view",
+            "audit.manage",
         ];
         for perm in all_permissions {
             let permission = role_permission::ActiveModel {
@@ -264,6 +267,40 @@ async fn seed_defaults(db: &DbConn) -> Result<()> {
         tracing::info!("Default roles and permissions seeded");
     }
 
+    // Ensure admin role has all required permissions (for existing databases)
+    let admin_role = Role::find()
+        .filter(role::Column::Name.eq("admin"))
+        .one(db)
+        .await?;
+
+    if let Some(admin) = admin_role {
+        let required_permissions = [
+            "audit.view",
+            "audit.manage",
+            "users.reset_password",
+        ];
+
+        for perm in required_permissions {
+            // Check if permission already exists
+            let exists = RolePermission::find()
+                .filter(role_permission::Column::RoleId.eq(admin.id))
+                .filter(role_permission::Column::Permission.eq(perm))
+                .one(db)
+                .await?
+                .is_some();
+
+            if !exists {
+                tracing::info!("Adding missing permission {} to admin role", perm);
+                let permission = role_permission::ActiveModel {
+                    role_id: Set(admin.id),
+                    permission: Set(perm.to_string()),
+                    ..Default::default()
+                };
+                permission.insert(db).await?;
+            }
+        }
+    }
+
     // Check if system settings exist
     let settings_count = SystemSetting::find().count(db).await?;
 
@@ -296,6 +333,35 @@ async fn seed_defaults(db: &DbConn) -> Result<()> {
         }
 
         tracing::info!("Default system settings seeded");
+    }
+
+    // Seed OAuth providers (Google, Microsoft)
+    let oauth_count = OauthProvider::find().count(db).await?;
+
+    if oauth_count == 0 {
+        tracing::info!("Seeding default OAuth providers...");
+
+        let now = chrono::Utc::now();
+
+        let default_providers = [
+            ("google", "Google"),
+            ("microsoft", "Microsoft"),
+        ];
+
+        for (id, name) in default_providers {
+            let provider = oauth_provider::ActiveModel {
+                id: Set(id.to_string()),
+                name: Set(name.to_string()),
+                enabled: Set(false),
+                client_id: Set(None),
+                client_secret: Set(None),
+                created_at: Set(now),
+                updated_at: Set(now),
+            };
+            provider.insert(db).await?;
+        }
+
+        tracing::info!("Default OAuth providers seeded");
     }
 
     Ok(())
@@ -455,6 +521,130 @@ CREATE TABLE IF NOT EXISTS pending_2fa_challenges (
 
 CREATE INDEX IF NOT EXISTS idx_pending_2fa_token ON pending_2fa_challenges(challenge_token);
 CREATE INDEX IF NOT EXISTS idx_pending_2fa_expires ON pending_2fa_challenges(expires_at);
+
+-- Audit logs table
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    user_id INTEGER,
+    username TEXT,
+    action TEXT NOT NULL,
+    resource_type TEXT NOT NULL,
+    resource_id TEXT,
+    details TEXT,
+    ip_address TEXT,
+    user_agent TEXT,
+    success BOOLEAN NOT NULL DEFAULT 1,
+    error_message TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_resource_type ON audit_logs(resource_type);
+
+-- Notification channel configuration (admin-managed)
+CREATE TABLE IF NOT EXISTS notification_channels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_type TEXT NOT NULL UNIQUE,
+    enabled BOOLEAN NOT NULL DEFAULT 0,
+    config TEXT NOT NULL DEFAULT '{}',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_notification_channels_type ON notification_channels(channel_type);
+
+-- Notification event settings (which events trigger notifications)
+CREATE TABLE IF NOT EXISTS notification_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type TEXT NOT NULL UNIQUE,
+    enabled BOOLEAN NOT NULL DEFAULT 0,
+    severity TEXT NOT NULL DEFAULT 'info'
+);
+
+CREATE INDEX IF NOT EXISTS idx_notification_events_type ON notification_events(event_type);
+
+-- User notification preferences
+CREATE TABLE IF NOT EXISTS user_notification_prefs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    channel_type TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT 1,
+    destination TEXT,
+    verified BOOLEAN NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, channel_type),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_notification_prefs_user ON user_notification_prefs(user_id);
+
+-- Notification delivery log
+CREATE TABLE IF NOT EXISTS notification_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    channel_type TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    recipient TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    error_message TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_notification_logs_user ON notification_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_notification_logs_status ON notification_logs(status);
+CREATE INDEX IF NOT EXISTS idx_notification_logs_created ON notification_logs(created_at);
+
+-- User notifications inbox (displayed in UI)
+CREATE TABLE IF NOT EXISTS user_notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    event_type TEXT,
+    severity TEXT NOT NULL DEFAULT 'info',
+    read BOOLEAN NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_notifications_user ON user_notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_notifications_read ON user_notifications(user_id, read);
+CREATE INDEX IF NOT EXISTS idx_user_notifications_created ON user_notifications(created_at);
+
+-- OAuth provider accounts (for Google/Microsoft login linking)
+CREATE TABLE IF NOT EXISTS oauth_accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    provider TEXT NOT NULL,
+    provider_user_id TEXT NOT NULL,
+    email TEXT,
+    display_name TEXT,
+    access_token TEXT,
+    refresh_token TEXT,
+    token_expires_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(provider, provider_user_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_accounts_user ON oauth_accounts(user_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_accounts_provider ON oauth_accounts(provider, provider_user_id);
+
+-- OAuth provider configuration (admin settings for Google/Microsoft)
+CREATE TABLE IF NOT EXISTS oauth_providers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT 0,
+    client_id TEXT,
+    client_secret TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 "#;
 
 #[cfg(test)]

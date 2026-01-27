@@ -393,7 +393,7 @@ data:
 
             # Kubarr API - route to backend
             location /api/ {
-                set $kubarr_backend kubarr.kubarr.svc.cluster.local:8000;
+                set $kubarr_backend kubarr-backend.kubarr.svc.cluster.local:8000;
                 proxy_pass http://$kubarr_backend;
                 proxy_set_header Host $host;
                 proxy_set_header X-Real-IP $remote_addr;
@@ -411,7 +411,7 @@ data:
 
             # Kubarr Auth endpoints - route to backend
             location /auth/ {
-                set $kubarr_backend kubarr.kubarr.svc.cluster.local:8000;
+                set $kubarr_backend kubarr-backend.kubarr.svc.cluster.local:8000;
                 proxy_pass http://$kubarr_backend;
                 proxy_set_header Host $host;
                 proxy_set_header X-Real-IP $remote_addr;

@@ -22,18 +22,20 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::config::CONFIG;
 use crate::db::create_pool;
-use crate::services::{AppCatalog, K8sClient};
+use crate::services::{AppCatalog, AuditService, K8sClient, NotificationService};
 use crate::state::AppState;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Initialize tracing
+    // Disable ANSI colors since logs are typically viewed via kubectl logs
+    // which doesn't support ANSI escape codes
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "kubarr=debug,tower_http=debug".into()),
         )
-        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::fmt::layer().with_ansi(false))
         .init();
 
     tracing::info!("Starting Kubarr backend v{}", env!("CARGO_PKG_VERSION"));
@@ -61,8 +63,21 @@ async fn main() -> anyhow::Result<()> {
     let catalog = Arc::new(RwLock::new(AppCatalog::new()));
     tracing::info!("App catalog loaded");
 
+    // Create audit service
+    let audit = AuditService::new();
+    audit.set_db(pool.clone()).await;
+    tracing::info!("Audit service initialized");
+
+    // Create notification service
+    let notification = NotificationService::new();
+    notification.set_db(pool.clone()).await;
+    if let Err(e) = notification.init_providers().await {
+        tracing::warn!("Failed to initialize notification providers: {}", e);
+    }
+    tracing::info!("Notification service initialized");
+
     // Create app state
-    let state = AppState::new(pool, k8s_client, catalog);
+    let state = AppState::new(pool, k8s_client, catalog, audit, notification);
 
     // Build the application
     let app = create_app(state);

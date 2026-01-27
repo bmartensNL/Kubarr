@@ -354,8 +354,11 @@ export default function AppsPage() {
               // System apps with Open button (none currently, but for future use)
               <a
                 href={`/${app.name}/`}
-                target="_blank"
-                rel="noopener noreferrer"
+                onClick={(e) => {
+                  e.preventDefault()
+                  appsApi.logAccess(app.name).catch(() => {})
+                  window.open(`/${app.name}/`, '_blank', 'noopener,noreferrer')
+                }}
                 className="w-full bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors text-center"
               >
                 Open
@@ -370,11 +373,14 @@ export default function AppsPage() {
               </button>
             ) : effectiveState === 'installed' ? (
               <>
-                {!app.is_hidden && (
+                {app.is_browseable && (
                   <a
                     href={`/${app.name}/`}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      appsApi.logAccess(app.name).catch(() => {})
+                      window.open(`/${app.name}/`, '_blank', 'noopener,noreferrer')
+                    }}
                     className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors text-center"
                   >
                     Open
@@ -383,10 +389,10 @@ export default function AppsPage() {
                 <button
                   onClick={() => deleteMutation.mutate(app.name)}
                   disabled={deleteMutation.isPending}
-                  className={`${app.is_hidden ? 'w-full' : ''} bg-gray-200 dark:bg-gray-700 hover:bg-red-600 disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed text-gray-700 dark:text-white hover:text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors`}
+                  className={`${!app.is_browseable ? 'w-full' : ''} bg-gray-200 dark:bg-gray-700 hover:bg-red-600 disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed text-gray-700 dark:text-white hover:text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors`}
                   title="Uninstall"
                 >
-                  {app.is_hidden ? (
+                  {!app.is_browseable ? (
                     'Uninstall'
                   ) : (
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

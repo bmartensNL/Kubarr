@@ -205,7 +205,6 @@ export const adminResetPassword = async (userId: number, data: AdminResetPasswor
 export interface TwoFactorSetupResponse {
   secret: string;
   provisioning_uri: string;
-  qr_code_base64: string;
 }
 
 export interface TwoFactorStatusResponse {

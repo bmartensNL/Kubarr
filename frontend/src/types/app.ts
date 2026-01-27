@@ -12,6 +12,7 @@ export interface AppConfig {
   category: string;
   is_system: boolean;
   is_hidden: boolean;
+  is_browseable: boolean;
 }
 
 export interface ResourceRequirements {

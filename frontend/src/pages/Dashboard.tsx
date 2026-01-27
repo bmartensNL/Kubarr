@@ -1,6 +1,7 @@
 import { AppIcon } from '../components/AppIcon'
 import { useMonitoring } from '../contexts/MonitoringContext'
 import { Cpu, MemoryStick, ArrowDownToLine, ArrowUpFromLine, Server, Container, HardDrive, Activity, AlertCircle } from 'lucide-react'
+import { appsApi } from '../api/apps'
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -25,8 +26,8 @@ export default function Dashboard() {
   } = useMonitoring()
 
   const installedApps = catalog.filter((app) => installedAppNames.includes(app.name))
-  // Only show apps that can be opened (not hidden)
-  const openableApps = installedApps.filter((app) => !app.is_hidden)
+  // Only show apps that can be opened (browseable)
+  const openableApps = installedApps.filter((app) => app.is_browseable)
 
   const healthyApps = installedApps.filter((app) => {
     const status = appStatuses[app.name]
@@ -317,12 +318,19 @@ export default function Dashboard() {
               const showLoading = status?.loading ?? false
               const hasData = status !== undefined
 
+              const handleAppClick = (e: React.MouseEvent) => {
+                e.preventDefault()
+                // Log access (fire and forget)
+                appsApi.logAccess(app.name).catch(() => {})
+                // Open the app
+                window.open(`/${app.name}/`, '_blank', 'noopener,noreferrer')
+              }
+
               return (
                 <a
                   key={app.name}
                   href={`/${app.name}/`}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  onClick={handleAppClick}
                   className="group flex flex-col items-center gap-2 cursor-pointer"
                 >
                   {/* Icon Container */}
