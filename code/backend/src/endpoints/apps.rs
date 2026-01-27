@@ -8,8 +8,8 @@ use axum::{
 use sea_orm::EntityTrait;
 use serde::Deserialize;
 
-use crate::api::extractors::user_has_permission;
-use crate::api::middleware::AuthenticatedUser;
+use crate::endpoints::extractors::user_has_permission;
+use crate::middleware::AuthenticatedUser;
 use crate::config::CONFIG;
 use crate::models::audit_log::AuditAction;
 use crate::models::prelude::*;

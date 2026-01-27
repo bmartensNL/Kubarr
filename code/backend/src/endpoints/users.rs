@@ -10,8 +10,8 @@ use sea_orm::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::api::extractors::{get_user_app_access, get_user_permissions, user_has_permission};
-use crate::api::middleware::AuthenticatedUser;
+use crate::endpoints::extractors::{get_user_app_access, get_user_permissions, user_has_permission};
+use crate::middleware::AuthenticatedUser;
 use crate::models::prelude::*;
 use crate::models::{invite, role, user, user_preferences, user_role};
 use crate::error::{AppError, Result};

@@ -4,8 +4,8 @@ use axum::{
     Json, Router,
 };
 
-use crate::api::extractors::user_has_permission;
-use crate::api::middleware::AuthenticatedUser;
+use crate::endpoints::extractors::user_has_permission;
+use crate::middleware::AuthenticatedUser;
 use crate::error::{AppError, Result};
 use crate::services::audit::{get_audit_logs, get_audit_stats, clear_old_logs, AuditLogQuery, AuditLogResponse, AuditStats};
 use crate::state::AppState;

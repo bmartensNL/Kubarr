@@ -5,8 +5,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::api::extractors::user_has_permission;
-use crate::api::middleware::AuthenticatedUser;
+use crate::endpoints::extractors::user_has_permission;
+use crate::middleware::AuthenticatedUser;
 use crate::error::{AppError, Result};
 use crate::services::k8s::{PodMetrics, PodStatus, ServiceEndpoint};
 use crate::state::AppState;

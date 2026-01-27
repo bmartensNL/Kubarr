@@ -13,7 +13,7 @@ use tower_http::{
 };
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::api;
+use crate::endpoints;
 use crate::config::CONFIG;
 use crate::db::create_pool;
 use crate::services::{AppCatalog, AuditService, K8sClient, NotificationService};
@@ -110,7 +110,7 @@ fn create_app(state: AppState) -> Router {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    api::create_router(state)
+    endpoints::create_router(state)
         .layer(TraceLayer::new_for_http())
         .layer(cors)
 }

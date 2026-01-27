@@ -9,8 +9,8 @@ use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, ModelTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 
-use crate::api::extractors::user_has_permission;
-use crate::api::middleware::AuthenticatedUser;
+use crate::endpoints::extractors::user_has_permission;
+use crate::middleware::AuthenticatedUser;
 use crate::config::CONFIG;
 use crate::models::prelude::*;
 use crate::models::{oauth_account, oauth_provider, user};
@@ -564,7 +564,7 @@ async fn oauth_callback(
     }
 
     // Create session token
-    use crate::api::extractors::{get_user_app_access, get_user_permissions};
+    use crate::endpoints::extractors::{get_user_app_access, get_user_permissions};
 
     let permissions = get_user_permissions(&state.db, found_user.id).await;
     let allowed_apps = get_user_app_access(&state.db, found_user.id).await;

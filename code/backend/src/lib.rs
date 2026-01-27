@@ -1,4 +1,5 @@
-pub mod api;
+pub mod endpoints;
+pub mod middleware;
 pub mod application;
 pub mod migrations;
 pub mod models;

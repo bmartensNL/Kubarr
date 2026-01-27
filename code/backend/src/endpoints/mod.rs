@@ -3,7 +3,6 @@ pub mod audit;
 pub mod auth;
 pub mod extractors;
 pub mod logs;
-pub mod middleware;
 pub mod monitoring;
 pub mod networking;
 pub mod notifications;
@@ -17,6 +16,7 @@ pub mod users;
 use axum::{middleware as axum_middleware, Router};
 
 use crate::config::CONFIG;
+use crate::middleware::require_auth;
 use crate::state::AppState;
 
 /// Create the main API router
@@ -26,7 +26,7 @@ pub fn create_router(state: AppState) -> Router {
         .nest("/auth", auth::auth_routes(state.clone()))
         .layer(axum_middleware::from_fn_with_state(
             state,
-            middleware::require_auth,
+            require_auth,
         ))
 }
 

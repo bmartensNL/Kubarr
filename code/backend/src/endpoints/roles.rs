@@ -7,8 +7,8 @@ use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, ModelTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 
-use crate::api::extractors::user_has_permission;
-use crate::api::middleware::AuthenticatedUser;
+use crate::endpoints::extractors::user_has_permission;
+use crate::middleware::AuthenticatedUser;
 use crate::models::prelude::*;
 use crate::models::{role, role_app_permission, role_permission};
 use crate::error::{AppError, Result};

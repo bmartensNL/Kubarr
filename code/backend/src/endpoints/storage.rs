@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio_util::io::ReaderStream;
 
-use crate::api::extractors::user_has_permission;
-use crate::api::middleware::AuthenticatedUser;
+use crate::endpoints::extractors::user_has_permission;
+use crate::middleware::AuthenticatedUser;
 use crate::models::prelude::*;
 use crate::error::{AppError, Result};
 use crate::state::{AppState, DbConn};

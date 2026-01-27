@@ -10,8 +10,8 @@ use once_cell::sync::Lazy;
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde::{Deserialize, Serialize};
 
-use crate::api::extractors::user_has_permission;
-use crate::api::middleware::AuthenticatedUser;
+use crate::endpoints::extractors::user_has_permission;
+use crate::middleware::AuthenticatedUser;
 use crate::models::prelude::*;
 use crate::models::system_setting;
 use crate::error::{AppError, Result};

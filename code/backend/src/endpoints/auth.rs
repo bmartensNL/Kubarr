@@ -9,8 +9,8 @@ use chrono::Utc;
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde::{Deserialize, Serialize};
 
-use crate::api::extractors::AdminUser;
-use crate::api::middleware::AuthenticatedUser;
+use crate::endpoints::extractors::AdminUser;
+use crate::middleware::AuthenticatedUser;
 use crate::config::CONFIG;
 use crate::models::prelude::*;
 use crate::models::{oauth2_client, system_setting};

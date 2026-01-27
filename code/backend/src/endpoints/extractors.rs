@@ -5,7 +5,7 @@ use axum::{
 };
 use sea_orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationTrait};
 
-use crate::api::middleware::AuthenticatedUser;
+use crate::middleware::AuthenticatedUser;
 use crate::models::prelude::*;
 use crate::models::{role, role_app_permission, role_permission, user, user_role};
 use crate::error::AppError;

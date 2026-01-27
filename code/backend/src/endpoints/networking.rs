@@ -2,7 +2,7 @@ use axum::{extract::{Extension, State}, routing::get, Json, Router};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 
-use crate::api::middleware::AuthenticatedUser;
+use crate::middleware::AuthenticatedUser;
 use crate::error::Result;
 use crate::state::AppState;
 

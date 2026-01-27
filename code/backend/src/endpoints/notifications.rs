@@ -6,8 +6,8 @@ use axum::{
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set};
 use serde::{Deserialize, Serialize};
 
-use crate::api::extractors::user_has_permission;
-use crate::api::middleware::AuthenticatedUser;
+use crate::endpoints::extractors::user_has_permission;
+use crate::middleware::AuthenticatedUser;
 use crate::models::{notification_channel, notification_event, notification_log, user_notification_pref};
 use crate::error::{AppError, Result};
 use crate::services::notification::ChannelType;

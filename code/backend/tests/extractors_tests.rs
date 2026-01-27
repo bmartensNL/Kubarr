@@ -2,7 +2,7 @@
 
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 
-use kubarr::api::extractors::{get_user_app_access, get_user_permissions, user_has_app_access, user_has_permission};
+use kubarr::endpoints::extractors::{get_user_app_access, get_user_permissions, user_has_app_access, user_has_permission};
 use kubarr::models::prelude::*;
 use kubarr::models::{role, user_role};
 mod common;
