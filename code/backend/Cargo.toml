@@ -19,6 +19,7 @@ http = "1"
 
 # Database
 sea-orm = { version = "1.1", features = ["sqlx-sqlite", "runtime-tokio-native-tls", "macros", "with-chrono"] }
+sea-orm-migration = { version = "1.1", features = ["sqlx-sqlite", "runtime-tokio-native-tls"] }
 
 # Kubernetes
 kube = { version = "0.95", features = ["runtime", "client", "derive"] }
