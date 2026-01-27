@@ -1,12 +1,13 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Extension, Path, Query, State},
     routing::{delete, get, post, put},
     Json, Router,
 };
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set};
 use serde::{Deserialize, Serialize};
 
-use crate::api::extractors::{user_has_permission, AuthUser};
+use crate::api::extractors::user_has_permission;
+use crate::api::middleware::AuthenticatedUser;
 use crate::models::{notification_channel, notification_event, notification_log, user_notification_pref};
 use crate::error::{AppError, Result};
 use crate::services::notification::ChannelType;
@@ -66,7 +67,7 @@ struct InboxQuery {
 
 async fn get_inbox(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Query(query): Query<InboxQuery>,
 ) -> Result<Json<InboxResponse>> {
     let limit = query.limit.unwrap_or(20).min(100);
@@ -74,13 +75,13 @@ async fn get_inbox(
 
     let notifications = state
         .notification
-        .get_user_notifications(user.id, limit, offset)
+        .get_user_notifications(auth_user.0.id, limit, offset)
         .await?;
 
-    let unread = state.notification.get_unread_count(user.id).await?;
+    let unread = state.notification.get_unread_count(auth_user.0.id).await?;
 
     let total = crate::models::user_notification::Entity::find()
-        .filter(crate::models::user_notification::Column::UserId.eq(user.id))
+        .filter(crate::models::user_notification::Column::UserId.eq(auth_user.0.id))
         .count(&state.db)
         .await?;
 
@@ -111,35 +112,35 @@ struct UnreadCountResponse {
 
 async fn get_unread_count(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<UnreadCountResponse>> {
-    let count = state.notification.get_unread_count(user.id).await?;
+    let count = state.notification.get_unread_count(auth_user.0.id).await?;
     Ok(Json(UnreadCountResponse { count }))
 }
 
 async fn mark_as_read(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>> {
-    state.notification.mark_as_read(id, user.id).await?;
+    state.notification.mark_as_read(id, auth_user.0.id).await?;
     Ok(Json(serde_json::json!({ "success": true })))
 }
 
 async fn mark_all_as_read(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<serde_json::Value>> {
-    state.notification.mark_all_as_read(user.id).await?;
+    state.notification.mark_all_as_read(auth_user.0.id).await?;
     Ok(Json(serde_json::json!({ "success": true })))
 }
 
 async fn delete_notification(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>> {
-    state.notification.delete_notification(id, user.id).await?;
+    state.notification.delete_notification(id, auth_user.0.id).await?;
     Ok(Json(serde_json::json!({ "success": true })))
 }
 
@@ -158,9 +159,9 @@ struct ChannelDto {
 
 async fn list_channels(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<ChannelDto>>> {
-    if !user_has_permission(&state.db, user.id, "settings.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "settings.view").await {
         return Err(AppError::Forbidden("Permission denied".to_string()));
     }
 
@@ -204,10 +205,10 @@ async fn list_channels(
 
 async fn get_channel(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Path(channel_type): Path<String>,
 ) -> Result<Json<ChannelDto>> {
-    if !user_has_permission(&state.db, user.id, "settings.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "settings.view").await {
         return Err(AppError::Forbidden("Permission denied".to_string()));
     }
 
@@ -248,11 +249,11 @@ struct UpdateChannelRequest {
 
 async fn update_channel(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Path(channel_type): Path<String>,
     Json(req): Json<UpdateChannelRequest>,
 ) -> Result<Json<ChannelDto>> {
-    if !user_has_permission(&state.db, user.id, "settings.manage").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "settings.manage").await {
         return Err(AppError::Forbidden("Permission denied".to_string()));
     }
 
@@ -324,11 +325,11 @@ struct TestChannelResponse {
 
 async fn test_channel(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Path(channel_type): Path<String>,
     Json(req): Json<TestChannelRequest>,
 ) -> Result<Json<TestChannelResponse>> {
-    if !user_has_permission(&state.db, user.id, "settings.manage").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "settings.manage").await {
         return Err(AppError::Forbidden("Permission denied".to_string()));
     }
 
@@ -353,9 +354,9 @@ struct EventSettingDto {
 
 async fn list_events(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<EventSettingDto>>> {
-    if !user_has_permission(&state.db, user.id, "settings.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "settings.view").await {
         return Err(AppError::Forbidden("Permission denied".to_string()));
     }
 
@@ -398,11 +399,11 @@ struct UpdateEventRequest {
 
 async fn update_event(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Path(event_type): Path<String>,
     Json(req): Json<UpdateEventRequest>,
 ) -> Result<Json<EventSettingDto>> {
-    if !user_has_permission(&state.db, user.id, "settings.manage").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "settings.manage").await {
         return Err(AppError::Forbidden("Permission denied".to_string()));
     }
 
@@ -453,10 +454,10 @@ struct UserPrefDto {
 
 async fn get_preferences(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<UserPrefDto>>> {
     let prefs = user_notification_pref::Entity::find()
-        .filter(user_notification_pref::Column::UserId.eq(user.id))
+        .filter(user_notification_pref::Column::UserId.eq(auth_user.0.id))
         .all(&state.db)
         .await?;
 
@@ -493,7 +494,7 @@ struct UpdatePrefRequest {
 
 async fn update_preference(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Path(channel_type): Path<String>,
     Json(req): Json<UpdatePrefRequest>,
 ) -> Result<Json<UserPrefDto>> {
@@ -504,7 +505,7 @@ async fn update_preference(
     let now = chrono::Utc::now();
 
     let existing = user_notification_pref::Entity::find()
-        .filter(user_notification_pref::Column::UserId.eq(user.id))
+        .filter(user_notification_pref::Column::UserId.eq(auth_user.0.id))
         .filter(user_notification_pref::Column::ChannelType.eq(&channel_type))
         .one(&state.db)
         .await?;
@@ -527,7 +528,7 @@ async fn update_preference(
         active.update(&state.db).await?
     } else {
         let new_pref = user_notification_pref::ActiveModel {
-            user_id: Set(user.id),
+            user_id: Set(auth_user.0.id),
             channel_type: Set(channel_type.clone()),
             enabled: Set(req.enabled.unwrap_or(false)),
             destination: Set(req.destination),
@@ -579,10 +580,10 @@ struct LogsResponse {
 
 async fn list_logs(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Query(query): Query<LogsQuery>,
 ) -> Result<Json<LogsResponse>> {
-    if !user_has_permission(&state.db, user.id, "audit.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "audit.view").await {
         return Err(AppError::Forbidden("Permission denied".to_string()));
     }
 

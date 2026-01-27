@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Extension, Path, Query, State},
     routing::get,
     Json, Router,
 };
@@ -7,7 +7,8 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::api::extractors::{user_has_permission, AuthUser};
+use crate::api::extractors::user_has_permission;
+use crate::api::middleware::AuthenticatedUser;
 use crate::error::{AppError, Result};
 use crate::state::AppState;
 
@@ -100,9 +101,9 @@ async fn get_pod_logs(
     State(state): State<AppState>,
     Path(pod_name): Path<String>,
     Query(params): Query<PodLogsQuery>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<LogEntry>>> {
-    if !user_has_permission(&state.db, user.id, "logs.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "logs.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: logs.view required".to_string(),
         ));
@@ -139,9 +140,9 @@ async fn get_app_logs(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
     Query(params): Query<PodLogsQuery>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<LogEntry>>> {
-    if !user_has_permission(&state.db, user.id, "logs.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "logs.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: logs.view required".to_string(),
         ));
@@ -192,9 +193,9 @@ async fn get_raw_pod_logs(
     State(state): State<AppState>,
     Path(pod_name): Path<String>,
     Query(params): Query<PodLogsQuery>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<String> {
-    if !user_has_permission(&state.db, user.id, "logs.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "logs.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: logs.view required".to_string(),
         ));
@@ -221,9 +222,9 @@ async fn get_raw_pod_logs(
 /// Get all namespaces that have logs in Loki
 async fn get_loki_namespaces(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<String>>> {
-    if !user_has_permission(&state.db, user.id, "logs.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "logs.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: logs.view required".to_string(),
         ));
@@ -267,9 +268,9 @@ async fn get_loki_namespaces(
 /// Get all available labels from Loki
 async fn get_loki_labels(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<String>>> {
-    if !user_has_permission(&state.db, user.id, "logs.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "logs.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: logs.view required".to_string(),
         ));
@@ -314,9 +315,9 @@ async fn get_loki_labels(
 async fn get_loki_label_values(
     State(state): State<AppState>,
     Path(label): Path<String>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<String>>> {
-    if !user_has_permission(&state.db, user.id, "logs.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "logs.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: logs.view required".to_string(),
         ));
@@ -361,9 +362,9 @@ async fn get_loki_label_values(
 async fn query_loki_logs(
     State(state): State<AppState>,
     Query(params): Query<LokiQueryParams>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<LokiQueryResponse>> {
-    if !user_has_permission(&state.db, user.id, "logs.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "logs.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: logs.view required".to_string(),
         ));

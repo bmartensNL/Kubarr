@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Extension, Path, State},
     routing::{get, put},
     Json, Router,
 };
@@ -7,7 +7,8 @@ use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, ModelTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 
-use crate::api::extractors::{user_has_permission, AuthUser};
+use crate::api::extractors::user_has_permission;
+use crate::api::middleware::AuthenticatedUser;
 use crate::models::prelude::*;
 use crate::models::{role, role_app_permission, role_permission};
 use crate::error::{AppError, Result};
@@ -128,9 +129,9 @@ async fn get_role_with_apps(state: &AppState, role_id: i64) -> Result<RoleWithAp
 /// List all roles (requires roles.view permission)
 async fn list_roles(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<RoleWithAppsResponse>>> {
-    if !user_has_permission(&state.db, user.id, "roles.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "roles.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: roles.view required".to_string(),
         ));
@@ -149,9 +150,9 @@ async fn list_roles(
 async fn get_role(
     State(state): State<AppState>,
     Path(role_id): Path<i64>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<RoleWithAppsResponse>> {
-    if !user_has_permission(&state.db, user.id, "roles.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "roles.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: roles.view required".to_string(),
         ));
@@ -163,10 +164,10 @@ async fn get_role(
 /// Create a new role (requires roles.manage permission)
 async fn create_role(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Json(data): Json<CreateRoleRequest>,
 ) -> Result<Json<RoleWithAppsResponse>> {
-    if !user_has_permission(&state.db, user.id, "roles.manage").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "roles.manage").await {
         return Err(AppError::Forbidden(
             "Permission denied: roles.manage required".to_string(),
         ));
@@ -213,10 +214,10 @@ async fn create_role(
 async fn update_role(
     State(state): State<AppState>,
     Path(role_id): Path<i64>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Json(data): Json<UpdateRoleRequest>,
 ) -> Result<Json<RoleWithAppsResponse>> {
-    if !user_has_permission(&state.db, user.id, "roles.manage").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "roles.manage").await {
         return Err(AppError::Forbidden(
             "Permission denied: roles.manage required".to_string(),
         ));
@@ -273,9 +274,9 @@ async fn update_role(
 async fn delete_role(
     State(state): State<AppState>,
     Path(role_id): Path<i64>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<serde_json::Value>> {
-    if !user_has_permission(&state.db, user.id, "roles.manage").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "roles.manage").await {
         return Err(AppError::Forbidden(
             "Permission denied: roles.manage required".to_string(),
         ));
@@ -300,10 +301,10 @@ async fn delete_role(
 async fn set_role_apps(
     State(state): State<AppState>,
     Path(role_id): Path<i64>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Json(data): Json<SetRoleApps>,
 ) -> Result<Json<RoleWithAppsResponse>> {
-    if !user_has_permission(&state.db, user.id, "roles.manage").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "roles.manage").await {
         return Err(AppError::Forbidden(
             "Permission denied: roles.manage required".to_string(),
         ));
@@ -337,9 +338,9 @@ async fn set_role_apps(
 /// Get all available permissions with descriptions
 async fn list_all_permissions(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<PermissionInfo>>> {
-    if !user_has_permission(&state.db, user.id, "roles.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "roles.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: roles.view required".to_string(),
         ));
@@ -470,9 +471,9 @@ async fn list_all_permissions(
 async fn get_role_permissions(
     State(state): State<AppState>,
     Path(role_id): Path<i64>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<String>>> {
-    if !user_has_permission(&state.db, user.id, "roles.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "roles.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: roles.view required".to_string(),
         ));
@@ -499,10 +500,10 @@ async fn get_role_permissions(
 async fn set_role_permissions(
     State(state): State<AppState>,
     Path(role_id): Path<i64>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Json(data): Json<SetRolePermissions>,
 ) -> Result<Json<RoleWithAppsResponse>> {
-    if !user_has_permission(&state.db, user.id, "roles.manage").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "roles.manage").await {
         return Err(AppError::Forbidden(
             "Permission denied: roles.manage required".to_string(),
         ));

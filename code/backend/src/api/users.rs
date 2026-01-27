@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Extension, Path, Query, State},
     routing::{delete, get, patch, post},
     Json, Router,
 };
@@ -10,9 +10,8 @@ use sea_orm::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::api::extractors::{
-    get_user_app_access, get_user_permissions, user_has_permission, AuthUser,
-};
+use crate::api::extractors::{get_user_app_access, get_user_permissions, user_has_permission};
+use crate::api::middleware::AuthenticatedUser;
 use crate::models::prelude::*;
 use crate::models::{invite, role, user, user_preferences, user_role};
 use crate::error::{AppError, Result};
@@ -193,7 +192,7 @@ async fn get_user_with_roles(state: &AppState, user_id: i64) -> Result<UserRespo
 
     Ok(UserResponse {
         id: found_user.id,
-        username: found_user.username,
+        username: found_user.username.clone(),
         email: found_user.email,
         is_active: found_user.is_active,
         is_approved: found_user.is_approved,
@@ -221,9 +220,9 @@ async fn get_user_with_roles(state: &AppState, user_id: i64) -> Result<UserRespo
 async fn list_users(
     State(state): State<AppState>,
     Query(params): Query<ListParams>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<UserResponse>>> {
-    if !user_has_permission(&state.db, user.id, "users.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "users.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: users.view required".to_string(),
         ));
@@ -248,18 +247,18 @@ async fn list_users(
 /// Get current user info
 async fn get_current_user_info(
     State(state): State<AppState>,
-    AuthUser(current_user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<UserResponse>> {
-    let response = get_user_with_roles(&state, current_user.id).await?;
+    let response = get_user_with_roles(&state, auth_user.0.id).await?;
     Ok(Json(response))
 }
 
 /// Get current user's preferences
 async fn get_my_preferences(
     State(state): State<AppState>,
-    AuthUser(current_user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<PreferencesResponse>> {
-    let preferences = UserPreferences::find_by_id(current_user.id)
+    let preferences = UserPreferences::find_by_id(auth_user.0.id)
         .one(&state.db)
         .await?;
 
@@ -273,7 +272,7 @@ async fn get_my_preferences(
 /// Update current user's preferences
 async fn update_my_preferences(
     State(state): State<AppState>,
-    AuthUser(current_user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Json(data): Json<UpdatePreferences>,
 ) -> Result<Json<PreferencesResponse>> {
     // Validate theme value
@@ -288,7 +287,7 @@ async fn update_my_preferences(
     let now = Utc::now();
 
     // Check if preferences exist
-    let existing = UserPreferences::find_by_id(current_user.id)
+    let existing = UserPreferences::find_by_id(auth_user.0.id)
         .one(&state.db)
         .await?;
 
@@ -304,7 +303,7 @@ async fn update_my_preferences(
         // Insert new preferences
         let theme = data.theme.as_deref().unwrap_or("system");
         let new_prefs = user_preferences::ActiveModel {
-            user_id: Set(current_user.id),
+            user_id: Set(auth_user.0.id),
             theme: Set(theme.to_string()),
             updated_at: Set(now),
         };
@@ -312,7 +311,7 @@ async fn update_my_preferences(
     }
 
     // Return updated preferences
-    let preferences = UserPreferences::find_by_id(current_user.id)
+    let preferences = UserPreferences::find_by_id(auth_user.0.id)
         .one(&state.db)
         .await?;
 
@@ -326,9 +325,9 @@ async fn update_my_preferences(
 /// List pending users (requires users.view permission)
 async fn list_pending_users(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<UserResponse>>> {
-    if !user_has_permission(&state.db, user.id, "users.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "users.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: users.view required".to_string(),
         ));
@@ -349,10 +348,10 @@ async fn list_pending_users(
 /// Create a new user (requires users.manage permission)
 async fn create_user(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Json(data): Json<CreateUserRequest>,
 ) -> Result<Json<UserResponse>> {
-    if !user_has_permission(&state.db, user.id, "users.manage").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "users.manage").await {
         return Err(AppError::Forbidden(
             "Permission denied: users.manage required".to_string(),
         ));
@@ -411,9 +410,9 @@ async fn create_user(
 async fn get_user(
     State(state): State<AppState>,
     Path(user_id): Path<i64>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<UserResponse>> {
-    if !user_has_permission(&state.db, user.id, "users.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "users.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: users.view required".to_string(),
         ));
@@ -426,10 +425,10 @@ async fn get_user(
 async fn update_user(
     State(state): State<AppState>,
     Path(user_id): Path<i64>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Json(data): Json<UpdateUserRequest>,
 ) -> Result<Json<UserResponse>> {
-    if !user_has_permission(&state.db, user.id, "users.manage").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "users.manage").await {
         return Err(AppError::Forbidden(
             "Permission denied: users.manage required".to_string(),
         ));
@@ -483,9 +482,9 @@ async fn update_user(
 async fn approve_user(
     State(state): State<AppState>,
     Path(user_id): Path<i64>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<UserResponse>> {
-    if !user_has_permission(&state.db, user.id, "users.manage").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "users.manage").await {
         return Err(AppError::Forbidden(
             "Permission denied: users.manage required".to_string(),
         ));
@@ -511,9 +510,9 @@ async fn approve_user(
 async fn reject_user(
     State(state): State<AppState>,
     Path(user_id): Path<i64>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<serde_json::Value>> {
-    if !user_has_permission(&state.db, user.id, "users.manage").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "users.manage").await {
         return Err(AppError::Forbidden(
             "Permission denied: users.manage required".to_string(),
         ));
@@ -534,14 +533,14 @@ async fn reject_user(
 async fn delete_user(
     State(state): State<AppState>,
     Path(user_id): Path<i64>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<serde_json::Value>> {
-    if !user_has_permission(&state.db, user.id, "users.manage").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "users.manage").await {
         return Err(AppError::Forbidden(
             "Permission denied: users.manage required".to_string(),
         ));
     }
-    if user_id == user.id {
+    if user_id == auth_user.0.id {
         return Err(AppError::BadRequest("Cannot delete yourself".to_string()));
     }
 
@@ -558,9 +557,9 @@ async fn delete_user(
 /// List all invites (requires users.manage permission)
 async fn list_invites(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<InviteResponse>>> {
-    if !user_has_permission(&state.db, user.id, "users.manage").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "users.manage").await {
         return Err(AppError::Forbidden(
             "Permission denied: users.manage required".to_string(),
         ));
@@ -600,10 +599,10 @@ async fn list_invites(
 /// Create an invite (requires users.manage permission)
 async fn create_invite(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Json(data): Json<CreateInviteRequest>,
 ) -> Result<Json<InviteResponse>> {
-    if !user_has_permission(&state.db, user.id, "users.manage").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "users.manage").await {
         return Err(AppError::Forbidden(
             "Permission denied: users.manage required".to_string(),
         ));
@@ -620,7 +619,7 @@ async fn create_invite(
 
     let new_invite = invite::ActiveModel {
         code: Set(code.clone()),
-        created_by_id: Set(user.id),
+        created_by_id: Set(auth_user.0.id),
         expires_at: Set(expires_at),
         created_at: Set(now),
         is_used: Set(false),
@@ -632,7 +631,7 @@ async fn create_invite(
     Ok(Json(InviteResponse {
         id: created_invite.id,
         code: created_invite.code,
-        created_by_username: user.username,
+        created_by_username: auth_user.0.username.clone(),
         used_by_username: None,
         is_used: created_invite.is_used,
         expires_at: created_invite.expires_at,
@@ -645,9 +644,9 @@ async fn create_invite(
 async fn delete_invite(
     State(state): State<AppState>,
     Path(invite_id): Path<i64>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<serde_json::Value>> {
-    if !user_has_permission(&state.db, user.id, "users.manage").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "users.manage").await {
         return Err(AppError::Forbidden(
             "Permission denied: users.manage required".to_string(),
         ));
@@ -669,7 +668,7 @@ async fn delete_invite(
 /// Change own password (requires current password)
 async fn change_own_password(
     State(state): State<AppState>,
-    AuthUser(current_user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Json(data): Json<ChangeOwnPasswordRequest>,
 ) -> Result<Json<serde_json::Value>> {
     // Validate new password
@@ -680,7 +679,7 @@ async fn change_own_password(
     }
 
     // Get fresh user data to verify current password
-    let user_record = User::find_by_id(current_user.id)
+    let user_record = User::find_by_id(auth_user.0.id)
         .one(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
@@ -710,18 +709,18 @@ async fn change_own_password(
 async fn admin_reset_password(
     State(state): State<AppState>,
     Path(user_id): Path<i64>,
-    AuthUser(admin_user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Json(data): Json<AdminResetPasswordRequest>,
 ) -> Result<Json<serde_json::Value>> {
     // Check permission
-    if !user_has_permission(&state.db, admin_user.id, "users.reset_password").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "users.reset_password").await {
         return Err(AppError::Forbidden(
             "Permission denied: users.reset_password required".to_string(),
         ));
     }
 
     // Prevent admin from resetting their own password via this endpoint
-    if user_id == admin_user.id {
+    if user_id == auth_user.0.id {
         return Err(AppError::BadRequest(
             "Use /api/users/me/password to change your own password".to_string(),
         ));
@@ -774,10 +773,10 @@ async fn user_requires_2fa(db: &sea_orm::DatabaseConnection, user_id: i64) -> bo
 /// Set up 2FA - generate secret and QR code
 async fn setup_2fa(
     State(state): State<AppState>,
-    AuthUser(current_user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<TwoFactorSetupResponse>> {
     // Get fresh user data
-    let user_record = User::find_by_id(current_user.id)
+    let user_record = User::find_by_id(auth_user.0.id)
         .one(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
@@ -812,11 +811,11 @@ async fn setup_2fa(
 /// Enable 2FA - verify the code and activate
 async fn enable_2fa(
     State(state): State<AppState>,
-    AuthUser(current_user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Json(data): Json<Enable2FARequest>,
 ) -> Result<Json<serde_json::Value>> {
     // Get fresh user data
-    let user_record = User::find_by_id(current_user.id)
+    let user_record = User::find_by_id(auth_user.0.id)
         .one(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
@@ -856,11 +855,11 @@ async fn enable_2fa(
 /// Disable 2FA (requires password confirmation)
 async fn disable_2fa(
     State(state): State<AppState>,
-    AuthUser(current_user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Json(data): Json<Disable2FARequest>,
 ) -> Result<Json<serde_json::Value>> {
     // Get fresh user data
-    let user_record = User::find_by_id(current_user.id)
+    let user_record = User::find_by_id(auth_user.0.id)
         .one(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
@@ -876,7 +875,7 @@ async fn disable_2fa(
     }
 
     // Check if user's role requires 2FA
-    if user_requires_2fa(&state.db, current_user.id).await {
+    if user_requires_2fa(&state.db, auth_user.0.id).await {
         return Err(AppError::BadRequest(
             "Cannot disable 2FA - your role requires two-factor authentication".to_string(),
         ));
@@ -899,16 +898,16 @@ async fn disable_2fa(
 /// Get 2FA status
 async fn get_2fa_status(
     State(state): State<AppState>,
-    AuthUser(current_user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<TwoFactorStatusResponse>> {
     // Get fresh user data
-    let user_record = User::find_by_id(current_user.id)
+    let user_record = User::find_by_id(auth_user.0.id)
         .one(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
     // Check if role requires 2FA
-    let required_by_role = user_requires_2fa(&state.db, current_user.id).await;
+    let required_by_role = user_requires_2fa(&state.db, auth_user.0.id).await;
 
     Ok(Json(TwoFactorStatusResponse {
         enabled: user_record.totp_enabled,

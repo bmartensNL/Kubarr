@@ -1,10 +1,11 @@
 use axum::{
-    extract::{Query, State},
+    extract::{Extension, Query, State},
     routing::get,
     Json, Router,
 };
 
-use crate::api::extractors::{user_has_permission, AuthUser};
+use crate::api::extractors::user_has_permission;
+use crate::api::middleware::AuthenticatedUser;
 use crate::error::{AppError, Result};
 use crate::services::audit::{get_audit_logs, get_audit_stats, clear_old_logs, AuditLogQuery, AuditLogResponse, AuditStats};
 use crate::state::AppState;
@@ -21,10 +22,10 @@ pub fn audit_routes(state: AppState) -> Router {
 /// List audit logs with filtering and pagination
 async fn list_audit_logs(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Query(query): Query<AuditLogQuery>,
 ) -> Result<Json<AuditLogResponse>> {
-    if !user_has_permission(&state.db, user.id, "audit.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "audit.view").await {
         return Err(AppError::Forbidden("Permission denied: audit.view required".to_string()));
     }
     let logs = get_audit_logs(&state.db, query).await?;
@@ -34,9 +35,9 @@ async fn list_audit_logs(
 /// Get audit statistics
 async fn audit_stats(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<AuditStats>> {
-    if !user_has_permission(&state.db, user.id, "audit.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "audit.view").await {
         return Err(AppError::Forbidden("Permission denied: audit.view required".to_string()));
     }
     let stats = get_audit_stats(&state.db).await?;
@@ -57,10 +58,10 @@ pub struct ClearLogsResponse {
 
 async fn clear_audit_logs(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Json(request): Json<ClearLogsRequest>,
 ) -> Result<Json<ClearLogsResponse>> {
-    if !user_has_permission(&state.db, user.id, "audit.manage").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "audit.manage").await {
         return Err(AppError::Forbidden("Permission denied: audit.manage required".to_string()));
     }
     let days = request.days.unwrap_or(90); // Default to 90 days retention

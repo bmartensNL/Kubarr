@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Extension, Path, Query, State},
     http::header,
     response::{IntoResponse, Response},
     routing::{delete, get, post},
@@ -8,7 +8,8 @@ use axum::{
 use sea_orm::EntityTrait;
 use serde::Deserialize;
 
-use crate::api::extractors::{user_has_permission, AuthUser};
+use crate::api::extractors::user_has_permission;
+use crate::api::middleware::AuthenticatedUser;
 use crate::config::CONFIG;
 use crate::models::audit_log::AuditAction;
 use crate::models::prelude::*;
@@ -51,9 +52,9 @@ pub struct NamespaceQuery {
 /// List all apps in the catalog
 async fn list_catalog(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<AppConfig>>> {
-    if !user_has_permission(&state.db, user.id, "apps.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "apps.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: apps.view required".to_string(),
         ));
@@ -67,9 +68,9 @@ async fn list_catalog(
 async fn get_app_from_catalog(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<AppConfig>> {
-    if !user_has_permission(&state.db, user.id, "apps.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "apps.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: apps.view required".to_string(),
         ));
@@ -114,9 +115,9 @@ async fn get_app_icon(Path(app_name): Path<String>) -> Result<Response> {
 /// List installed apps
 async fn list_installed_apps(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<String>>> {
-    if !user_has_permission(&state.db, user.id, "apps.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "apps.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: apps.view required".to_string(),
         ));
@@ -137,10 +138,10 @@ async fn list_installed_apps(
 /// Install an app
 async fn install_app(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Json(request): Json<DeploymentRequest>,
 ) -> Result<Json<DeploymentStatus>> {
-    if !user_has_permission(&state.db, user.id, "apps.install").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "apps.install").await {
         return Err(AppError::Forbidden(
             "Permission denied: apps.install required".to_string(),
         ));
@@ -170,9 +171,9 @@ async fn install_app(
 async fn delete_app(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<serde_json::Value>> {
-    if !user_has_permission(&state.db, user.id, "apps.delete").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "apps.delete").await {
         return Err(AppError::Forbidden(
             "Permission denied: apps.delete required".to_string(),
         ));
@@ -209,9 +210,9 @@ async fn restart_app(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
     Query(query): Query<NamespaceQuery>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<serde_json::Value>> {
-    if !user_has_permission(&state.db, user.id, "apps.restart").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "apps.restart").await {
         return Err(AppError::Forbidden(
             "Permission denied: apps.restart required".to_string(),
         ));
@@ -252,9 +253,9 @@ async fn restart_app(
 /// List all categories
 async fn list_categories(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<String>>> {
-    if !user_has_permission(&state.db, user.id, "apps.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "apps.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: apps.view required".to_string(),
         ));
@@ -267,9 +268,9 @@ async fn list_categories(
 async fn get_apps_by_category(
     State(state): State<AppState>,
     Path(category): Path<String>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<AppConfig>>> {
-    if !user_has_permission(&state.db, user.id, "apps.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "apps.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: apps.view required".to_string(),
         ));
@@ -287,9 +288,9 @@ async fn get_apps_by_category(
 async fn check_app_health(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<serde_json::Value>> {
-    if !user_has_permission(&state.db, user.id, "apps.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "apps.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: apps.view required".to_string(),
         ));
@@ -311,9 +312,9 @@ async fn check_app_health(
 async fn check_app_exists(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<serde_json::Value>> {
-    if !user_has_permission(&state.db, user.id, "apps.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "apps.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: apps.view required".to_string(),
         ));
@@ -335,9 +336,9 @@ async fn check_app_exists(
 async fn get_app_status(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<serde_json::Value>> {
-    if !user_has_permission(&state.db, user.id, "apps.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "apps.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: apps.view required".to_string(),
         ));
@@ -395,7 +396,7 @@ async fn get_app_status(
 async fn log_app_access(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<serde_json::Value>> {
     use crate::models::audit_log::ResourceType;
 
@@ -406,8 +407,8 @@ async fn log_app_access(
             AuditAction::AppAccessed,
             ResourceType::App,
             Some(app_name.clone()),
-            Some(user.id),
-            Some(user.username.clone()),
+            Some(auth_user.0.id),
+            Some(auth_user.0.username.clone()),
             Some(serde_json::json!({ "app": app_name })),
             None,
             None,

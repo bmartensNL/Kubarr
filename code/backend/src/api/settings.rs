@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use axum::{
-    extract::{Path, State},
+    extract::{Extension, Path, State},
     routing::get,
     Json, Router,
 };
@@ -10,7 +10,8 @@ use once_cell::sync::Lazy;
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde::{Deserialize, Serialize};
 
-use crate::api::extractors::{user_has_permission, AuthUser};
+use crate::api::extractors::user_has_permission;
+use crate::api::middleware::AuthenticatedUser;
 use crate::models::prelude::*;
 use crate::models::system_setting;
 use crate::error::{AppError, Result};
@@ -70,9 +71,9 @@ pub struct SettingsResponse {
 /// List all system settings (requires settings.view permission)
 async fn list_settings(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<SettingsResponse>> {
-    if !user_has_permission(&state.db, user.id, "settings.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "settings.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: settings.view required".to_string(),
         ));
@@ -114,9 +115,9 @@ async fn list_settings(
 async fn get_setting(
     State(state): State<AppState>,
     Path(key): Path<String>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<SettingResponse>> {
-    if !user_has_permission(&state.db, user.id, "settings.view").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "settings.view").await {
         return Err(AppError::Forbidden(
             "Permission denied: settings.view required".to_string(),
         ));
@@ -147,10 +148,10 @@ async fn get_setting(
 async fn update_setting(
     State(state): State<AppState>,
     Path(key): Path<String>,
-    AuthUser(user): AuthUser,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Json(data): Json<SettingUpdate>,
 ) -> Result<Json<SettingResponse>> {
-    if !user_has_permission(&state.db, user.id, "settings.manage").await {
+    if !user_has_permission(&state.db, auth_user.0.id, "settings.manage").await {
         return Err(AppError::Forbidden(
             "Permission denied: settings.manage required".to_string(),
         ));
