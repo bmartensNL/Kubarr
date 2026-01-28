@@ -5,11 +5,13 @@ use chrono::{DateTime, Utc};
 use k8s_openapi::api::apps::v1::{DaemonSet, Deployment};
 use k8s_openapi::api::core::v1::Namespace;
 use kube::api::{Api, DeleteParams, ListParams};
+use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 
 use crate::config::CONFIG;
 use crate::error::{AppError, Result};
 use crate::services::catalog::AppCatalog;
+use crate::services::vpn;
 use crate::services::K8sClient;
 
 /// Deployment request
@@ -34,11 +36,29 @@ pub struct DeploymentStatus {
 pub struct DeploymentManager<'a> {
     k8s: &'a K8sClient,
     catalog: &'a AppCatalog,
+    db: Option<&'a DatabaseConnection>,
 }
 
 impl<'a> DeploymentManager<'a> {
     pub fn new(k8s: &'a K8sClient, catalog: &'a AppCatalog) -> Self {
-        Self { k8s, catalog }
+        Self {
+            k8s,
+            catalog,
+            db: None,
+        }
+    }
+
+    /// Create with database connection for VPN support
+    pub fn with_db(
+        k8s: &'a K8sClient,
+        catalog: &'a AppCatalog,
+        db: &'a DatabaseConnection,
+    ) -> Self {
+        Self {
+            k8s,
+            catalog,
+            db: Some(db),
+        }
     }
 
     /// Get the path to a Helm chart for an app
@@ -108,6 +128,38 @@ impl<'a> DeploymentManager<'a> {
         if let Some(path) = storage_path {
             set_args.push(format!("storage.hostPath.enabled=true"));
             set_args.push(format!("storage.hostPath.rootPath={}", path));
+        }
+
+        // Check for VPN configuration
+        if let Some(db) = self.db {
+            if let Ok(Some(vpn_config)) =
+                vpn::get_vpn_deployment_config(db, &request.app_name).await
+            {
+                // Create K8s secret with VPN credentials
+                match vpn::create_vpn_secret_for_app(self.k8s, db, &request.app_name).await {
+                    Ok(secret_name) => {
+                        tracing::info!(
+                            "Created VPN secret {} for app {}",
+                            secret_name,
+                            request.app_name
+                        );
+                        set_args.push("vpn.enabled=true".to_string());
+                        set_args.push(format!("vpn.secretName={}", secret_name));
+                        set_args.push(format!("vpn.killSwitch={}", vpn_config.kill_switch));
+                        set_args.push(format!(
+                            "vpn.firewallOutboundSubnets={}",
+                            vpn_config.firewall_outbound_subnets
+                        ));
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to create VPN secret for app {}: {}",
+                            request.app_name,
+                            e
+                        );
+                    }
+                }
+            }
         }
 
         // Add custom config

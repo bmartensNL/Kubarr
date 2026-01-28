@@ -17,14 +17,14 @@ impl MigrationTrait for Migration {
                     .if_not_exists()
                     .col(
                         ColumnDef::new(RolePermissions::Id)
-                            .integer()
+                            .big_integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
                     )
                     .col(
                         ColumnDef::new(RolePermissions::RoleId)
-                            .integer()
+                            .big_integer()
                             .not_null(),
                     )
                     .col(
@@ -71,7 +71,12 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .drop_table(Table::drop().table(RolePermissions::Table).if_exists().to_owned())
+            .drop_table(
+                Table::drop()
+                    .table(RolePermissions::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
             .await
     }
 }

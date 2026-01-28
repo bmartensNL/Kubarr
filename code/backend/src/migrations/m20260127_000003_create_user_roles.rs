@@ -16,8 +16,8 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(UserRoles::Table)
                     .if_not_exists()
-                    .col(ColumnDef::new(UserRoles::UserId).integer().not_null())
-                    .col(ColumnDef::new(UserRoles::RoleId).integer().not_null())
+                    .col(ColumnDef::new(UserRoles::UserId).big_integer().not_null())
+                    .col(ColumnDef::new(UserRoles::RoleId).big_integer().not_null())
                     .primary_key(
                         Index::create()
                             .col(UserRoles::UserId)

@@ -66,10 +66,10 @@ async fn run_task(task: Box<dyn PeriodicTask>, db: Arc<DatabaseConnection>) {
 // Session Cleanup Task
 // ============================================================================
 
-use chrono::Utc;
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use crate::models::prelude::*;
 use crate::models::session;
+use chrono::Utc;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
 /// Cleans up expired and revoked sessions
 struct SessionCleanupTask;

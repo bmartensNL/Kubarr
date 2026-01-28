@@ -15,7 +15,7 @@ impl MigrationTrait for Migration {
                     .if_not_exists()
                     .col(
                         ColumnDef::new(NotificationEvents::Id)
-                            .integer()
+                            .big_integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
@@ -58,7 +58,12 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .drop_table(Table::drop().table(NotificationEvents::Table).if_exists().to_owned())
+            .drop_table(
+                Table::drop()
+                    .table(NotificationEvents::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
             .await
     }
 }

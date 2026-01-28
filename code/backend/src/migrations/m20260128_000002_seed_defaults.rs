@@ -1,5 +1,7 @@
 use sea_orm_migration::prelude::*;
-use sea_orm_migration::sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
+use sea_orm_migration::sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set,
+};
 
 #[derive(DeriveMigrationName)]
 pub struct Migration;
@@ -187,8 +189,16 @@ async fn seed_system_settings(db: &SchemaManagerConnection<'_>) -> Result<(), Db
     let now = chrono::Utc::now();
 
     let default_settings = [
-        ("registration_enabled", "true", "Allow new user registration"),
-        ("registration_require_approval", "true", "Require admin approval for new registrations"),
+        (
+            "registration_enabled",
+            "true",
+            "Allow new user registration",
+        ),
+        (
+            "registration_require_approval",
+            "true",
+            "Require admin approval for new registrations",
+        ),
     ];
 
     for (key, value, description) in default_settings {
@@ -205,8 +215,8 @@ async fn seed_system_settings(db: &SchemaManagerConnection<'_>) -> Result<(), Db
 }
 
 async fn seed_oauth_providers(db: &SchemaManagerConnection<'_>) -> Result<(), DbErr> {
-    use crate::models::prelude::*;
     use crate::models::oauth_provider;
+    use crate::models::prelude::*;
 
     let oauth_count = OauthProvider::find().count(db).await?;
     if oauth_count > 0 {
@@ -215,10 +225,7 @@ async fn seed_oauth_providers(db: &SchemaManagerConnection<'_>) -> Result<(), Db
 
     let now = chrono::Utc::now();
 
-    let default_providers = [
-        ("google", "Google"),
-        ("microsoft", "Microsoft"),
-    ];
+    let default_providers = [("google", "Google"), ("microsoft", "Microsoft")];
 
     for (id, name) in default_providers {
         let provider = oauth_provider::ActiveModel {

@@ -5,16 +5,16 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, ModelTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
-    Set,
+    ActiveModelTrait, ColumnTrait, EntityTrait, ModelTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect, Set,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::endpoints::extractors::{get_user_app_access, get_user_permissions};
+use crate::error::{AppError, Result};
 use crate::middleware::{Authenticated, Authorized, UsersManage, UsersResetPassword, UsersView};
 use crate::models::prelude::*;
 use crate::models::{invite, role, user, user_preferences, user_role};
-use crate::error::{AppError, Result};
 use crate::services::{
     generate_totp_secret, get_totp_provisioning_uri, hash_password, verify_password, verify_totp,
 };
@@ -24,7 +24,12 @@ use crate::state::AppState;
 pub fn users_routes(state: AppState) -> Router {
     Router::new()
         .route("/", get(list_users).post(create_user))
-        .route("/me", get(get_current_user_info).patch(update_own_profile).delete(delete_own_account))
+        .route(
+            "/me",
+            get(get_current_user_info)
+                .patch(update_own_profile)
+                .delete(delete_own_account),
+        )
         .route(
             "/me/preferences",
             get(get_my_preferences).patch(update_my_preferences),
@@ -292,7 +297,9 @@ async fn update_own_profile(
             .one(&state.db)
             .await?;
         if existing.is_some() {
-            return Err(AppError::BadRequest("Username is already taken".to_string()));
+            return Err(AppError::BadRequest(
+                "Username is already taken".to_string(),
+            ));
         }
     }
 
@@ -386,7 +393,9 @@ async fn delete_own_account(
     // Delete the user (cascade will handle related records)
     user_record.delete(&state.db).await?;
 
-    Ok(Json(serde_json::json!({"message": "Account deleted successfully"})))
+    Ok(Json(
+        serde_json::json!({"message": "Account deleted successfully"}),
+    ))
 }
 
 /// Get current user's preferences
@@ -424,9 +433,7 @@ async fn update_my_preferences(
     let user_id = auth.user_id();
 
     // Check if preferences exist
-    let existing = UserPreferences::find_by_id(user_id)
-        .one(&state.db)
-        .await?;
+    let existing = UserPreferences::find_by_id(user_id).one(&state.db).await?;
 
     if let Some(existing_prefs) = existing {
         // Update existing preferences
@@ -448,9 +455,7 @@ async fn update_my_preferences(
     }
 
     // Return updated preferences
-    let preferences = UserPreferences::find_by_id(user_id)
-        .one(&state.db)
-        .await?;
+    let preferences = UserPreferences::find_by_id(user_id).one(&state.db).await?;
 
     let theme = preferences
         .map(|p| p.theme)

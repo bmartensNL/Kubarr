@@ -209,6 +209,14 @@ impl K8sClient {
             Err(_) => return Ok(Vec::new()),
         };
 
+        // Read kubarr.io/base-path annotation from service metadata
+        let base_path = service
+            .metadata
+            .annotations
+            .as_ref()
+            .and_then(|annotations| annotations.get("kubarr.io/base-path"))
+            .cloned();
+
         let spec = service.spec.unwrap_or_default();
         let status = service.status.unwrap_or_default();
 
@@ -249,6 +257,7 @@ impl K8sClient {
                     .type_
                     .clone()
                     .unwrap_or_else(|| "ClusterIP".to_string()),
+                base_path: base_path.clone(),
             });
         }
 
@@ -267,6 +276,13 @@ impl K8sClient {
 
         let pod_list = pods.list(&lp).await?;
         Ok(pod_list.items)
+    }
+
+    /// Get a specific pod by name
+    pub async fn get_pod(&self, namespace: &str, pod_name: &str) -> Result<Pod> {
+        let pods: Api<Pod> = Api::namespaced(self.client.clone(), namespace);
+        let pod = pods.get(pod_name).await?;
+        Ok(pod)
     }
 
     /// Get logs from a specific pod
@@ -334,6 +350,7 @@ pub struct ServiceEndpoint {
     pub port_forward_command: String,
     pub url: Option<String>,
     pub service_type: String,
+    pub base_path: Option<String>,
 }
 
 // Metrics server response types

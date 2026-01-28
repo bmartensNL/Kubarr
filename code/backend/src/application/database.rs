@@ -10,11 +10,9 @@ pub type DbConn = DatabaseConnection;
 
 /// Create a new database connection and run migrations
 pub async fn connect() -> Result<DbConn> {
-    let db_url = CONFIG.db_url();
+    tracing::info!("Connecting to database...");
 
-    tracing::info!("Connecting to database: {}", CONFIG.db_path.display());
-
-    let mut opts = ConnectOptions::new(&db_url);
+    let mut opts = ConnectOptions::new(&CONFIG.database_url);
     opts.max_connections(10)
         .min_connections(1)
         .connect_timeout(Duration::from_secs(30))

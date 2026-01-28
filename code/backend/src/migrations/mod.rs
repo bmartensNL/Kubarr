@@ -20,6 +20,8 @@ mod m20260127_000017_create_user_notifications;
 mod m20260128_000001_create_sessions;
 mod m20260128_000002_seed_defaults;
 mod m20260129_000001_create_bootstrap_status;
+mod m20260130_000001_create_vpn_providers;
+mod m20260130_000002_create_app_vpn_configs;
 
 pub struct Migrator;
 
@@ -47,6 +49,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20260128_000001_create_sessions::Migration),
             Box::new(m20260128_000002_seed_defaults::Migration),
             Box::new(m20260129_000001_create_bootstrap_status::Migration),
+            Box::new(m20260130_000001_create_vpn_providers::Migration),
+            Box::new(m20260130_000002_create_app_vpn_configs::Migration),
         ]
     }
 }

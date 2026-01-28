@@ -11,7 +11,7 @@ pub struct Config {
     pub port: u16,
 
     // Database
-    pub db_path: PathBuf,
+    pub database_url: String,
 
     // Kubernetes
     pub kubeconfig_path: Option<PathBuf>,
@@ -48,9 +48,9 @@ impl Config {
                 .unwrap_or(8000),
 
             // Database
-            db_path: PathBuf::from(
-                env::var("KUBARR_DB_PATH").unwrap_or_else(|_| "/data/kubarr.db".to_string()),
-            ),
+            database_url: env::var("KUBARR_DATABASE_URL")
+                .or_else(|_| env::var("DATABASE_URL"))
+                .unwrap_or_else(|_| "postgres://kubarr:kubarr@localhost:5432/kubarr".to_string()),
 
             // Kubernetes
             kubeconfig_path: env::var("KUBARR_KUBECONFIG_PATH").ok().map(PathBuf::from),
@@ -92,10 +92,6 @@ impl Config {
                 }
             }),
         }
-    }
-
-    pub fn db_url(&self) -> String {
-        format!("sqlite://{}?mode=rwc", self.db_path.display())
     }
 }
 

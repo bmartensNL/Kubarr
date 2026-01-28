@@ -5,8 +5,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::middleware::permissions::{Authorized, MonitoringView};
 use crate::error::Result;
+use crate::middleware::permissions::{Authorized, MonitoringView};
 use crate::services::k8s::{PodMetrics, PodStatus, ServiceEndpoint};
 use crate::state::AppState;
 
@@ -316,9 +316,7 @@ async fn get_app_metrics(
 }
 
 /// Get overall cluster resource metrics from VictoriaMetrics
-async fn get_cluster_metrics(
-    _auth: Authorized<MonitoringView>,
-) -> Result<Json<ClusterMetrics>> {
+async fn get_cluster_metrics(_auth: Authorized<MonitoringView>) -> Result<Json<ClusterMetrics>> {
     // Total CPU cores
     let total_cpu = query_vm("sum(machine_cpu_cores)")
         .await
@@ -660,9 +658,7 @@ async fn get_app_detail_metrics(
 }
 
 /// Check if VictoriaMetrics is available
-async fn check_vm_available(
-    _auth: Authorized<MonitoringView>,
-) -> Result<Json<serde_json::Value>> {
+async fn check_vm_available(_auth: Authorized<MonitoringView>) -> Result<Json<serde_json::Value>> {
     let client = reqwest::Client::new();
     // VictoriaMetrics uses /health endpoint for health checks
     let url = format!("{}/health", VICTORIAMETRICS_URL);

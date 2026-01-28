@@ -19,12 +19,24 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(Sessions::UserId).integer().not_null())
+                    .col(ColumnDef::new(Sessions::UserId).big_integer().not_null())
                     .col(ColumnDef::new(Sessions::UserAgent).string().null())
                     .col(ColumnDef::new(Sessions::IpAddress).string().null())
-                    .col(ColumnDef::new(Sessions::CreatedAt).date_time().not_null())
-                    .col(ColumnDef::new(Sessions::ExpiresAt).date_time().not_null())
-                    .col(ColumnDef::new(Sessions::LastAccessedAt).date_time().not_null())
+                    .col(
+                        ColumnDef::new(Sessions::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(Sessions::ExpiresAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(Sessions::LastAccessedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
                     .col(
                         ColumnDef::new(Sessions::IsRevoked)
                             .boolean()

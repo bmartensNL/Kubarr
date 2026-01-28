@@ -332,16 +332,18 @@ export default function LogsPage() {
         case 'timestamp':
           comparison = new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
           break
-        case 'level':
+        case 'level': {
           const levelA = a.level?.toUpperCase() || ''
           const levelB = b.level?.toUpperCase() || ''
           comparison = levelA.localeCompare(levelB)
           break
-        case 'app':
+        }
+        case 'app': {
           const appA = a.labels.namespace || ''
           const appB = b.labels.namespace || ''
           comparison = appA.localeCompare(appB)
           break
+        }
         case 'message':
           comparison = (a.line || '').localeCompare(b.line || '')
           break

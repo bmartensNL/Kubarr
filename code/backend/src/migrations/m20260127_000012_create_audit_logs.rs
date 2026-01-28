@@ -15,13 +15,17 @@ impl MigrationTrait for Migration {
                     .if_not_exists()
                     .col(
                         ColumnDef::new(AuditLogs::Id)
-                            .integer()
+                            .big_integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(AuditLogs::Timestamp).date_time().not_null())
-                    .col(ColumnDef::new(AuditLogs::UserId).integer().null())
+                    .col(
+                        ColumnDef::new(AuditLogs::Timestamp)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(AuditLogs::UserId).big_integer().null())
                     .col(ColumnDef::new(AuditLogs::Username).string().null())
                     .col(ColumnDef::new(AuditLogs::Action).string().not_null())
                     .col(ColumnDef::new(AuditLogs::ResourceType).string().not_null())

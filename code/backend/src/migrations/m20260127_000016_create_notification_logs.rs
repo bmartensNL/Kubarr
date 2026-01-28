@@ -17,12 +17,16 @@ impl MigrationTrait for Migration {
                     .if_not_exists()
                     .col(
                         ColumnDef::new(NotificationLogs::Id)
-                            .integer()
+                            .big_integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(NotificationLogs::UserId).integer().null())
+                    .col(
+                        ColumnDef::new(NotificationLogs::UserId)
+                            .big_integer()
+                            .null(),
+                    )
                     .col(
                         ColumnDef::new(NotificationLogs::ChannelType)
                             .string()
@@ -47,7 +51,7 @@ impl MigrationTrait for Migration {
                     )
                     .col(
                         ColumnDef::new(NotificationLogs::CreatedAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .foreign_key(
@@ -98,7 +102,12 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .drop_table(Table::drop().table(NotificationLogs::Table).if_exists().to_owned())
+            .drop_table(
+                Table::drop()
+                    .table(NotificationLogs::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
             .await
     }
 }

@@ -3,12 +3,19 @@ use axum::{
     routing::{delete, get, post, put},
     Json, Router,
 };
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect, Set,
+};
 use serde::{Deserialize, Serialize};
 
-use crate::middleware::permissions::{Authenticated, Authorized, SettingsView, SettingsManage, AuditView};
-use crate::models::{notification_channel, notification_event, notification_log, user_notification_pref};
 use crate::error::{AppError, Result};
+use crate::middleware::permissions::{
+    AuditView, Authenticated, Authorized, SettingsManage, SettingsView,
+};
+use crate::models::{
+    notification_channel, notification_event, notification_log, user_notification_pref,
+};
 use crate::services::notification::ChannelType;
 use crate::state::AppState;
 
@@ -139,7 +146,10 @@ async fn delete_notification(
     auth: Authenticated,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>> {
-    state.notification.delete_notification(id, auth.user_id()).await?;
+    state
+        .notification
+        .delete_notification(id, auth.user_id())
+        .await?;
     Ok(Json(serde_json::json!({ "success": true })))
 }
 
@@ -169,11 +179,13 @@ async fn list_channels(
     let mut result: Vec<ChannelDto> = Vec::new();
 
     for channel_type in ChannelType::all() {
-        let existing = channels.iter().find(|c| c.channel_type == channel_type.as_str());
+        let existing = channels
+            .iter()
+            .find(|c| c.channel_type == channel_type.as_str());
 
         if let Some(channel) = existing {
-            let config: serde_json::Value = serde_json::from_str(&channel.config)
-                .unwrap_or(serde_json::json!({}));
+            let config: serde_json::Value =
+                serde_json::from_str(&channel.config).unwrap_or(serde_json::json!({}));
             // Mask sensitive fields
             let masked_config = mask_sensitive_config(&config);
 
@@ -210,8 +222,8 @@ async fn get_channel(
 
     match channel {
         Some(ch) => {
-            let config: serde_json::Value = serde_json::from_str(&ch.config)
-                .unwrap_or(serde_json::json!({}));
+            let config: serde_json::Value =
+                serde_json::from_str(&ch.config).unwrap_or(serde_json::json!({}));
             let masked_config = mask_sensitive_config(&config);
 
             Ok(Json(ChannelDto {
@@ -246,7 +258,10 @@ async fn update_channel(
 ) -> Result<Json<ChannelDto>> {
     // Validate channel type
     if ChannelType::from_str(&channel_type).is_none() {
-        return Err(AppError::BadRequest(format!("Invalid channel type: {}", channel_type)));
+        return Err(AppError::BadRequest(format!(
+            "Invalid channel type: {}",
+            channel_type
+        )));
     }
 
     let now = chrono::Utc::now();
@@ -286,8 +301,8 @@ async fn update_channel(
         tracing::warn!("Failed to reinitialize notification providers: {}", e);
     }
 
-    let config: serde_json::Value = serde_json::from_str(&channel.config)
-        .unwrap_or(serde_json::json!({}));
+    let config: serde_json::Value =
+        serde_json::from_str(&channel.config).unwrap_or(serde_json::json!({}));
     let masked_config = mask_sensitive_config(&config);
 
     Ok(Json(ChannelDto {
@@ -316,7 +331,10 @@ async fn test_channel(
     Path(channel_type): Path<String>,
     Json(req): Json<TestChannelRequest>,
 ) -> Result<Json<TestChannelResponse>> {
-    let result = state.notification.test_channel(&channel_type, &req.destination).await;
+    let result = state
+        .notification
+        .test_channel(&channel_type, &req.destination)
+        .await;
 
     Ok(Json(TestChannelResponse {
         success: result.success,
@@ -439,7 +457,9 @@ async fn get_preferences(
     let mut result: Vec<UserPrefDto> = Vec::new();
 
     for channel_type in ChannelType::all() {
-        let existing = prefs.iter().find(|p| p.channel_type == channel_type.as_str());
+        let existing = prefs
+            .iter()
+            .find(|p| p.channel_type == channel_type.as_str());
 
         if let Some(pref) = existing {
             result.push(UserPrefDto {
@@ -474,7 +494,10 @@ async fn update_preference(
     Json(req): Json<UpdatePrefRequest>,
 ) -> Result<Json<UserPrefDto>> {
     if ChannelType::from_str(&channel_type).is_none() {
-        return Err(AppError::BadRequest(format!("Invalid channel type: {}", channel_type)));
+        return Err(AppError::BadRequest(format!(
+            "Invalid channel type: {}",
+            channel_type
+        )));
     }
 
     let now = chrono::Utc::now();
@@ -631,13 +654,13 @@ fn mask_destination(dest: &str) -> String {
     } else if dest.starts_with('+') {
         // Phone
         if dest.len() > 4 {
-            format!("{}***{}", &dest[..3], &dest[dest.len()-2..])
+            format!("{}***{}", &dest[..3], &dest[dest.len() - 2..])
         } else {
             "+***".to_string()
         }
     } else if dest.len() > 5 {
         // Other (chat ID)
-        format!("{}***{}", &dest[..3], &dest[dest.len()-2..])
+        format!("{}***{}", &dest[..3], &dest[dest.len() - 2..])
     } else {
         "***".to_string()
     }

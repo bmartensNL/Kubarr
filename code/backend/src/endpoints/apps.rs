@@ -8,11 +8,13 @@ use axum::{
 use sea_orm::EntityTrait;
 use serde::Deserialize;
 
-use crate::middleware::permissions::{Authenticated, Authorized, AppsView, AppsInstall, AppsDelete, AppsRestart};
 use crate::config::CONFIG;
+use crate::error::{AppError, Result};
+use crate::middleware::permissions::{
+    AppsDelete, AppsInstall, AppsRestart, AppsView, Authenticated, Authorized,
+};
 use crate::models::audit_log::AuditAction;
 use crate::models::prelude::*;
-use crate::error::{AppError, Result};
 use crate::services::{AppConfig, DeploymentManager, DeploymentRequest, DeploymentStatus};
 use crate::state::AppState;
 
@@ -143,7 +145,8 @@ async fn install_app(
         .await?;
     let storage_path = storage_setting.map(|s| s.value);
 
-    let manager = DeploymentManager::new(client, &catalog);
+    // Use with_db to enable VPN support
+    let manager = DeploymentManager::with_db(client, &catalog, &state.db);
     let status = manager
         .deploy_app(&request, storage_path.as_deref())
         .await?;

@@ -10,10 +10,10 @@ use once_cell::sync::Lazy;
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde::{Deserialize, Serialize};
 
-use crate::middleware::permissions::{Authorized, SettingsView, SettingsManage};
+use crate::error::{AppError, Result};
+use crate::middleware::permissions::{Authorized, SettingsManage, SettingsView};
 use crate::models::prelude::*;
 use crate::models::system_setting;
-use crate::error::{AppError, Result};
 use crate::state::{AppState, DbConn};
 
 /// Default settings values

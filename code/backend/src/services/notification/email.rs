@@ -1,8 +1,7 @@
 use async_trait::async_trait;
 use lettre::{
-    message::header::ContentType,
-    transport::smtp::authentication::Credentials,
-    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
+    message::header::ContentType, transport::smtp::authentication::Credentials, AsyncSmtpTransport,
+    AsyncTransport, Message, Tokio1Executor,
 };
 use serde::Deserialize;
 
@@ -50,7 +49,9 @@ impl EmailProvider {
         Ok(Self {
             transport,
             from_address: email_config.from_address,
-            from_name: email_config.from_name.unwrap_or_else(|| "Kubarr".to_string()),
+            from_name: email_config
+                .from_name
+                .unwrap_or_else(|| "Kubarr".to_string()),
         })
     }
 

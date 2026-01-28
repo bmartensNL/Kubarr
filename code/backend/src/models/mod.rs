@@ -1,3 +1,4 @@
+pub mod app_vpn_config;
 pub mod audit_log;
 pub mod bootstrap_status;
 pub mod invite;
@@ -9,18 +10,20 @@ pub mod oauth_provider;
 pub mod pending_2fa_challenge;
 pub mod role;
 pub mod role_app_permission;
+pub mod role_permission;
 pub mod server_config;
 pub mod session;
-pub mod role_permission;
 pub mod system_setting;
 pub mod user;
 pub mod user_notification;
 pub mod user_notification_pref;
 pub mod user_preferences;
 pub mod user_role;
+pub mod vpn_provider;
 
 #[allow(unused_imports)]
 pub mod prelude {
+    pub use super::app_vpn_config::{self, Entity as AppVpnConfig};
     pub use super::audit_log::{self, Entity as AuditLog};
     pub use super::bootstrap_status::{self, Entity as BootstrapStatus};
     pub use super::invite::{self, Entity as Invite};
@@ -41,4 +44,5 @@ pub mod prelude {
     pub use super::user_notification_pref::{self, Entity as UserNotificationPref};
     pub use super::user_preferences::{self, Entity as UserPreferences};
     pub use super::user_role::{self, Entity as UserRole};
+    pub use super::vpn_provider::{self, Entity as VpnProvider};
 }

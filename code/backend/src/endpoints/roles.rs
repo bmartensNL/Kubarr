@@ -7,10 +7,10 @@ use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, ModelTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 
-use crate::middleware::permissions::{Authorized, RolesView, RolesManage};
+use crate::error::{AppError, Result};
+use crate::middleware::permissions::{Authorized, RolesManage, RolesView};
 use crate::models::prelude::*;
 use crate::models::{role, role_app_permission, role_permission};
-use crate::error::{AppError, Result};
 use crate::state::AppState;
 
 /// Create roles routes
@@ -305,9 +305,7 @@ async fn set_role_apps(
 }
 
 /// Get all available permissions with descriptions
-async fn list_all_permissions(
-    _auth: Authorized<RolesView>,
-) -> Result<Json<Vec<PermissionInfo>>> {
+async fn list_all_permissions(_auth: Authorized<RolesView>) -> Result<Json<Vec<PermissionInfo>>> {
     let mut permissions = vec![
         // Apps permissions
         PermissionInfo {

@@ -13,7 +13,6 @@ use tracing::{debug, warn};
 use crate::services::cadvisor::{aggregate_by_namespace, fetch_cadvisor_metrics};
 use crate::state::{AppState, NetworkMetricsCache, RateSample};
 
-
 /// WebSocket message containing network metrics
 #[derive(Debug, Clone, Serialize)]
 pub struct NetworkMetricsMessage {
@@ -485,7 +484,8 @@ async fn discover_service_connections(
                                             service_to_namespace.get(&backend.name)
                                         {
                                             if target_ns != ns {
-                                                let backend_edge_key = (ns.clone(), target_ns.clone());
+                                                let backend_edge_key =
+                                                    (ns.clone(), target_ns.clone());
                                                 if !seen_edges.contains(&backend_edge_key) {
                                                     seen_edges.insert(backend_edge_key);
                                                     edges.push(NetworkEdgeData {

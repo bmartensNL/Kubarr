@@ -4,9 +4,11 @@ use axum::{
     Json, Router,
 };
 
-use crate::middleware::permissions::{Authorized, AuditView, AuditManage};
 use crate::error::Result;
-use crate::services::audit::{get_audit_logs, get_audit_stats, clear_old_logs, AuditLogQuery, AuditLogResponse, AuditStats};
+use crate::middleware::permissions::{AuditManage, AuditView, Authorized};
+use crate::services::audit::{
+    clear_old_logs, get_audit_logs, get_audit_stats, AuditLogQuery, AuditLogResponse, AuditStats,
+};
 use crate::state::AppState;
 
 /// Create audit routes
@@ -59,6 +61,9 @@ async fn clear_audit_logs(
 
     Ok(Json(ClearLogsResponse {
         deleted,
-        message: format!("Deleted {} audit log entries older than {} days", deleted, days),
+        message: format!(
+            "Deleted {} audit log entries older than {} days",
+            deleted, days
+        ),
     }))
 }

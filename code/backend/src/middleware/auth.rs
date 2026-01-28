@@ -18,7 +18,14 @@ use crate::models::{role_app_permission, role_permission, session, user, user_ro
 use crate::services::security::decode_session_token;
 use crate::state::AppState;
 
-/// Cookie name for session token
+/// Base cookie name for session tokens (indexed as kubarr_session_0, kubarr_session_1, etc.)
+pub const SESSION_COOKIE_BASE: &str = "kubarr_session";
+/// Cookie name for active session index
+pub const ACTIVE_SESSION_COOKIE: &str = "kubarr_active";
+/// Maximum number of simultaneous sessions
+pub const MAX_SESSIONS: usize = 5;
+
+/// Legacy cookie name (for backwards compatibility)
 pub const SESSION_COOKIE_NAME: &str = "kubarr_session";
 
 /// Authenticated user with permissions, stored in request extensions
@@ -46,11 +53,7 @@ impl AuthenticatedUser {
 ///
 /// Skips authentication for `/auth/*` routes.
 /// Returns 401 Unauthorized if session is missing or invalid.
-pub async fn require_auth(
-    State(state): State<AppState>,
-    mut req: Request,
-    next: Next,
-) -> Response {
+pub async fn require_auth(State(state): State<AppState>, mut req: Request, next: Next) -> Response {
     let path = req.uri().path();
 
     // Skip authentication for /auth/* routes
@@ -80,18 +83,57 @@ pub async fn require_auth(
     next.run(req).await
 }
 
-/// Extract session token from cookie
+/// Extract session token from cookie (supports multi-session)
 fn extract_token(req: &Request) -> Option<String> {
     let cookies = req.headers().get(header::COOKIE)?;
     let cookie_str = cookies.to_str().ok()?;
 
+    // Parse all cookies
+    let mut active_slot: Option<usize> = None;
+    let mut session_cookies: std::collections::HashMap<usize, String> =
+        std::collections::HashMap::new();
+    let mut legacy_token: Option<String> = None;
+
     for cookie in cookie_str.split(';') {
         let cookie = cookie.trim();
-        if let Some(value) = cookie.strip_prefix(&format!("{}=", SESSION_COOKIE_NAME)) {
-            return Some(value.to_string());
+
+        // Check for active session cookie
+        if let Some(value) = cookie.strip_prefix(&format!("{}=", ACTIVE_SESSION_COOKIE)) {
+            active_slot = value.parse().ok();
+        }
+        // Check for indexed session cookies (kubarr_session_0, kubarr_session_1, etc.)
+        else if cookie.starts_with(SESSION_COOKIE_BASE) {
+            for i in 0..MAX_SESSIONS {
+                let prefix = format!("{}_{}=", SESSION_COOKIE_BASE, i);
+                if let Some(value) = cookie.strip_prefix(&prefix) {
+                    session_cookies.insert(i, value.to_string());
+                    break;
+                }
+            }
+            // Also check for legacy cookie (kubarr_session without index)
+            if let Some(value) = cookie.strip_prefix(&format!("{}=", SESSION_COOKIE_NAME)) {
+                // Only use legacy if it doesn't match an indexed pattern
+                if !cookie.contains(&format!("{}_", SESSION_COOKIE_BASE)) {
+                    legacy_token = Some(value.to_string());
+                }
+            }
         }
     }
-    None
+
+    // If we have indexed sessions, use the active one
+    if !session_cookies.is_empty() {
+        let slot = active_slot.unwrap_or(0);
+        if let Some(token) = session_cookies.get(&slot) {
+            return Some(token.clone());
+        }
+        // Fallback to first available session
+        if let Some((_, token)) = session_cookies.iter().next() {
+            return Some(token.clone());
+        }
+    }
+
+    // Fallback to legacy cookie
+    legacy_token
 }
 
 /// Authenticate using session token (from cookie)

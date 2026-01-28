@@ -13,10 +13,13 @@ use tower_http::{
 };
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::endpoints;
 use crate::config::CONFIG;
 use crate::db;
-use crate::services::{start_network_broadcaster, scheduler, init_jwt_keys, AppCatalog, AuditService, K8sClient, NotificationService};
+use crate::endpoints;
+use crate::services::{
+    init_jwt_keys, scheduler, start_network_broadcaster, AppCatalog, AuditService, K8sClient,
+    NotificationService,
+};
 use crate::state::AppState;
 
 /// Bootstrap and run the application
@@ -62,7 +65,13 @@ async fn init_services() -> anyhow::Result<AppState> {
     // Start periodic task scheduler
     scheduler::start_scheduler(Arc::new(conn.clone()));
 
-    Ok(AppState::new(conn, k8s_client, catalog, audit, notification))
+    Ok(AppState::new(
+        conn,
+        k8s_client,
+        catalog,
+        audit,
+        notification,
+    ))
 }
 
 /// Initialize the database connection (runs migrations automatically)

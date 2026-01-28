@@ -17,12 +17,16 @@ impl MigrationTrait for Migration {
                     .if_not_exists()
                     .col(
                         ColumnDef::new(OauthAccounts::Id)
-                            .integer()
+                            .big_integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(OauthAccounts::UserId).integer().not_null())
+                    .col(
+                        ColumnDef::new(OauthAccounts::UserId)
+                            .big_integer()
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(OauthAccounts::Provider).string().not_null())
                     .col(
                         ColumnDef::new(OauthAccounts::ProviderUserId)
@@ -35,17 +39,17 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(OauthAccounts::RefreshToken).string().null())
                     .col(
                         ColumnDef::new(OauthAccounts::TokenExpiresAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .null(),
                     )
                     .col(
                         ColumnDef::new(OauthAccounts::CreatedAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .col(
                         ColumnDef::new(OauthAccounts::UpdatedAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .foreign_key(
@@ -87,7 +91,12 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .drop_table(Table::drop().table(OauthAccounts::Table).if_exists().to_owned())
+            .drop_table(
+                Table::drop()
+                    .table(OauthAccounts::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
             .await
     }
 }

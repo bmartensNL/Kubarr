@@ -23,7 +23,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(SystemSettings::Description).string().null())
                     .col(
                         ColumnDef::new(SystemSettings::UpdatedAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .to_owned(),
@@ -33,7 +33,12 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .drop_table(Table::drop().table(SystemSettings::Table).if_exists().to_owned())
+            .drop_table(
+                Table::drop()
+                    .table(SystemSettings::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
             .await
     }
 }

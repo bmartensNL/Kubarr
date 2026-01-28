@@ -19,6 +19,7 @@ pub type DbConn = DatabaseConnection;
 #[derive(Clone)]
 pub struct CachedEndpoint {
     pub base_url: String,
+    pub base_path: Option<String>,
     pub expires_at: Instant,
 }
 
@@ -215,24 +216,25 @@ impl EndpointCache {
         }
     }
 
-    /// Get cached endpoint URL for an app
-    pub async fn get(&self, app_name: &str) -> Option<String> {
+    /// Get cached endpoint for an app (base_url, base_path)
+    pub async fn get(&self, app_name: &str) -> Option<(String, Option<String>)> {
         let cache = self.cache.read().await;
         if let Some(entry) = cache.get(app_name) {
             if entry.expires_at > Instant::now() {
-                return Some(entry.base_url.clone());
+                return Some((entry.base_url.clone(), entry.base_path.clone()));
             }
         }
         None
     }
 
-    /// Cache an endpoint URL for an app
-    pub async fn set(&self, app_name: &str, base_url: String) {
+    /// Cache an endpoint for an app
+    pub async fn set(&self, app_name: &str, base_url: String, base_path: Option<String>) {
         let mut cache = self.cache.write().await;
         cache.insert(
             app_name.to_string(),
             CachedEndpoint {
                 base_url,
+                base_path,
                 expires_at: Instant::now() + self.ttl,
             },
         );

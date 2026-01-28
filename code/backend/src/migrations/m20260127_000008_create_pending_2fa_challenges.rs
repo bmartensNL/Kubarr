@@ -17,14 +17,14 @@ impl MigrationTrait for Migration {
                     .if_not_exists()
                     .col(
                         ColumnDef::new(Pending2faChallenges::Id)
-                            .integer()
+                            .big_integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
                     )
                     .col(
                         ColumnDef::new(Pending2faChallenges::UserId)
-                            .integer()
+                            .big_integer()
                             .not_null(),
                     )
                     .col(
@@ -35,12 +35,12 @@ impl MigrationTrait for Migration {
                     )
                     .col(
                         ColumnDef::new(Pending2faChallenges::ExpiresAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .col(
                         ColumnDef::new(Pending2faChallenges::CreatedAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .foreign_key(
@@ -80,7 +80,12 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .drop_table(Table::drop().table(Pending2faChallenges::Table).if_exists().to_owned())
+            .drop_table(
+                Table::drop()
+                    .table(Pending2faChallenges::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
             .await
     }
 }

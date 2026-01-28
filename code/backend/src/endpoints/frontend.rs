@@ -10,14 +10,14 @@ use axum::{
     http::{header, Method, Response, StatusCode},
 };
 
-use chrono::Utc;
 use crate::config::CONFIG;
 use crate::error::{AppError, Result};
+use crate::models::prelude::*;
+use crate::models::session;
 use crate::services::security::decode_session_token;
 use crate::state::AppState;
-use crate::models::prelude::*;
-use sea_orm::{EntityTrait, ColumnTrait, QueryFilter};
-use crate::models::session;
+use chrono::Utc;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
 /// Check if a path looks like a static asset (has a file extension)
 fn is_static_asset(path: &str) -> bool {
@@ -30,7 +30,16 @@ fn is_static_asset(path: &str) -> bool {
 }
 
 /// Reserved paths that should never be treated as app names
-const RESERVED_PATHS: &[&str] = &["api", "auth", "proxy", "assets", "favicon.svg", "login", "setup", "app-error"];
+const RESERVED_PATHS: &[&str] = &[
+    "api",
+    "auth",
+    "proxy",
+    "assets",
+    "favicon.svg",
+    "login",
+    "setup",
+    "app-error",
+];
 
 /// Extract app name from path if it looks like an app path
 fn extract_app_name(path: &str) -> Option<&str> {
@@ -40,7 +49,8 @@ fn extract_app_name(path: &str) -> Option<&str> {
     // Skip reserved paths and static assets
     if first_segment.is_empty()
         || RESERVED_PATHS.contains(&first_segment)
-        || first_segment.contains('.') {
+        || first_segment.contains('.')
+    {
         return None;
     }
 
@@ -61,10 +71,51 @@ fn extract_session_token(headers: &axum::http::HeaderMap) -> Option<String> {
     None
 }
 
+/// Rewrite Location headers in app proxy responses so redirects go through the proxy
+fn rewrite_app_response(
+    mut response: Response<Body>,
+    app_name: &str,
+    internal_base_url: &str,
+) -> Response<Body> {
+    if !response.status().is_redirection() {
+        return response;
+    }
+
+    let location = match response.headers().get(header::LOCATION) {
+        Some(loc) => match loc.to_str() {
+            Ok(s) => s.to_string(),
+            Err(_) => return response,
+        },
+        None => return response,
+    };
+
+    let rewritten = if location.starts_with(internal_base_url) {
+        // Absolute internal URL: http://app.ns.svc.cluster.local:PORT/path → /app_name/path
+        let path = &location[internal_base_url.len()..];
+        let path = path.trim_start_matches('/');
+        format!("/{}/{}", app_name, path)
+    } else if location.starts_with('/') {
+        // Absolute path: always prepend the app prefix
+        format!("/{}{}", app_name, location)
+    } else {
+        // Relative or full external URL, leave as-is
+        location
+    };
+
+    if let Ok(val) = rewritten.parse() {
+        response.headers_mut().insert(header::LOCATION, val);
+    }
+
+    response
+}
+
 /// Create a redirect response to the app error page
 fn redirect_to_app_error(app_name: &str, reason: &str, details: &str) -> Response<Body> {
     let encoded_details = urlencoding::encode(details);
-    let redirect_url = format!("/app-error?app={}&reason={}&details={}", app_name, reason, encoded_details);
+    let redirect_url = format!(
+        "/app-error?app={}&reason={}&details={}",
+        app_name, reason, encoded_details
+    );
 
     Response::builder()
         .status(StatusCode::FOUND)
@@ -96,7 +147,11 @@ pub async fn proxy_frontend(
             tracing::info!("Found session token for app {}", app_name);
             // Decode session token (contains session ID, not user ID)
             if let Ok(claims) = decode_session_token(&token) {
-                tracing::info!("Session token decoded for app {}, sid={}", app_name, claims.sid);
+                tracing::info!(
+                    "Session token decoded for app {}, sid={}",
+                    app_name,
+                    claims.sid
+                );
                 // Look up session in database to get user_id
                 if let Ok(Some(session_record)) = Session::find()
                     .filter(session::Column::Id.eq(&claims.sid))
@@ -106,28 +161,64 @@ pub async fn proxy_frontend(
                     .await
                 {
                     let user_id = session_record.user_id;
-                    tracing::info!("Session valid for user {} accessing app {}", user_id, app_name);
+                    tracing::info!(
+                        "Session valid for user {} accessing app {}",
+                        user_id,
+                        app_name
+                    );
                     // Check if user has access to this app
                     let has_permission = check_app_permission(&state, user_id, app_name).await;
-                    tracing::info!("User {} permission for app {}: {}", user_id, app_name, has_permission);
+                    tracing::info!(
+                        "User {} permission for app {}: {}",
+                        user_id,
+                        app_name,
+                        has_permission
+                    );
                     if has_permission {
                         // Try to proxy to the app
                         match get_app_target_url(&state, app_name, &path, &query).await {
-                            Ok(target_url) => {
-                                tracing::info!("Proxying to app {}: {}", app_name, target_url);
+                            Ok((base_url, has_base_path, target_url)) => {
+                                tracing::info!(
+                                    "Proxying to app {}: {} (base_path: {})",
+                                    app_name,
+                                    target_url,
+                                    has_base_path
+                                );
                                 let body = request.into_body();
                                 let proxy = &state.proxy;
                                 match proxy.proxy_http(&target_url, method, headers, body).await {
-                                    Ok(response) => return Ok(response),
+                                    Ok(response) => {
+                                        // Apps with base_path already have correct Location headers
+                                        // Apps without base_path need Location rewriting
+                                        if has_base_path {
+                                            return Ok(response);
+                                        }
+                                        return Ok(rewrite_app_response(
+                                            response, app_name, &base_url,
+                                        ));
+                                    }
                                     Err(e) => {
-                                        tracing::warn!("Failed to connect to app {}: {}", app_name, e);
-                                        return Ok(redirect_to_app_error(app_name, "connection_failed", &e.to_string()));
+                                        tracing::warn!(
+                                            "Failed to connect to app {}: {}",
+                                            app_name,
+                                            e
+                                        );
+                                        return Ok(redirect_to_app_error(
+                                            app_name,
+                                            "connection_failed",
+                                            &e.to_string(),
+                                        ));
                                     }
                                 }
                             }
                             Err(e) => {
-                                tracing::info!("App {} not found or error: {}", app_name, e);
-                                return Ok(redirect_to_app_error(app_name, "not_found", &e.to_string()));
+                                tracing::info!(
+                                    "App {} not found, falling through to frontend: {}",
+                                    app_name,
+                                    e
+                                );
+                                // Don't show error page - fall through to frontend proxy
+                                // The path might be a frontend route (e.g., /networking)
                             }
                         }
                     }
@@ -195,15 +286,19 @@ async fn check_app_permission(state: &AppState, user_id: i64, app_name: &str) ->
     let permissions = get_user_permissions(&state.db, user_id).await;
 
     // Check for app.* wildcard or specific app.{name} permission
-    permissions.contains(&"app.*".to_string())
-        || permissions.contains(&format!("app.{}", app_name))
+    permissions.contains(&"app.*".to_string()) || permissions.contains(&format!("app.{}", app_name))
 }
 
-/// Get the target URL for an app
-async fn get_app_target_url(state: &AppState, app_name: &str, path: &str, query: &str) -> Result<String> {
+/// Get the target URL for an app, returning (base_url, has_base_path, full_target_url)
+async fn get_app_target_url(
+    state: &AppState,
+    app_name: &str,
+    path: &str,
+    query: &str,
+) -> Result<(String, bool, String)> {
     // Check cache first
-    let base_url = if let Some(cached_url) = state.endpoint_cache.get(app_name).await {
-        cached_url
+    let (base_url, base_path) = if let Some(cached) = state.endpoint_cache.get(app_name).await {
+        cached
     } else {
         // Get K8s client
         let k8s_guard = state.k8s_client.read().await;
@@ -231,24 +326,45 @@ async fn get_app_target_url(state: &AppState, app_name: &str, path: &str, query:
             endpoint.name, endpoint.namespace, endpoint.port
         );
 
-        // Cache the base URL
-        state.endpoint_cache.set(app_name, base_url.clone()).await;
+        let base_path = endpoint.base_path.clone();
 
-        base_url
+        // Cache the endpoint
+        state
+            .endpoint_cache
+            .set(app_name, base_url.clone(), base_path.clone())
+            .await;
+
+        (base_url, base_path)
     };
 
-    // Strip the app name prefix from the path
-    let app_path = path
-        .trim_start_matches('/')
-        .strip_prefix(app_name)
-        .unwrap_or("")
-        .trim_start_matches('/');
+    let has_base_path = base_path.is_some();
 
-    if app_path.is_empty() && query.is_empty() {
-        Ok(format!("{}/", base_url))
-    } else if app_path.is_empty() {
-        Ok(format!("{}/?{}", base_url, query.trim_start_matches('?')))
+    let target_url = if has_base_path {
+        // App has a URL base (e.g., Sonarr at /sonarr) - keep the full path
+        let trimmed = path.trim_start_matches('/');
+        if trimmed.is_empty() && query.is_empty() {
+            format!("{}/", base_url)
+        } else if trimmed.is_empty() {
+            format!("{}/?{}", base_url, query.trim_start_matches('?'))
+        } else {
+            format!("{}/{}{}", base_url, trimmed, query)
+        }
     } else {
-        Ok(format!("{}/{}{}", base_url, app_path, query))
-    }
+        // App has no URL base (e.g., qBittorrent) - strip the app name prefix
+        let app_path = path
+            .trim_start_matches('/')
+            .strip_prefix(app_name)
+            .unwrap_or("")
+            .trim_start_matches('/');
+
+        if app_path.is_empty() && query.is_empty() {
+            format!("{}/", base_url)
+        } else if app_path.is_empty() {
+            format!("{}/?{}", base_url, query.trim_start_matches('?'))
+        } else {
+            format!("{}/{}{}", base_url, app_path, query)
+        }
+    };
+
+    Ok((base_url, has_base_path, target_url))
 }

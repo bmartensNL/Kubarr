@@ -1,11 +1,14 @@
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect, Set,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::models::audit_log::{self, AuditAction, ResourceType};
 use crate::db::DbConn;
 use crate::error::Result;
+use crate::models::audit_log::{self, AuditAction, ResourceType};
 
 /// Audit service for logging system events
 #[derive(Clone, Default)]
@@ -248,7 +251,8 @@ pub async fn get_audit_stats(db: &DbConn) -> Result<AuditStats> {
 
     let today = chrono::Utc::now().date_naive();
     let today_start = today.and_hms_opt(0, 0, 0).unwrap();
-    let today_start_utc = chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(today_start, chrono::Utc);
+    let today_start_utc =
+        chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(today_start, chrono::Utc);
 
     let events_today = audit_log::Entity::find()
         .filter(audit_log::Column::Timestamp.gte(today_start_utc))
@@ -271,11 +275,10 @@ pub async fn get_audit_stats(db: &DbConn) -> Result<AuditStats> {
 
     // For top actions, we'll do a simple approach since SeaORM grouping is complex
     // Fetch all logs to count actions (select all columns to avoid partial model issues)
-    let all_logs = audit_log::Entity::find()
-        .all(db)
-        .await?;
+    let all_logs = audit_log::Entity::find().all(db).await?;
 
-    let mut action_counts: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+    let mut action_counts: std::collections::HashMap<String, u64> =
+        std::collections::HashMap::new();
     for log in all_logs {
         *action_counts.entry(log.action.clone()).or_insert(0) += 1;
     }

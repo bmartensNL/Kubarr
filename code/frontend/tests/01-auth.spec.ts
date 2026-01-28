@@ -40,7 +40,7 @@ test.describe('Authentication', () => {
       await expect(page.locator('text=Overview')).toBeVisible();
     });
 
-    test('redirects authenticated user away from login', async ({ page, context }) => {
+    test('redirects authenticated user away from login', async ({ page }) => {
       // First login
       const username = process.env.TEST_USERNAME || 'admin';
       const password = process.env.TEST_PASSWORD || 'admin';

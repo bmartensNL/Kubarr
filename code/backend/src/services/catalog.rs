@@ -265,7 +265,9 @@ impl AppCatalog {
 
         // Apps are browseable by default unless explicitly set to false
         let is_browseable = annotations
-            .get(&serde_yaml::Value::String("kubarr.io/browseable".to_string()))
+            .get(&serde_yaml::Value::String(
+                "kubarr.io/browseable".to_string(),
+            ))
             .and_then(|b| b.as_str())
             .map(|b| b.to_lowercase() != "false")
             .unwrap_or(true);

@@ -35,7 +35,17 @@ async fn proxy_app_root(
     ws_upgrade: Option<WebSocketUpgrade>,
     body: Body,
 ) -> Result<Response> {
-    proxy_app_inner(state, app_name, String::new(), auth, method, headers, ws_upgrade, body).await
+    proxy_app_inner(
+        state,
+        app_name,
+        String::new(),
+        auth,
+        method,
+        headers,
+        ws_upgrade,
+        body,
+    )
+    .await
 }
 
 /// Proxy requests to an installed app (with path)
@@ -48,7 +58,10 @@ async fn proxy_app_with_path(
     ws_upgrade: Option<WebSocketUpgrade>,
     body: Body,
 ) -> Result<Response> {
-    proxy_app_inner(state, app_name, path, auth, method, headers, ws_upgrade, body).await
+    proxy_app_inner(
+        state, app_name, path, auth, method, headers, ws_upgrade, body,
+    )
+    .await
 }
 
 /// Inner proxy implementation
@@ -90,7 +103,10 @@ async fn proxy_app_inner(
     }
 
     // Proxy HTTP request
-    state.proxy.proxy_http(&target_url, method, headers, body).await
+    state
+        .proxy
+        .proxy_http(&target_url, method, headers, body)
+        .await
 }
 
 /// Check if user has permission to access the app
@@ -100,15 +116,14 @@ async fn check_app_permission(state: &AppState, user_id: i64, app_name: &str) ->
     let permissions = get_user_permissions(&state.db, user_id).await;
 
     // Check for app.* wildcard or specific app.{name} permission
-    permissions.contains(&"app.*".to_string())
-        || permissions.contains(&format!("app.{}", app_name))
+    permissions.contains(&"app.*".to_string()) || permissions.contains(&format!("app.{}", app_name))
 }
 
 /// Get the target URL for an app
 async fn get_app_target_url(state: &AppState, app_name: &str, path: &str) -> Result<String> {
     // Check cache first
-    let base_url = if let Some(cached_url) = state.endpoint_cache.get(app_name).await {
-        cached_url
+    let (base_url, _base_path) = if let Some(cached) = state.endpoint_cache.get(app_name).await {
+        cached
     } else {
         // Get K8s client
         let k8s_guard = state.k8s_client.read().await;
@@ -137,10 +152,15 @@ async fn get_app_target_url(state: &AppState, app_name: &str, path: &str) -> Res
             endpoint.name, endpoint.namespace, endpoint.port
         );
 
-        // Cache the base URL
-        state.endpoint_cache.set(app_name, base_url.clone()).await;
+        let base_path = endpoint.base_path.clone();
 
-        base_url
+        // Cache the endpoint
+        state
+            .endpoint_cache
+            .set(app_name, base_url.clone(), base_path.clone())
+            .await;
+
+        (base_url, base_path)
     };
 
     // Append path

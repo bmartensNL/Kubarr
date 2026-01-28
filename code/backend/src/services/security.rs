@@ -146,18 +146,18 @@ pub async fn init_jwt_keys(db: &sea_orm::DatabaseConnection) -> Result<()> {
 /// Must be called after init_jwt_keys()
 pub fn get_private_key() -> Result<String> {
     let cache = PRIVATE_KEY.read();
-    cache
-        .clone()
-        .ok_or_else(|| AppError::Internal("JWT keys not initialized. Call init_jwt_keys() first.".to_string()))
+    cache.clone().ok_or_else(|| {
+        AppError::Internal("JWT keys not initialized. Call init_jwt_keys() first.".to_string())
+    })
 }
 
 /// Get the JWT public key (PEM format)
 /// Must be called after init_jwt_keys()
 pub fn get_public_key() -> Result<String> {
     let cache = PUBLIC_KEY.read();
-    cache
-        .clone()
-        .ok_or_else(|| AppError::Internal("JWT keys not initialized. Call init_jwt_keys() first.".to_string()))
+    cache.clone().ok_or_else(|| {
+        AppError::Internal("JWT keys not initialized. Call init_jwt_keys() first.".to_string())
+    })
 }
 
 /// Generate an RSA key pair for JWT signing

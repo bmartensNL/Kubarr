@@ -7,8 +7,8 @@ use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::middleware::permissions::{Authorized, LogsView};
 use crate::error::{AppError, Result};
+use crate::middleware::permissions::{Authorized, LogsView};
 use crate::state::AppState;
 
 // VictoriaLogs service URL inside the cluster
@@ -205,9 +205,7 @@ async fn get_raw_pod_logs(
 // ============== VictoriaLogs Endpoints ==============
 
 /// Get all namespaces that have logs in VictoriaLogs
-async fn get_vlogs_namespaces(
-    _auth: Authorized<LogsView>,
-) -> Result<Json<Vec<String>>> {
+async fn get_vlogs_namespaces(_auth: Authorized<LogsView>) -> Result<Json<Vec<String>>> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
@@ -220,7 +218,9 @@ async fn get_vlogs_namespaces(
         .query(&[("query", "*"), ("field", "namespace"), ("limit", "1000")])
         .send()
         .await
-        .map_err(|e| AppError::ServiceUnavailable(format!("Failed to connect to VictoriaLogs: {}", e)))?;
+        .map_err(|e| {
+            AppError::ServiceUnavailable(format!("Failed to connect to VictoriaLogs: {}", e))
+        })?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -251,9 +251,7 @@ async fn get_vlogs_namespaces(
 }
 
 /// Get all available labels (field names) from VictoriaLogs
-async fn get_vlogs_labels(
-    _auth: Authorized<LogsView>,
-) -> Result<Json<Vec<String>>> {
+async fn get_vlogs_labels(_auth: Authorized<LogsView>) -> Result<Json<Vec<String>>> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
@@ -265,7 +263,9 @@ async fn get_vlogs_labels(
         .query(&[("query", "*"), ("limit", "1000")])
         .send()
         .await
-        .map_err(|e| AppError::ServiceUnavailable(format!("Failed to connect to VictoriaLogs: {}", e)))?;
+        .map_err(|e| {
+            AppError::ServiceUnavailable(format!("Failed to connect to VictoriaLogs: {}", e))
+        })?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -310,7 +310,9 @@ async fn get_vlogs_label_values(
         .query(&[("query", "*"), ("field", label.as_str()), ("limit", "1000")])
         .send()
         .await
-        .map_err(|e| AppError::ServiceUnavailable(format!("Failed to connect to VictoriaLogs: {}", e)))?;
+        .map_err(|e| {
+            AppError::ServiceUnavailable(format!("Failed to connect to VictoriaLogs: {}", e))
+        })?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -352,9 +354,7 @@ async fn query_vlogs(
 
     // Default to last hour if no time range specified
     let now = Utc::now();
-    let end = params
-        .end
-        .unwrap_or_else(|| now.to_rfc3339());
+    let end = params.end.unwrap_or_else(|| now.to_rfc3339());
     let start = params.start.unwrap_or_else(|| {
         let start_time = now - Duration::hours(1);
         start_time.to_rfc3339()
@@ -373,7 +373,9 @@ async fn query_vlogs(
         ])
         .send()
         .await
-        .map_err(|e| AppError::ServiceUnavailable(format!("Failed to connect to VictoriaLogs: {}", e)))?;
+        .map_err(|e| {
+            AppError::ServiceUnavailable(format!("Failed to connect to VictoriaLogs: {}", e))
+        })?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -424,10 +426,7 @@ async fn query_vlogs(
                 .unwrap_or("")
                 .to_string();
 
-            let raw_msg = log_entry
-                .get("_msg")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let raw_msg = log_entry.get("_msg").and_then(|v| v.as_str()).unwrap_or("");
 
             // Parse the log message - handle different formats:
             // 1. key_value format: log="actual message"
@@ -437,7 +436,7 @@ async fn query_vlogs(
                 // key_value format: log="message" or log=message
                 let content = &raw_msg[4..];
                 if content.starts_with('"') && content.ends_with('"') && content.len() > 1 {
-                    content[1..content.len()-1].to_string()
+                    content[1..content.len() - 1].to_string()
                 } else {
                     content.to_string()
                 }
@@ -500,7 +499,7 @@ fn convert_loki_to_logsql(query: &str) -> String {
 
     // Handle Loki-style label matchers: {label="value"}
     if query.starts_with('{') && query.ends_with('}') {
-        let inner = &query[1..query.len()-1];
+        let inner = &query[1..query.len() - 1];
 
         // Parse label matchers
         let mut logsql_parts = Vec::new();
@@ -513,15 +512,15 @@ fn convert_loki_to_logsql(query: &str) -> String {
             // Handle different operators
             if let Some(pos) = part.find("=~") {
                 let label = part[..pos].trim();
-                let value = part[pos+2..].trim().trim_matches('"');
+                let value = part[pos + 2..].trim().trim_matches('"');
                 logsql_parts.push(format!("{}:~{}", label, value));
             } else if let Some(pos) = part.find("!=") {
                 let label = part[..pos].trim();
-                let value = part[pos+2..].trim().trim_matches('"');
+                let value = part[pos + 2..].trim().trim_matches('"');
                 logsql_parts.push(format!("NOT {}:{}", label, value));
             } else if let Some(pos) = part.find('=') {
                 let label = part[..pos].trim();
-                let value = part[pos+1..].trim().trim_matches('"');
+                let value = part[pos + 1..].trim().trim_matches('"');
                 logsql_parts.push(format!("{}:{}", label, value));
             }
         }

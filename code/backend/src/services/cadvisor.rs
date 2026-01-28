@@ -67,7 +67,10 @@ pub async fn fetch_cadvisor_metrics(client: &Client) -> Vec<ContainerNetworkMetr
                 all_metrics.extend(metrics);
             }
             Err(e) => {
-                warn!("Failed to fetch cAdvisor metrics from node {}: {}", node_name, e);
+                warn!(
+                    "Failed to fetch cAdvisor metrics from node {}: {}",
+                    node_name, e
+                );
             }
         }
     }
@@ -111,12 +114,14 @@ fn parse_prometheus_metrics(text: &str) -> Vec<ContainerNetworkMetrics> {
                 metric.interface.clone(),
             );
 
-            let entry = metrics_map.entry(key).or_insert_with(|| ContainerNetworkMetrics {
-                namespace: metric.namespace.clone(),
-                pod: metric.pod.clone(),
-                interface: metric.interface.clone(),
-                ..Default::default()
-            });
+            let entry = metrics_map
+                .entry(key)
+                .or_insert_with(|| ContainerNetworkMetrics {
+                    namespace: metric.namespace.clone(),
+                    pod: metric.pod.clone(),
+                    interface: metric.interface.clone(),
+                    ..Default::default()
+                });
 
             // Update the specific metric value
             match metric.metric_type.as_str() {
@@ -298,8 +303,7 @@ container_network_receive_bytes_total{interface="lo",namespace="kubarr",pod="bac
 
     #[test]
     fn test_parse_scientific_notation() {
-        let input =
-            r#"container_network_receive_bytes_total{interface="eth0",namespace="test",pod="pod1"} 1.234567e+06"#;
+        let input = r#"container_network_receive_bytes_total{interface="eth0",namespace="test",pod="pod1"} 1.234567e+06"#;
         let metrics = parse_prometheus_metrics(input);
         assert_eq!(metrics.len(), 1);
         assert_eq!(metrics[0].receive_bytes_total, 1234567);

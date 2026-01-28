@@ -9,11 +9,11 @@ use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, ModelTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 
-use crate::middleware::permissions::{Authenticated, Authorized, SettingsView, SettingsManage};
 use crate::config::CONFIG;
+use crate::error::{AppError, Result};
+use crate::middleware::permissions::{Authenticated, Authorized, SettingsManage, SettingsView};
 use crate::models::prelude::*;
 use crate::models::{oauth_account, oauth_provider, user};
-use crate::error::{AppError, Result};
 use crate::services::{create_access_token, generate_random_string, hash_password};
 use crate::state::AppState;
 
@@ -24,7 +24,10 @@ pub fn oauth_routes(state: AppState) -> Router {
         .route("/available", get(list_available_providers))
         // Admin: Provider configuration
         .route("/providers", get(list_providers))
-        .route("/providers/:provider", get(get_provider).put(update_provider))
+        .route(
+            "/providers/:provider",
+            get(get_provider).put(update_provider),
+        )
         // OAuth flow
         .route("/:provider/login", get(oauth_login))
         .route("/:provider/callback", get(oauth_callback))
@@ -255,7 +258,10 @@ async fn oauth_login(
         }
     };
 
-    let redirect_uri = format!("{}/api/oauth/{}/callback", CONFIG.oauth2_issuer_url, provider);
+    let redirect_uri = format!(
+        "{}/api/oauth/{}/callback",
+        CONFIG.oauth2_issuer_url, provider
+    );
 
     let url = format!(
         "{}?client_id={}&redirect_uri={}&response_type=code&scope={}&state={}",
@@ -278,7 +284,9 @@ async fn oauth_callback(
     // Check for errors
     if let Some(error) = query.error {
         let msg = query.error_description.unwrap_or(error);
-        return Ok(Redirect::to(&format!("/login?error={}", urlencoding::encode(&msg))).into_response());
+        return Ok(
+            Redirect::to(&format!("/login?error={}", urlencoding::encode(&msg))).into_response(),
+        );
     }
 
     let code = query
@@ -311,7 +319,10 @@ async fn oauth_callback(
         .client_secret
         .ok_or_else(|| AppError::Internal("Provider client_secret not configured".to_string()))?;
 
-    let redirect_uri = format!("{}/api/oauth/{}/callback", CONFIG.oauth2_issuer_url, provider);
+    let redirect_uri = format!(
+        "{}/api/oauth/{}/callback",
+        CONFIG.oauth2_issuer_url, provider
+    );
 
     // Exchange code for tokens
     let (token_url, userinfo_url) = match provider.as_str() {
@@ -413,7 +424,10 @@ async fn oauth_callback(
             .ok_or_else(|| AppError::BadRequest("Invalid linking state".to_string()))?;
 
         if existing_oauth.is_some() {
-            return Ok(Redirect::to("/account?error=This%20account%20is%20already%20linked%20to%20another%20user").into_response());
+            return Ok(Redirect::to(
+                "/account?error=This%20account%20is%20already%20linked%20to%20another%20user",
+            )
+            .into_response());
         }
 
         // Create the link
@@ -433,7 +447,9 @@ async fn oauth_callback(
         };
         new_oauth.insert(&state.db).await?;
 
-        return Ok(Redirect::to("/account?success=Account%20linked%20successfully").into_response());
+        return Ok(
+            Redirect::to("/account?success=Account%20linked%20successfully").into_response(),
+        );
     }
 
     // Login flow
@@ -533,8 +549,8 @@ async fn oauth_callback(
         }
     };
 
-    let found_user =
-        found_user.ok_or_else(|| AppError::Internal("Failed to find or create user".to_string()))?;
+    let found_user = found_user
+        .ok_or_else(|| AppError::Internal("Failed to find or create user".to_string()))?;
 
     // Check if user is active and approved
     if !found_user.is_active {
@@ -610,9 +626,7 @@ async fn unlink_account(
         .filter(oauth_account::Column::Provider.eq(&provider))
         .one(&state.db)
         .await?
-        .ok_or_else(|| {
-            AppError::NotFound(format!("No {} account linked", provider))
-        })?;
+        .ok_or_else(|| AppError::NotFound(format!("No {} account linked", provider)))?;
 
     account.delete(&state.db).await?;
 

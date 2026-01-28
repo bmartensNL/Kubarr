@@ -34,7 +34,10 @@ pub fn setup_routes(state: AppState) -> Router {
         // Bootstrap endpoints
         .route("/bootstrap/start", post(start_bootstrap))
         .route("/bootstrap/status", get(get_bootstrap_status))
-        .route("/bootstrap/retry/:component", post(retry_bootstrap_component))
+        .route(
+            "/bootstrap/retry/:component",
+            post(retry_bootstrap_component),
+        )
         .route("/bootstrap/ws", get(bootstrap_ws_handler))
         // Server config endpoints
         .route("/server", get(get_server_config).post(configure_server))
@@ -149,7 +152,9 @@ async fn initialize_setup(
     // Get server config for storage path
     let server_config = bootstrap::get_server_config(&state.db)
         .await?
-        .ok_or_else(|| AppError::BadRequest("Server must be configured before creating admin user".to_string()))?;
+        .ok_or_else(|| {
+            AppError::BadRequest("Server must be configured before creating admin user".to_string())
+        })?;
 
     // Hash the password
     let hashed_password = crate::services::security::hash_password(&request.admin_password)?;
@@ -266,7 +271,9 @@ struct ValidatePathResponse {
 }
 
 /// Validate a storage path
-async fn validate_path(Query(query): Query<ValidatePathQuery>) -> Result<Json<ValidatePathResponse>> {
+async fn validate_path(
+    Query(query): Query<ValidatePathQuery>,
+) -> Result<Json<ValidatePathResponse>> {
     let path = Path::new(&query.path);
 
     // Check if path exists
@@ -576,7 +583,8 @@ async fn configure_server(
     }
 
     // Save server config
-    let config = bootstrap::save_server_config(&state.db, &request.name, &request.storage_path).await?;
+    let config =
+        bootstrap::save_server_config(&state.db, &request.name, &request.storage_path).await?;
 
     Ok(Json(ServerConfigResponse {
         name: config.name,

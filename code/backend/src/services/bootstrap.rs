@@ -47,11 +47,16 @@ pub enum BootstrapEvent {
 }
 
 /// Bootstrap components to install in order
+/// PostgreSQL is first because it's the database - already deployed by Helm chart
 pub const BOOTSTRAP_COMPONENTS: &[(&str, &str)] = &[
+    ("postgresql", "PostgreSQL"),
     ("victoriametrics", "VictoriaMetrics"),
     ("victorialogs", "VictoriaLogs"),
     ("fluent-bit", "Fluent Bit"),
 ];
+
+/// Components that are pre-deployed by Helm chart (just need health check, not install)
+const PREDEPLOYED_COMPONENTS: &[&str] = &["postgresql"];
 
 /// Bootstrap service for installing system components
 pub struct BootstrapService {
@@ -187,13 +192,135 @@ impl BootstrapService {
         Ok(())
     }
 
+    /// Check if PostgreSQL (CloudNativePG) is healthy
+    async fn check_postgresql_health(&self) -> Result<bool> {
+        let k8s_guard = self.k8s.read().await;
+        let k8s = k8s_guard.as_ref().ok_or_else(|| {
+            AppError::ServiceUnavailable("Kubernetes client not available".to_string())
+        })?;
+
+        // Check if the kubarr-db-1 pod is running and ready
+        match k8s.get_pod("kubarr", "kubarr-db-1").await {
+            Ok(pod) => {
+                if let Some(status) = pod.status {
+                    if let Some(phase) = status.phase {
+                        if phase == "Running" {
+                            // Check container ready status
+                            if let Some(conditions) = status.conditions {
+                                for condition in conditions {
+                                    if condition.type_ == "Ready" && condition.status == "True" {
+                                        return Ok(true);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(false)
+            }
+            Err(_) => Ok(false),
+        }
+    }
+
+    /// Check health for a pre-deployed component
+    async fn check_predeployed_component(&self, component: &str, display_name: &str) -> Result<()> {
+        tracing::info!("Checking pre-deployed component: {}", component);
+
+        // Update status to installing (checking)
+        self.update_status(
+            component,
+            "installing",
+            Some(&format!("Checking {} status...", display_name)),
+            None,
+        )
+        .await?;
+        self.broadcast(BootstrapEvent::ComponentStarted {
+            component: component.to_string(),
+            message: format!("Checking {} status...", display_name),
+        });
+
+        // Wait for component to become healthy (with timeout)
+        let max_attempts = 60; // 5 minutes with 5-second intervals
+        let mut attempts = 0;
+        let mut healthy = false;
+
+        while attempts < max_attempts {
+            // Check health based on component type
+            let is_healthy = match component {
+                "postgresql" => self.check_postgresql_health().await.unwrap_or(false),
+                _ => false,
+            };
+
+            if is_healthy {
+                healthy = true;
+                break;
+            }
+
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            attempts += 1;
+
+            // Broadcast progress
+            let progress = (attempts * 100 / max_attempts) as u8;
+            self.broadcast(BootstrapEvent::ComponentProgress {
+                component: component.to_string(),
+                message: format!(
+                    "Waiting for {} to become ready... ({}/{})",
+                    display_name, attempts, max_attempts
+                ),
+                progress: progress.min(99),
+            });
+        }
+
+        if healthy {
+            self.update_status(
+                component,
+                "healthy",
+                Some(&format!("{} is running", display_name)),
+                None,
+            )
+            .await?;
+            self.broadcast(BootstrapEvent::ComponentCompleted {
+                component: component.to_string(),
+                message: format!("{} is ready", display_name),
+            });
+            Ok(())
+        } else {
+            let error_msg = format!("{} did not become healthy within timeout", display_name);
+            self.update_status(
+                component,
+                "failed",
+                Some("Health check timeout"),
+                Some(&error_msg),
+            )
+            .await?;
+            self.broadcast(BootstrapEvent::ComponentFailed {
+                component: component.to_string(),
+                message: format!("{} health check failed", display_name),
+                error: error_msg.clone(),
+            });
+            Err(AppError::Internal(error_msg))
+        }
+    }
+
     /// Install a single component using Helm
     async fn install_component(&self, component: &str, display_name: &str) -> Result<()> {
+        // Check if this is a pre-deployed component (just need health check)
+        if PREDEPLOYED_COMPONENTS.contains(&component) {
+            return self
+                .check_predeployed_component(component, display_name)
+                .await;
+        }
+
         tracing::info!("Installing bootstrap component: {}", component);
 
         // Update status to installing
-        self.update_status(component, "installing", Some(&format!("Installing {}...", display_name)), None)
-            .await?;
+        self.update_status(
+            component,
+            "installing",
+            Some(&format!("Installing {}...", display_name)),
+            None,
+        )
+        .await?;
         self.broadcast(BootstrapEvent::ComponentStarted {
             component: component.to_string(),
             message: format!("Installing {}...", display_name),
@@ -227,8 +354,13 @@ impl BootstrapService {
             Err(e) => {
                 let error_msg = format!("Failed to deploy {}: {}", display_name, e);
                 tracing::error!("{}", error_msg);
-                self.update_status(component, "failed", Some("Installation failed"), Some(&error_msg))
-                    .await?;
+                self.update_status(
+                    component,
+                    "failed",
+                    Some("Installation failed"),
+                    Some(&error_msg),
+                )
+                .await?;
                 self.broadcast(BootstrapEvent::ComponentFailed {
                     component: component.to_string(),
                     message: format!("{} installation failed", display_name),
@@ -257,7 +389,11 @@ impl BootstrapService {
                 let dm = DeploymentManager::new(k8s, &catalog_guard);
 
                 if let Ok(health) = dm.check_namespace_health(component).await {
-                    if health.get("healthy").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    if health
+                        .get("healthy")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false)
+                    {
                         healthy = true;
                         break;
                     }
@@ -277,8 +413,13 @@ impl BootstrapService {
         }
 
         if healthy {
-            self.update_status(component, "healthy", Some(&format!("{} is running", display_name)), None)
-                .await?;
+            self.update_status(
+                component,
+                "healthy",
+                Some(&format!("{} is running", display_name)),
+                None,
+            )
+            .await?;
             self.broadcast(BootstrapEvent::ComponentCompleted {
                 component: component.to_string(),
                 message: format!("{} installed successfully", display_name),
@@ -286,8 +427,13 @@ impl BootstrapService {
             Ok(())
         } else {
             let error_msg = format!("{} did not become healthy within timeout", display_name);
-            self.update_status(component, "failed", Some("Health check timeout"), Some(&error_msg))
-                .await?;
+            self.update_status(
+                component,
+                "failed",
+                Some("Health check timeout"),
+                Some(&error_msg),
+            )
+            .await?;
             self.broadcast(BootstrapEvent::ComponentFailed {
                 component: component.to_string(),
                 message: format!("{} health check failed", display_name),
@@ -360,10 +506,15 @@ impl BootstrapService {
             .ok_or_else(|| AppError::NotFound(format!("Unknown component: {}", component)))?;
 
         // Reset status to pending
-        self.update_status(component, "pending", Some("Retrying installation..."), None)
+        let msg = if PREDEPLOYED_COMPONENTS.contains(&component) {
+            "Retrying health check..."
+        } else {
+            "Retrying installation..."
+        };
+        self.update_status(component, "pending", Some(msg), None)
             .await?;
 
-        // Install the component
+        // Install/check the component
         self.install_component(comp.0, comp.1).await
     }
 }

@@ -9,6 +9,7 @@ pub mod notification;
 pub mod proxy;
 pub mod scheduler;
 pub mod security;
+pub mod vpn;
 
 pub use audit::*;
 pub use bootstrap::BootstrapService;
@@ -20,3 +21,4 @@ pub use network_broadcaster::start_network_broadcaster;
 pub use notification::NotificationService;
 pub use proxy::*;
 pub use security::*;
+pub use vpn::*;

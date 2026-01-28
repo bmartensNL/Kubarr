@@ -9,11 +9,13 @@ use chrono::{Duration, Utc};
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 
-use crate::middleware::auth::SESSION_COOKIE_NAME;
 use crate::config::CONFIG;
+use crate::error::{AppError, Result};
+use crate::middleware::auth::{
+    ACTIVE_SESSION_COOKIE, MAX_SESSIONS, SESSION_COOKIE_BASE, SESSION_COOKIE_NAME,
+};
 use crate::models::prelude::*;
 use crate::models::{session, user};
-use crate::error::{AppError, Result};
 use crate::services::{create_session_token, decode_session_token, verify_password, verify_totp};
 use crate::state::AppState;
 
@@ -24,6 +26,8 @@ pub fn auth_routes(state: AppState) -> Router {
         .route("/logout", post(logout))
         .route("/sessions", get(list_sessions))
         .route("/sessions/:session_id", delete(revoke_session))
+        .route("/switch/:slot", post(switch_session))
+        .route("/accounts", get(list_accounts))
         .with_state(state)
 }
 
@@ -43,6 +47,16 @@ pub struct LoginResponse {
     pub user_id: i64,
     pub username: String,
     pub email: String,
+    pub session_slot: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AccountInfo {
+    pub slot: usize,
+    pub user_id: i64,
+    pub username: String,
+    pub email: String,
+    pub is_active: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -59,7 +73,39 @@ pub struct SessionInfo {
 // Session Cookie Helpers
 // ============================================================================
 
-/// Create a session cookie with the given token
+/// Create an indexed session cookie with the given token
+fn create_session_cookie_for_slot(slot: usize, token: &str, secure: bool) -> HeaderValue {
+    let cookie = format!(
+        "{}_{}={}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800{}",
+        SESSION_COOKIE_BASE,
+        slot,
+        token,
+        if secure { "; Secure" } else { "" }
+    );
+    HeaderValue::from_str(&cookie).unwrap_or_else(|_| HeaderValue::from_static(""))
+}
+
+/// Create the active session cookie
+fn create_active_session_cookie(slot: usize, secure: bool) -> HeaderValue {
+    let cookie = format!(
+        "{}={}; SameSite=Lax; Path=/; Max-Age=604800{}",
+        ACTIVE_SESSION_COOKIE,
+        slot,
+        if secure { "; Secure" } else { "" }
+    );
+    HeaderValue::from_str(&cookie).unwrap_or_else(|_| HeaderValue::from_static(""))
+}
+
+/// Create a cookie that clears an indexed session
+fn clear_session_cookie_for_slot(slot: usize) -> HeaderValue {
+    let cookie = format!(
+        "{}_{}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0",
+        SESSION_COOKIE_BASE, slot
+    );
+    HeaderValue::from_str(&cookie).unwrap_or_else(|_| HeaderValue::from_static(""))
+}
+
+/// Legacy: Create a session cookie with the given token (for backwards compatibility)
 fn create_session_cookie(token: &str, secure: bool) -> HeaderValue {
     let cookie = format!(
         "{}={}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800{}",
@@ -77,6 +123,65 @@ fn clear_session_cookie() -> HeaderValue {
         SESSION_COOKIE_NAME
     );
     HeaderValue::from_str(&cookie).unwrap_or_else(|_| HeaderValue::from_static(""))
+}
+
+/// Parse existing session cookies from headers to find used slots and their user IDs
+async fn get_existing_sessions(state: &AppState, headers: &HeaderMap) -> Vec<(usize, i64, String)> {
+    let mut sessions = Vec::new();
+
+    let cookies = match headers.get(header::COOKIE) {
+        Some(c) => c,
+        None => return sessions,
+    };
+    let cookie_str = match cookies.to_str() {
+        Ok(s) => s,
+        Err(_) => return sessions,
+    };
+
+    for i in 0..MAX_SESSIONS {
+        let prefix = format!("{}_{}=", SESSION_COOKIE_BASE, i);
+        for cookie in cookie_str.split(';') {
+            let cookie = cookie.trim();
+            if let Some(token) = cookie.strip_prefix(&prefix) {
+                // Decode token to get session ID, then look up user
+                if let Ok(claims) = decode_session_token(token) {
+                    if let Ok(Some(session)) = Session::find_by_id(&claims.sid).one(&state.db).await
+                    {
+                        if !session.is_revoked && session.expires_at > Utc::now() {
+                            if let Ok(Some(user)) =
+                                User::find_by_id(session.user_id).one(&state.db).await
+                            {
+                                sessions.push((i, user.id, user.username.clone()));
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    sessions
+}
+
+/// Find the next available session slot
+fn find_available_slot(existing: &[(usize, i64, String)], user_id: i64) -> usize {
+    // If user already has a session, return that slot
+    for (slot, uid, _) in existing {
+        if *uid == user_id {
+            return *slot;
+        }
+    }
+    // Find first unused slot
+    let used_slots: std::collections::HashSet<usize> =
+        existing.iter().map(|(s, _, _)| *s).collect();
+    for i in 0..MAX_SESSIONS {
+        if !used_slots.contains(&i) {
+            return i;
+        }
+    }
+    // All slots used, reuse slot 0
+    0
 }
 
 // ============================================================================
@@ -162,11 +267,16 @@ async fn login(
     // Create minimal session token (JWT containing only session ID)
     let session_token = create_session_token(&session_id)?;
 
+    // Find available slot for this session
+    let existing_sessions = get_existing_sessions(&state, &headers).await;
+    let slot = find_available_slot(&existing_sessions, found_user.id);
+
     // Build response with cookie
     let response = Json(LoginResponse {
         user_id: found_user.id,
         username: found_user.username.clone(),
         email: found_user.email.clone(),
+        session_slot: slot,
     });
 
     // Determine if we should set Secure flag (check if running behind HTTPS)
@@ -175,21 +285,32 @@ async fn login(
     tracing::info!(
         user_id = found_user.id,
         username = found_user.username,
-        "User logged in, session created"
+        slot = slot,
+        "User logged in, session created in slot {}",
+        slot
     );
 
-    Ok((
-        [(header::SET_COOKIE, create_session_cookie(&session_token, secure))],
-        response,
-    )
-        .into_response())
+    // Set both the indexed session cookie and the active session cookie
+    let mut response_headers = axum::http::HeaderMap::new();
+    response_headers.insert(
+        header::SET_COOKIE,
+        create_session_cookie_for_slot(slot, &session_token, secure),
+    );
+    response_headers.append(
+        header::SET_COOKIE,
+        create_active_session_cookie(slot, secure),
+    );
+    // Also set legacy cookie for backwards compatibility
+    response_headers.append(
+        header::SET_COOKIE,
+        create_session_cookie(&session_token, secure),
+    );
+
+    Ok((response_headers, response).into_response())
 }
 
 /// Logout - revokes the session and clears the cookie
-async fn logout(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> Result<Response> {
+async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Result<Response> {
     // Try to get and revoke the current session
     if let Some(token) = extract_session_token(&headers) {
         if let Ok(claims) = decode_session_token(&token) {
@@ -274,12 +395,16 @@ async fn revoke_session(
 
     // Verify it belongs to the same user
     if target_session.user_id != current_session.user_id {
-        return Err(AppError::Forbidden("Cannot revoke another user's session".to_string()));
+        return Err(AppError::Forbidden(
+            "Cannot revoke another user's session".to_string(),
+        ));
     }
 
     // Don't allow revoking current session (use logout instead)
     if target_session.id == claims.sid {
-        return Err(AppError::BadRequest("Cannot revoke current session. Use logout instead.".to_string()));
+        return Err(AppError::BadRequest(
+            "Cannot revoke current session. Use logout instead.".to_string(),
+        ));
     }
 
     // Delete the session
@@ -295,6 +420,28 @@ fn extract_session_token(headers: &HeaderMap) -> Option<String> {
     let cookies = headers.get(header::COOKIE)?;
     let cookie_str = cookies.to_str().ok()?;
 
+    // First try to find active slot
+    let mut active_slot: Option<usize> = None;
+    for cookie in cookie_str.split(';') {
+        let cookie = cookie.trim();
+        if let Some(value) = cookie.strip_prefix(&format!("{}=", ACTIVE_SESSION_COOKIE)) {
+            active_slot = value.parse().ok();
+            break;
+        }
+    }
+
+    // Look for indexed session cookie
+    if let Some(slot) = active_slot {
+        let prefix = format!("{}_{}=", SESSION_COOKIE_BASE, slot);
+        for cookie in cookie_str.split(';') {
+            let cookie = cookie.trim();
+            if let Some(value) = cookie.strip_prefix(&prefix) {
+                return Some(value.to_string());
+            }
+        }
+    }
+
+    // Fallback to legacy cookie
     for cookie in cookie_str.split(';') {
         let cookie = cookie.trim();
         if let Some(value) = cookie.strip_prefix(&format!("{}=", SESSION_COOKIE_NAME)) {
@@ -302,4 +449,78 @@ fn extract_session_token(headers: &HeaderMap) -> Option<String> {
         }
     }
     None
+}
+
+/// Switch to a different session slot
+async fn switch_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(slot): Path<usize>,
+) -> Result<Response> {
+    if slot >= MAX_SESSIONS {
+        return Err(AppError::BadRequest(format!(
+            "Invalid session slot. Max is {}",
+            MAX_SESSIONS - 1
+        )));
+    }
+
+    // Verify that the requested slot has a valid session
+    let existing_sessions = get_existing_sessions(&state, &headers).await;
+    let slot_exists = existing_sessions.iter().any(|(s, _, _)| *s == slot);
+
+    if !slot_exists {
+        return Err(AppError::NotFound("No session in that slot".to_string()));
+    }
+
+    let secure = CONFIG.oauth2_issuer_url.starts_with("https://");
+
+    tracing::info!(slot = slot, "User switched to session slot {}", slot);
+
+    Ok((
+        [(
+            header::SET_COOKIE,
+            create_active_session_cookie(slot, secure),
+        )],
+        Json(serde_json::json!({"message": "Switched session", "slot": slot})),
+    )
+        .into_response())
+}
+
+/// List all signed-in accounts
+async fn list_accounts(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<AccountInfo>>> {
+    let existing_sessions = get_existing_sessions(&state, &headers).await;
+
+    // Get active slot
+    let cookies = headers.get(header::COOKIE);
+    let active_slot: usize = cookies
+        .and_then(|c| c.to_str().ok())
+        .and_then(|s| {
+            for cookie in s.split(';') {
+                let cookie = cookie.trim();
+                if let Some(value) = cookie.strip_prefix(&format!("{}=", ACTIVE_SESSION_COOKIE)) {
+                    return value.parse().ok();
+                }
+            }
+            None
+        })
+        .unwrap_or(0);
+
+    let mut accounts = Vec::new();
+    for (slot, user_id, username) in &existing_sessions {
+        // Get full user info
+        if let Ok(Some(user)) = User::find_by_id(*user_id).one(&state.db).await {
+            accounts.push(AccountInfo {
+                slot: *slot,
+                user_id: *user_id,
+                username: username.clone(),
+                email: user.email,
+                is_active: *slot == active_slot,
+            });
+        }
+    }
+
+    Ok(Json(accounts))
 }

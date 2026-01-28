@@ -14,7 +14,7 @@ impl MigrationTrait for Migration {
                     .if_not_exists()
                     .col(
                         ColumnDef::new(BootstrapStatus::Id)
-                            .integer()
+                            .big_integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
@@ -52,16 +52,12 @@ impl MigrationTrait for Migration {
                     .if_not_exists()
                     .col(
                         ColumnDef::new(ServerConfig::Id)
-                            .integer()
+                            .big_integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(
-                        ColumnDef::new(ServerConfig::Name)
-                            .string()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(ServerConfig::Name).string().not_null())
                     .col(
                         ColumnDef::new(ServerConfig::StoragePath)
                             .string()

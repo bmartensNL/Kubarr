@@ -14,6 +14,7 @@ pub mod settings;
 pub mod setup;
 pub mod storage;
 pub mod users;
+pub mod vpn;
 
 use axum::{extract::State, middleware as axum_middleware, Router};
 use sea_orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationTrait};
@@ -29,7 +30,10 @@ pub fn create_router(state: AppState) -> Router {
     // Health/version routes that need state (separate so we can apply state properly)
     let health_routes = Router::new()
         .route("/api/health", axum::routing::get(health_check))
-        .route("/api/system/health", axum::routing::get(health_check_detailed))
+        .route(
+            "/api/system/health",
+            axum::routing::get(health_check_detailed),
+        )
         .route("/api/system/version", axum::routing::get(get_version))
         .with_state(state.clone());
 
@@ -39,12 +43,9 @@ pub fn create_router(state: AppState) -> Router {
         .nest("/api/setup", setup::setup_routes(state.clone()));
 
     // Protected API routes (auth required)
-    let protected_api_routes = Router::new()
-        .nest("/api", api_routes(state.clone()))
-        .layer(axum_middleware::from_fn_with_state(
-            state.clone(),
-            require_auth,
-        ));
+    let protected_api_routes = Router::new().nest("/api", api_routes(state.clone())).layer(
+        axum_middleware::from_fn_with_state(state.clone(), require_auth),
+    );
 
     // Note: App proxy routes (e.g., /qbittorrent/) are handled by the frontend fallback
     // which checks if the path is an installed app and proxies to it if authenticated
@@ -74,8 +75,12 @@ fn api_routes(state: AppState) -> Router {
         .nest("/storage", storage::storage_routes(state.clone()))
         .nest("/logs", logs::logs_routes(state.clone()))
         .nest("/audit", audit::audit_routes(state.clone()))
-        .nest("/notifications", notifications::notifications_routes(state.clone()))
+        .nest(
+            "/notifications",
+            notifications::notifications_routes(state.clone()),
+        )
         .nest("/oauth", oauth::oauth_routes(state.clone()))
+        .nest("/vpn", vpn::vpn_routes(state.clone()))
 }
 
 /// Simple health check endpoint (for k8s probes)
@@ -84,9 +89,7 @@ async fn health_check() -> &'static str {
 }
 
 /// Detailed health check endpoint with setup status
-async fn health_check_detailed(
-    State(state): State<AppState>,
-) -> axum::Json<serde_json::Value> {
+async fn health_check_detailed(State(state): State<AppState>) -> axum::Json<serde_json::Value> {
     // Check if any user with admin role exists (setup complete)
     let admin_exists = UserRole::find()
         .join(JoinType::InnerJoin, user_role::Relation::Role.def())

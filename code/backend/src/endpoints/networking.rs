@@ -17,7 +17,6 @@ use crate::middleware::permissions::{Authorized, NetworkingView};
 use crate::services::cadvisor::{aggregate_by_namespace, fetch_cadvisor_metrics};
 use crate::state::AppState;
 
-
 /// Create networking routes
 pub fn networking_routes(state: AppState) -> Router {
     Router::new()
@@ -397,14 +396,18 @@ async fn discover_service_connections(
                                             service_to_namespace.get(&backend.name)
                                         {
                                             if target_ns != ns {
-                                                let backend_edge_key = (ns.clone(), target_ns.clone());
+                                                let backend_edge_key =
+                                                    (ns.clone(), target_ns.clone());
                                                 if !seen_edges.contains(&backend_edge_key) {
                                                     seen_edges.insert(backend_edge_key);
                                                     edges.push(NetworkEdge {
                                                         source: ns.clone(),
                                                         target: target_ns.clone(),
                                                         edge_type: "ingress-backend".to_string(),
-                                                        port: backend.port.as_ref().and_then(|p| p.number),
+                                                        port: backend
+                                                            .port
+                                                            .as_ref()
+                                                            .and_then(|p| p.number),
                                                         protocol: Some("HTTP".to_string()),
                                                         label: String::new(),
                                                     });
@@ -527,22 +530,30 @@ async fn get_network_stats(
         }
 
         // Read rates from cache (updated by background broadcaster)
-        let (rx_bytes, tx_bytes, rx_packets, tx_packets, rx_errors, tx_errors, rx_dropped, tx_dropped) =
-            if let Some(cached) = state.network_metrics_cache.get(namespace).await {
-                let r = &cached.last_rates;
-                (
-                    r.rx_bytes_per_sec,
-                    r.tx_bytes_per_sec,
-                    r.rx_packets_per_sec,
-                    r.tx_packets_per_sec,
-                    r.rx_errors_per_sec,
-                    r.tx_errors_per_sec,
-                    r.rx_dropped_per_sec,
-                    r.tx_dropped_per_sec,
-                )
-            } else {
-                (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-            };
+        let (
+            rx_bytes,
+            tx_bytes,
+            rx_packets,
+            tx_packets,
+            rx_errors,
+            tx_errors,
+            rx_dropped,
+            tx_dropped,
+        ) = if let Some(cached) = state.network_metrics_cache.get(namespace).await {
+            let r = &cached.last_rates;
+            (
+                r.rx_bytes_per_sec,
+                r.tx_bytes_per_sec,
+                r.rx_packets_per_sec,
+                r.tx_packets_per_sec,
+                r.rx_errors_per_sec,
+                r.tx_errors_per_sec,
+                r.rx_dropped_per_sec,
+                r.tx_dropped_per_sec,
+            )
+        } else {
+            (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        };
 
         stats.push(NetworkStats {
             namespace: namespace.clone(),
@@ -569,10 +580,7 @@ async fn get_network_stats(
 // ============================================================================
 
 /// WebSocket upgrade handler for real-time network metrics
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
     tracing::info!("WebSocket upgrade request received");
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
@@ -584,7 +592,10 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     // Subscribe to the broadcast channel
     let mut rx = state.network_metrics_tx.subscribe();
 
-    tracing::info!("New WebSocket client connected for network metrics, subscribers: {}", state.network_metrics_tx.receiver_count());
+    tracing::info!(
+        "New WebSocket client connected for network metrics, subscribers: {}",
+        state.network_metrics_tx.receiver_count()
+    );
 
     // Spawn task to forward broadcast messages to WebSocket
     let send_task = tokio::spawn(async move {

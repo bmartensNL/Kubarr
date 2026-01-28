@@ -9,16 +9,19 @@ pub use messagebird::MessageBirdProvider;
 pub use telegram::TelegramProvider;
 
 use async_trait::async_trait;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect, Set,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use crate::error::{AppError, Result};
 use crate::models::{
     audit_log::AuditAction, notification_channel, notification_event, notification_log,
     user_notification, user_notification_pref,
 };
-use crate::error::{AppError, Result};
 
 /// Notification channel types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -149,9 +152,9 @@ impl NotificationService {
     /// Initialize providers from database configuration
     pub async fn init_providers(&self) -> Result<()> {
         let db_lock = self.db.read().await;
-        let db = db_lock.as_ref().ok_or_else(|| {
-            AppError::Internal("Database not initialized".to_string())
-        })?;
+        let db = db_lock
+            .as_ref()
+            .ok_or_else(|| AppError::Internal("Database not initialized".to_string()))?;
 
         // Load channel configurations
         let channels = notification_channel::Entity::find()
@@ -160,8 +163,8 @@ impl NotificationService {
             .await?;
 
         for channel in channels {
-            let config: serde_json::Value = serde_json::from_str(&channel.config)
-                .unwrap_or(serde_json::json!({}));
+            let config: serde_json::Value =
+                serde_json::from_str(&channel.config).unwrap_or(serde_json::json!({}));
 
             match channel.channel_type.as_str() {
                 "email" => {
@@ -215,7 +218,10 @@ impl NotificationService {
             .await?;
 
         let (enabled, severity) = match event_setting {
-            Some(setting) => (setting.enabled, NotificationSeverity::from_str(&setting.severity)),
+            Some(setting) => (
+                setting.enabled,
+                NotificationSeverity::from_str(&setting.severity),
+            ),
             None => return Ok(()), // Event not configured, skip
         };
 
@@ -229,7 +235,8 @@ impl NotificationService {
 
         // Create in-app notification for all users or specific user
         if let Some(uid) = user_id {
-            self.create_user_notification(db, uid, &title, &body, &event_type, severity).await?;
+            self.create_user_notification(db, uid, &title, &body, &event_type, severity)
+                .await?;
         } else {
             // For system-wide events, notify all admin users
             // (simplified: just log for now, can be extended)
@@ -237,7 +244,8 @@ impl NotificationService {
         }
 
         // Send external notifications
-        self.send_external_notifications(db, user_id, &title, &body, &event_type, severity).await?;
+        self.send_external_notifications(db, user_id, &title, &body, &event_type, severity)
+            .await?;
 
         Ok(())
     }
@@ -295,7 +303,15 @@ impl NotificationService {
                     };
 
                     let result = self.send_to_channel(&pref.channel_type, &message).await;
-                    self.log_notification(db, Some(uid), &pref.channel_type, event_type, destination, &result).await?;
+                    self.log_notification(
+                        db,
+                        Some(uid),
+                        &pref.channel_type,
+                        event_type,
+                        destination,
+                        &result,
+                    )
+                    .await?;
                 }
             }
         }
@@ -304,7 +320,11 @@ impl NotificationService {
     }
 
     /// Send a message to a specific channel
-    async fn send_to_channel(&self, channel_type: &str, message: &NotificationMessage) -> SendResult {
+    async fn send_to_channel(
+        &self,
+        channel_type: &str,
+        message: &NotificationMessage,
+    ) -> SendResult {
         match channel_type {
             "email" => {
                 let email_lock = self.email.read().await;
@@ -348,7 +368,11 @@ impl NotificationService {
             channel_type: Set(channel_type.to_string()),
             event_type: Set(event_type.to_string()),
             recipient: Set(Some(mask_recipient(recipient))),
-            status: Set(if result.success { "sent".to_string() } else { "failed".to_string() }),
+            status: Set(if result.success {
+                "sent".to_string()
+            } else {
+                "failed".to_string()
+            }),
             error_message: Set(result.error.clone()),
             created_at: Set(chrono::Utc::now()),
             ..Default::default()
@@ -390,9 +414,9 @@ impl NotificationService {
     /// Get unread notification count for a user
     pub async fn get_unread_count(&self, user_id: i64) -> Result<u64> {
         let db_lock = self.db.read().await;
-        let db = db_lock.as_ref().ok_or_else(|| {
-            AppError::Internal("Database not initialized".to_string())
-        })?;
+        let db = db_lock
+            .as_ref()
+            .ok_or_else(|| AppError::Internal("Database not initialized".to_string()))?;
 
         let count = user_notification::Entity::find()
             .filter(user_notification::Column::UserId.eq(user_id))
@@ -411,9 +435,9 @@ impl NotificationService {
         offset: u64,
     ) -> Result<Vec<user_notification::Model>> {
         let db_lock = self.db.read().await;
-        let db = db_lock.as_ref().ok_or_else(|| {
-            AppError::Internal("Database not initialized".to_string())
-        })?;
+        let db = db_lock
+            .as_ref()
+            .ok_or_else(|| AppError::Internal("Database not initialized".to_string()))?;
 
         let notifications = user_notification::Entity::find()
             .filter(user_notification::Column::UserId.eq(user_id))
@@ -429,9 +453,9 @@ impl NotificationService {
     /// Mark a notification as read
     pub async fn mark_as_read(&self, notification_id: i64, user_id: i64) -> Result<()> {
         let db_lock = self.db.read().await;
-        let db = db_lock.as_ref().ok_or_else(|| {
-            AppError::Internal("Database not initialized".to_string())
-        })?;
+        let db = db_lock
+            .as_ref()
+            .ok_or_else(|| AppError::Internal("Database not initialized".to_string()))?;
 
         let notification = user_notification::Entity::find_by_id(notification_id)
             .filter(user_notification::Column::UserId.eq(user_id))
@@ -449,14 +473,17 @@ impl NotificationService {
     /// Mark all notifications as read for a user
     pub async fn mark_all_as_read(&self, user_id: i64) -> Result<()> {
         let db_lock = self.db.read().await;
-        let db = db_lock.as_ref().ok_or_else(|| {
-            AppError::Internal("Database not initialized".to_string())
-        })?;
+        let db = db_lock
+            .as_ref()
+            .ok_or_else(|| AppError::Internal("Database not initialized".to_string()))?;
 
         user_notification::Entity::update_many()
             .filter(user_notification::Column::UserId.eq(user_id))
             .filter(user_notification::Column::Read.eq(false))
-            .col_expr(user_notification::Column::Read, sea_orm::sea_query::Expr::value(true))
+            .col_expr(
+                user_notification::Column::Read,
+                sea_orm::sea_query::Expr::value(true),
+            )
             .exec(db)
             .await?;
 
@@ -466,9 +493,9 @@ impl NotificationService {
     /// Delete a notification
     pub async fn delete_notification(&self, notification_id: i64, user_id: i64) -> Result<()> {
         let db_lock = self.db.read().await;
-        let db = db_lock.as_ref().ok_or_else(|| {
-            AppError::Internal("Database not initialized".to_string())
-        })?;
+        let db = db_lock
+            .as_ref()
+            .ok_or_else(|| AppError::Internal("Database not initialized".to_string()))?;
 
         let result = user_notification::Entity::delete_many()
             .filter(user_notification::Column::Id.eq(notification_id))
@@ -523,7 +550,11 @@ fn format_event_title(action: &AuditAction) -> String {
 }
 
 /// Format a human-readable body for an audit event
-fn format_event_body(action: &AuditAction, username: Option<&str>, details: Option<&str>) -> String {
+fn format_event_body(
+    action: &AuditAction,
+    username: Option<&str>,
+    details: Option<&str>,
+) -> String {
     let user = username.unwrap_or("Unknown");
     let detail = details.unwrap_or("");
 
@@ -554,14 +585,22 @@ fn mask_recipient(recipient: &str) -> String {
     } else if recipient.starts_with('+') {
         // Phone: show country code and last 2 digits
         if recipient.len() > 4 {
-            format!("{}***{}", &recipient[..3], &recipient[recipient.len()-2..])
+            format!(
+                "{}***{}",
+                &recipient[..3],
+                &recipient[recipient.len() - 2..]
+            )
         } else {
             "+***".to_string()
         }
     } else {
         // Other (e.g., Telegram chat ID): show first 3 and last 2
         if recipient.len() > 5 {
-            format!("{}***{}", &recipient[..3], &recipient[recipient.len()-2..])
+            format!(
+                "{}***{}",
+                &recipient[..3],
+                &recipient[recipient.len() - 2..]
+            )
         } else {
             "***".to_string()
         }

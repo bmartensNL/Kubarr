@@ -30,12 +30,12 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(OauthProviders::ClientSecret).string().null())
                     .col(
                         ColumnDef::new(OauthProviders::CreatedAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .col(
                         ColumnDef::new(OauthProviders::UpdatedAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .to_owned(),
@@ -45,7 +45,12 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .drop_table(Table::drop().table(OauthProviders::Table).if_exists().to_owned())
+            .drop_table(
+                Table::drop()
+                    .table(OauthProviders::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
             .await
     }
 }

@@ -11,9 +11,11 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tokio_util::io::ReaderStream;
 
-use crate::middleware::permissions::{Authorized, StorageView, StorageWrite, StorageDelete, StorageDownload};
-use crate::models::prelude::*;
 use crate::error::{AppError, Result};
+use crate::middleware::permissions::{
+    Authorized, StorageDelete, StorageDownload, StorageView, StorageWrite,
+};
+use crate::models::prelude::*;
 use crate::state::{AppState, DbConn};
 
 /// Protected top-level folders that cannot be deleted

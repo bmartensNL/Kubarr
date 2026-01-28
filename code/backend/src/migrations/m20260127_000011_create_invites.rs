@@ -17,7 +17,7 @@ impl MigrationTrait for Migration {
                     .if_not_exists()
                     .col(
                         ColumnDef::new(Invites::Id)
-                            .integer()
+                            .big_integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
@@ -28,17 +28,33 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .unique_key(),
                     )
-                    .col(ColumnDef::new(Invites::CreatedById).integer().not_null())
-                    .col(ColumnDef::new(Invites::UsedById).integer().null())
+                    .col(
+                        ColumnDef::new(Invites::CreatedById)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(Invites::UsedById).big_integer().null())
                     .col(
                         ColumnDef::new(Invites::IsUsed)
                             .boolean()
                             .not_null()
                             .default(false),
                     )
-                    .col(ColumnDef::new(Invites::ExpiresAt).date_time().null())
-                    .col(ColumnDef::new(Invites::CreatedAt).date_time().not_null())
-                    .col(ColumnDef::new(Invites::UsedAt).date_time().null())
+                    .col(
+                        ColumnDef::new(Invites::ExpiresAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(Invites::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(Invites::UsedAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .from(Invites::Table, Invites::CreatedById)
