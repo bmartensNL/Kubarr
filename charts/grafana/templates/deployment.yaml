@@ -53,6 +53,8 @@ spec:
                 secretKeyRef:
                   name: {{ include "grafana.fullname" . }}-secret
                   key: admin-password
+            - name: GF_INSTALL_PLUGINS
+              value: "victoriametrics-logs-datasource"
           {{- if .Values.grafana.livenessProbe.enabled }}
           livenessProbe:
             httpGet:

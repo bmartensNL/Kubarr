@@ -17,9 +17,10 @@ backend:
     tag: "latest"
 
   service:
-    type: ClusterIP
+    type: NodePort
     port: 8000
     targetPort: 8000
+    nodePort: 30080  # Maps to hostPort 8080 via kind extraPortMappings
 
   resources:
     limits:
@@ -33,15 +34,15 @@ backend:
     httpGet:
       path: /api/system/health
       port: 8000
-    initialDelaySeconds: 10
-    periodSeconds: 30
+    initialDelaySeconds: 1
+    periodSeconds: 10
 
   readinessProbe:
     httpGet:
       path: /api/system/health
       port: 8000
-    initialDelaySeconds: 5
-    periodSeconds: 10
+    initialDelaySeconds: 0
+    periodSeconds: 1
 
   env:
     - name: KUBARR_IN_CLUSTER
@@ -89,23 +90,31 @@ rbac:
       resources: ["namespaces"]
       verbs: ["get", "list", "watch", "create", "delete"]
     - apiGroups: ["apps"]
-      resources: ["deployments", "replicasets"]
+      resources: ["deployments", "replicasets", "daemonsets", "statefulsets"]
       verbs: ["get", "list", "watch", "create", "update", "delete", "patch"]
     - apiGroups: [""]
-      resources: ["services", "serviceaccounts", "persistentvolumeclaims", "configmaps", "secrets"]
+      resources: ["services", "serviceaccounts", "persistentvolumeclaims", "configmaps", "secrets", "endpoints"]
       verbs: ["get", "list", "watch", "create", "update", "delete", "patch"]
     - apiGroups: [""]
       resources: ["pods", "pods/log"]
       verbs: ["get", "list", "watch", "delete"]
+    - apiGroups: [""]
+      resources: ["nodes", "nodes/metrics", "nodes/proxy"]
+      verbs: ["get", "list", "watch"]
     - apiGroups: ["metrics.k8s.io"]
-      resources: ["pods"]
+      resources: ["pods", "nodes"]
       verbs: ["get", "list"]
     - apiGroups: ["networking.k8s.io"]
-      resources: ["networkpolicies"]
+      resources: ["networkpolicies", "ingresses"]
+      verbs: ["get", "list", "watch", "create", "update", "delete", "patch"]
+    - apiGroups: ["extensions"]
+      resources: ["ingresses"]
       verbs: ["get", "list", "watch", "create", "update", "delete", "patch"]
     - apiGroups: ["rbac.authorization.k8s.io"]
-      resources: ["roles", "rolebindings"]
-      verbs: ["get", "list", "watch", "create", "update", "delete", "patch"]
+      resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+      verbs: ["get", "list", "watch", "create", "update", "delete", "patch", "bind", "escalate"]
+    - nonResourceURLs: ["/metrics", "/metrics/cadvisor"]
+      verbs: ["get"]
 
 # Ingress configuration
 ingress:
@@ -219,5 +228,5 @@ networkPolicy:
     - jellyseerr
     - sabnzbd
     - victoriametrics
-    - loki
+    - victorialogs
     - grafana

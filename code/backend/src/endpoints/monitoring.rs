@@ -197,8 +197,8 @@ async fn get_app_metrics(
     // Add monitoring/system namespaces
     allowed_namespaces.insert("kubarr-system".to_string());
     allowed_namespaces.insert("victoriametrics".to_string());
-    allowed_namespaces.insert("loki".to_string());
-    allowed_namespaces.insert("promtail".to_string());
+    allowed_namespaces.insert("victorialogs".to_string());
+    allowed_namespaces.insert("fluent-bit".to_string());
     allowed_namespaces.insert("grafana".to_string());
 
     // Query CPU usage by namespace

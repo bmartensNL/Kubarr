@@ -3,7 +3,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -11,16 +11,21 @@ use crate::middleware::permissions::{Authorized, LogsView};
 use crate::error::{AppError, Result};
 use crate::state::AppState;
 
-// Loki service URL inside the cluster
-const LOKI_URL: &str = "http://loki.loki.svc.cluster.local:3100";
+// VictoriaLogs service URL inside the cluster
+const VICTORIALOGS_URL: &str = "http://victorialogs.victorialogs.svc.cluster.local:9428";
 
 pub fn logs_routes(state: AppState) -> Router {
     Router::new()
-        // Loki endpoints (must be before /:pod_name to avoid conflicts)
-        .route("/loki/namespaces", get(get_loki_namespaces))
-        .route("/loki/labels", get(get_loki_labels))
-        .route("/loki/label/:label/values", get(get_loki_label_values))
-        .route("/loki/query", get(query_loki_logs))
+        // VictoriaLogs endpoints (must be before /:pod_name to avoid conflicts)
+        .route("/vlogs/namespaces", get(get_vlogs_namespaces))
+        .route("/vlogs/labels", get(get_vlogs_labels))
+        .route("/vlogs/label/:label/values", get(get_vlogs_label_values))
+        .route("/vlogs/query", get(query_vlogs))
+        // Legacy Loki endpoints (redirect to VictoriaLogs)
+        .route("/loki/namespaces", get(get_vlogs_namespaces))
+        .route("/loki/labels", get(get_vlogs_labels))
+        .route("/loki/label/:label/values", get(get_vlogs_label_values))
+        .route("/loki/query", get(query_vlogs))
         // Pod logs endpoints
         .route("/raw/:pod_name", get(get_raw_pod_logs))
         .route("/app/:app_name", get(get_app_logs))
@@ -54,45 +59,41 @@ fn default_tail() -> i32 {
 }
 
 #[derive(Debug, Deserialize)]
-struct LokiQueryParams {
-    #[serde(default = "default_loki_query")]
+struct VLogsQueryParams {
+    #[serde(default = "default_vlogs_query")]
     query: String,
     start: Option<String>,
     end: Option<String>,
     #[serde(default = "default_limit")]
     limit: i32,
-    #[serde(default = "default_direction")]
-    direction: String,
 }
 
-fn default_loki_query() -> String {
-    "{namespace=~\".+\"}".to_string()
+fn default_vlogs_query() -> String {
+    "*".to_string()
 }
 
 fn default_limit() -> i32 {
     1000
 }
 
-fn default_direction() -> String {
-    "backward".to_string()
-}
-
 #[derive(Debug, Serialize)]
-struct LokiQueryResponse {
-    streams: Vec<LokiStream>,
+struct VLogsQueryResponse {
+    streams: Vec<VLogsStream>,
     total_entries: i32,
 }
 
 #[derive(Debug, Serialize)]
-struct LokiStream {
+struct VLogsStream {
     labels: HashMap<String, String>,
-    entries: Vec<LokiEntry>,
+    entries: Vec<VLogsEntry>,
 }
 
 #[derive(Debug, Serialize)]
-struct LokiEntry {
+struct VLogsEntry {
     timestamp: String,
     line: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    level: Option<String>,
 }
 
 /// Get logs from a specific pod
@@ -201,10 +202,10 @@ async fn get_raw_pod_logs(
     Ok(logs)
 }
 
-// ============== Loki Endpoints ==============
+// ============== VictoriaLogs Endpoints ==============
 
-/// Get all namespaces that have logs in Loki
-async fn get_loki_namespaces(
+/// Get all namespaces that have logs in VictoriaLogs
+async fn get_vlogs_namespaces(
     _auth: Authorized<LogsView>,
 ) -> Result<Json<Vec<String>>> {
     let client = reqwest::Client::builder()
@@ -212,30 +213,36 @@ async fn get_loki_namespaces(
         .build()
         .map_err(|e| AppError::Internal(format!("Failed to create HTTP client: {}", e)))?;
 
+    // VictoriaLogs uses /select/logsql/field_values for getting field values
+    // Requires a query parameter
     let response = client
-        .get(format!("{}/loki/api/v1/label/namespace/values", LOKI_URL))
+        .get(format!("{}/select/logsql/field_values", VICTORIALOGS_URL))
+        .query(&[("query", "*"), ("field", "namespace"), ("limit", "1000")])
         .send()
         .await
-        .map_err(|e| AppError::ServiceUnavailable(format!("Failed to connect to Loki: {}", e)))?;
+        .map_err(|e| AppError::ServiceUnavailable(format!("Failed to connect to VictoriaLogs: {}", e)))?;
 
     if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
         return Err(AppError::Internal(format!(
-            "Loki returned error: {}",
-            response.status()
+            "VictoriaLogs returned error: {} - {}",
+            status, body
         )));
     }
 
-    let data: serde_json::Value = response
+    // VictoriaLogs returns JSON with values array
+    let json: serde_json::Value = response
         .json()
         .await
-        .map_err(|e| AppError::Internal(format!("Failed to parse Loki response: {}", e)))?;
+        .map_err(|e| AppError::Internal(format!("Failed to parse VictoriaLogs response: {}", e)))?;
 
-    let namespaces = data
-        .get("data")
-        .and_then(|d| d.as_array())
+    let namespaces: Vec<String> = json
+        .get("values")
+        .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
+                .filter_map(|v| v.get("value").and_then(|v| v.as_str()).map(String::from))
                 .collect()
         })
         .unwrap_or_default();
@@ -243,8 +250,8 @@ async fn get_loki_namespaces(
     Ok(Json(namespaces))
 }
 
-/// Get all available labels from Loki
-async fn get_loki_labels(
+/// Get all available labels (field names) from VictoriaLogs
+async fn get_vlogs_labels(
     _auth: Authorized<LogsView>,
 ) -> Result<Json<Vec<String>>> {
     let client = reqwest::Client::builder()
@@ -252,30 +259,35 @@ async fn get_loki_labels(
         .build()
         .map_err(|e| AppError::Internal(format!("Failed to create HTTP client: {}", e)))?;
 
+    // VictoriaLogs uses /select/logsql/field_names with query parameter
     let response = client
-        .get(format!("{}/loki/api/v1/labels", LOKI_URL))
+        .get(format!("{}/select/logsql/field_names", VICTORIALOGS_URL))
+        .query(&[("query", "*"), ("limit", "1000")])
         .send()
         .await
-        .map_err(|e| AppError::ServiceUnavailable(format!("Failed to connect to Loki: {}", e)))?;
+        .map_err(|e| AppError::ServiceUnavailable(format!("Failed to connect to VictoriaLogs: {}", e)))?;
 
     if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
         return Err(AppError::Internal(format!(
-            "Loki returned error: {}",
-            response.status()
+            "VictoriaLogs returned error: {} - {}",
+            status, body
         )));
     }
 
-    let data: serde_json::Value = response
+    // VictoriaLogs returns JSON with values array
+    let json: serde_json::Value = response
         .json()
         .await
-        .map_err(|e| AppError::Internal(format!("Failed to parse Loki response: {}", e)))?;
+        .map_err(|e| AppError::Internal(format!("Failed to parse VictoriaLogs response: {}", e)))?;
 
-    let labels = data
-        .get("data")
-        .and_then(|d| d.as_array())
+    let labels: Vec<String> = json
+        .get("values")
+        .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
+                .filter_map(|v| v.get("value").and_then(|v| v.as_str()).map(String::from))
                 .collect()
         })
         .unwrap_or_default();
@@ -283,8 +295,8 @@ async fn get_loki_labels(
     Ok(Json(labels))
 }
 
-/// Get all values for a specific label from Loki
-async fn get_loki_label_values(
+/// Get all values for a specific field from VictoriaLogs
+async fn get_vlogs_label_values(
     Path(label): Path<String>,
     _auth: Authorized<LogsView>,
 ) -> Result<Json<Vec<String>>> {
@@ -294,29 +306,33 @@ async fn get_loki_label_values(
         .map_err(|e| AppError::Internal(format!("Failed to create HTTP client: {}", e)))?;
 
     let response = client
-        .get(format!("{}/loki/api/v1/label/{}/values", LOKI_URL, label))
+        .get(format!("{}/select/logsql/field_values", VICTORIALOGS_URL))
+        .query(&[("query", "*"), ("field", label.as_str()), ("limit", "1000")])
         .send()
         .await
-        .map_err(|e| AppError::ServiceUnavailable(format!("Failed to connect to Loki: {}", e)))?;
+        .map_err(|e| AppError::ServiceUnavailable(format!("Failed to connect to VictoriaLogs: {}", e)))?;
 
     if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
         return Err(AppError::Internal(format!(
-            "Loki returned error: {}",
-            response.status()
+            "VictoriaLogs returned error: {} - {}",
+            status, body
         )));
     }
 
-    let data: serde_json::Value = response
+    // VictoriaLogs returns JSON with values array
+    let json: serde_json::Value = response
         .json()
         .await
-        .map_err(|e| AppError::Internal(format!("Failed to parse Loki response: {}", e)))?;
+        .map_err(|e| AppError::Internal(format!("Failed to parse VictoriaLogs response: {}", e)))?;
 
-    let values = data
-        .get("data")
-        .and_then(|d| d.as_array())
+    let values: Vec<String> = json
+        .get("values")
+        .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
+                .filter_map(|v| v.get("value").and_then(|v| v.as_str()).map(String::from))
                 .collect()
         })
         .unwrap_or_default();
@@ -324,11 +340,11 @@ async fn get_loki_label_values(
     Ok(Json(values))
 }
 
-/// Query logs from Loki using LogQL
-async fn query_loki_logs(
-    Query(params): Query<LokiQueryParams>,
+/// Query logs from VictoriaLogs using LogsQL
+async fn query_vlogs(
+    Query(params): Query<VLogsQueryParams>,
     _auth: Authorized<LogsView>,
-) -> Result<Json<LokiQueryResponse>> {
+) -> Result<Json<VLogsQueryResponse>> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(60))
         .build()
@@ -338,89 +354,185 @@ async fn query_loki_logs(
     let now = Utc::now();
     let end = params
         .end
-        .unwrap_or_else(|| format!("{}", now.timestamp_nanos_opt().unwrap_or(0)));
+        .unwrap_or_else(|| now.to_rfc3339());
     let start = params.start.unwrap_or_else(|| {
         let start_time = now - Duration::hours(1);
-        format!("{}", start_time.timestamp_nanos_opt().unwrap_or(0))
+        start_time.to_rfc3339()
     });
 
+    // Convert Loki-style query to LogsQL if needed
+    let query = convert_loki_to_logsql(&params.query);
+
     let response = client
-        .get(format!("{}/loki/api/v1/query_range", LOKI_URL))
+        .get(format!("{}/select/logsql/query", VICTORIALOGS_URL))
         .query(&[
-            ("query", params.query.as_str()),
+            ("query", query.as_str()),
             ("start", start.as_str()),
             ("end", end.as_str()),
             ("limit", &params.limit.to_string()),
-            ("direction", params.direction.as_str()),
         ])
         .send()
         .await
-        .map_err(|e| AppError::ServiceUnavailable(format!("Failed to connect to Loki: {}", e)))?;
+        .map_err(|e| AppError::ServiceUnavailable(format!("Failed to connect to VictoriaLogs: {}", e)))?;
 
     if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
         return Err(AppError::Internal(format!(
-            "Loki returned error: {}",
-            response.status()
+            "VictoriaLogs returned error: {} - {}",
+            status, body
         )));
     }
 
-    let data: serde_json::Value = response
-        .json()
+    // VictoriaLogs returns JSON Lines format
+    let text = response
+        .text()
         .await
-        .map_err(|e| AppError::Internal(format!("Failed to parse Loki response: {}", e)))?;
+        .map_err(|e| AppError::Internal(format!("Failed to read VictoriaLogs response: {}", e)))?;
 
-    // Parse Loki response
-    let result = data
-        .get("data")
-        .and_then(|d| d.get("result"))
-        .and_then(|r| r.as_array())
-        .cloned()
-        .unwrap_or_default();
-
-    let mut streams = Vec::new();
+    // Parse JSON Lines response
+    let mut streams_map: HashMap<String, VLogsStream> = HashMap::new();
     let mut total_entries = 0;
 
-    for stream in result {
-        let labels: HashMap<String, String> = stream
-            .get("stream")
-            .and_then(|s| serde_json::from_value(s.clone()).ok())
-            .unwrap_or_default();
-
-        let values = stream
-            .get("values")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
-
-        let mut entries = Vec::new();
-
-        for value in values {
-            if let Some(arr) = value.as_array() {
-                if arr.len() >= 2 {
-                    let timestamp_ns = arr[0].as_str().unwrap_or("0");
-                    let line = arr[1].as_str().unwrap_or("").to_string();
-
-                    // Convert nanoseconds to ISO format
-                    if let Ok(ns) = timestamp_ns.parse::<i64>() {
-                        let secs = ns / 1_000_000_000;
-                        let nsecs = (ns % 1_000_000_000) as u32;
-                        if let Some(dt) = DateTime::from_timestamp(secs, nsecs) {
-                            entries.push(LokiEntry {
-                                timestamp: dt.to_rfc3339(),
-                                line,
-                            });
-                            total_entries += 1;
-                        }
-                    }
-                }
-            }
+    for line in text.lines() {
+        if line.is_empty() {
+            continue;
         }
 
-        streams.push(LokiStream { labels, entries });
+        if let Ok(log_entry) = serde_json::from_str::<serde_json::Value>(line) {
+            let namespace = log_entry
+                .get("namespace")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let pod = log_entry
+                .get("pod")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let container = log_entry
+                .get("container")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+
+            let stream_key = format!("{}/{}/{}", namespace, pod, container);
+
+            let timestamp = log_entry
+                .get("_time")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            let raw_msg = log_entry
+                .get("_msg")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            // Parse the log message - handle different formats:
+            // 1. key_value format: log="actual message"
+            // 2. JSON format: {"log": "actual message"}
+            // 3. Plain text
+            let log_line = if raw_msg.starts_with("log=") {
+                // key_value format: log="message" or log=message
+                let content = &raw_msg[4..];
+                if content.starts_with('"') && content.ends_with('"') && content.len() > 1 {
+                    content[1..content.len()-1].to_string()
+                } else {
+                    content.to_string()
+                }
+            } else if raw_msg.starts_with('{') {
+                // JSON format: try to extract "log" field
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(raw_msg) {
+                    json.get("log")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(raw_msg)
+                        .to_string()
+                } else {
+                    raw_msg.to_string()
+                }
+            } else {
+                raw_msg.to_string()
+            };
+
+            // Extract level from the log entry
+            let level = log_entry
+                .get("level")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_uppercase());
+
+            let stream = streams_map.entry(stream_key).or_insert_with(|| {
+                let mut labels = HashMap::new();
+                labels.insert("namespace".to_string(), namespace);
+                labels.insert("pod".to_string(), pod);
+                labels.insert("container".to_string(), container);
+                VLogsStream {
+                    labels,
+                    entries: Vec::new(),
+                }
+            });
+
+            stream.entries.push(VLogsEntry {
+                timestamp,
+                line: log_line,
+                level,
+            });
+            total_entries += 1;
+        }
     }
 
-    Ok(Json(LokiQueryResponse {
+    let streams: Vec<VLogsStream> = streams_map.into_values().collect();
+
+    Ok(Json(VLogsQueryResponse {
         streams,
         total_entries,
     }))
+}
+
+/// Convert Loki LogQL query to VictoriaLogs LogsQL
+fn convert_loki_to_logsql(query: &str) -> String {
+    let query = query.trim();
+
+    // Handle empty or wildcard queries
+    if query.is_empty() || query == "*" {
+        return "*".to_string();
+    }
+
+    // Handle Loki-style label matchers: {label="value"}
+    if query.starts_with('{') && query.ends_with('}') {
+        let inner = &query[1..query.len()-1];
+
+        // Parse label matchers
+        let mut logsql_parts = Vec::new();
+        for part in inner.split(',') {
+            let part = part.trim();
+            if part.is_empty() {
+                continue;
+            }
+
+            // Handle different operators
+            if let Some(pos) = part.find("=~") {
+                let label = part[..pos].trim();
+                let value = part[pos+2..].trim().trim_matches('"');
+                logsql_parts.push(format!("{}:~{}", label, value));
+            } else if let Some(pos) = part.find("!=") {
+                let label = part[..pos].trim();
+                let value = part[pos+2..].trim().trim_matches('"');
+                logsql_parts.push(format!("NOT {}:{}", label, value));
+            } else if let Some(pos) = part.find('=') {
+                let label = part[..pos].trim();
+                let value = part[pos+1..].trim().trim_matches('"');
+                logsql_parts.push(format!("{}:{}", label, value));
+            }
+        }
+
+        if logsql_parts.is_empty() {
+            return "*".to_string();
+        }
+
+        return logsql_parts.join(" AND ");
+    }
+
+    // Return as-is for other queries (might already be LogsQL)
+    query.to_string()
 }

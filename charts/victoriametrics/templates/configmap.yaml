@@ -81,26 +81,11 @@ data:
             replacement: $1
             target_label: app
 
-      # Kubelet metrics (cAdvisor) for container CPU/memory
-      - job_name: 'kubelet'
-        kubernetes_sd_configs:
-          - role: node
-        scheme: https
-        tls_config:
-          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-          insecure_skip_verify: true
-        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
-        relabel_configs:
-          - action: labelmap
-            regex: __meta_kubernetes_node_label_(.+)
-          - target_label: __address__
-            replacement: kubernetes.default.svc:443
-          - source_labels: [__meta_kubernetes_node_name]
-            regex: (.+)
-            target_label: __metrics_path__
-            replacement: /api/v1/nodes/${1}/proxy/metrics
+      # Kubelet metrics - disabled, we only need cAdvisor container metrics
+      # - job_name: 'kubelet'
 
       # cAdvisor metrics for container resource usage
+      # Filtered to only keep container_* metrics (CPU, memory, network, filesystem)
       - job_name: 'cadvisor'
         kubernetes_sd_configs:
           - role: node
@@ -118,17 +103,11 @@ data:
             regex: (.+)
             target_label: __metrics_path__
             replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
-
-      # Kubernetes API server
-      - job_name: 'kubernetes-apiservers'
-        kubernetes_sd_configs:
-          - role: endpoints
-        scheme: https
-        tls_config:
-          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-          insecure_skip_verify: true
-        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
-        relabel_configs:
-          - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+        # Only keep container_* metrics we actually use
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            regex: 'container_(cpu_usage_seconds_total|memory_working_set_bytes|memory_usage_bytes|network_receive_bytes_total|network_transmit_bytes_total|fs_usage_bytes|fs_limit_bytes)'
             action: keep
-            regex: default;kubernetes;https
+
+      # Kubernetes API server - disabled, not needed for app monitoring
+      # - job_name: 'kubernetes-apiservers'

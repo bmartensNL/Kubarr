@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "victorialogs.fullname" . }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "victorialogs.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.victorialogs.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "victorialogs.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "victorialogs.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "victorialogs.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: victorialogs
+          image: "{{ .Values.victorialogs.image.repository }}:{{ .Values.victorialogs.image.tag }}"
+          imagePullPolicy: {{ .Values.victorialogs.image.pullPolicy }}
+          args:
+            - "-storageDataPath={{ .Values.victorialogs.storagePath }}"
+            - "-retentionPeriod={{ .Values.victorialogs.retention }}"
+            - "-httpListenAddr=:{{ .Values.victorialogs.service.targetPort }}"
+            {{- range .Values.victorialogs.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.victorialogs.service.targetPort }}
+              protocol: TCP
+          {{- if .Values.victorialogs.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: {{ .Values.victorialogs.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.victorialogs.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.victorialogs.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.victorialogs.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.victorialogs.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: {{ .Values.victorialogs.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.victorialogs.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.victorialogs.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.victorialogs.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.victorialogs.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ .Values.victorialogs.storagePath }}
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "victorialogs.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

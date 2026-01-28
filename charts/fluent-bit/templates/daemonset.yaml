@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "fluent-bit.fullname" . }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "fluent-bit.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "fluent-bit.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "fluent-bit.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "fluent-bit.serviceAccountName" . }}
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: fluent-bit
+          image: "{{ .Values.fluentbit.image.repository }}:{{ .Values.fluentbit.image.tag }}"
+          imagePullPolicy: {{ .Values.fluentbit.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 2020
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+          resources:
+            {{- toYaml .Values.fluentbit.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /fluent-bit/etc/fluent-bit.conf
+              subPath: fluent-bit.conf
+            - name: config
+              mountPath: /fluent-bit/etc/parsers.conf
+              subPath: parsers.conf
+            - name: config
+              mountPath: /fluent-bit/etc/labelmap.json
+              subPath: labelmap.json
+            - name: config
+              mountPath: /fluent-bit/scripts/filter.lua
+              subPath: filter.lua
+            - name: pods
+              mountPath: /var/log/pods
+              readOnly: true
+            - name: varlog
+              mountPath: /var/log
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "fluent-bit.fullname" . }}-config
+        - name: pods
+          hostPath:
+            path: {{ .Values.fluentbit.podLogPath }}
+        - name: varlog
+          hostPath:
+            path: /var/log

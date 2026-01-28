@@ -1,7 +1,7 @@
 //! Authentication middleware for API routes
 //!
-//! Requires valid Bearer token or session cookie for all endpoints except `/auth/*`.
-//! Fetches user permissions once and stores them in request extensions.
+//! Requires valid session cookie for all endpoints except `/auth/*`.
+//! Session tokens contain only a session ID - user data is looked up from the database.
 
 use axum::{
     extract::{Request, State},
@@ -10,11 +10,12 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use chrono::Utc;
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 
 use crate::models::prelude::*;
-use crate::models::{role_app_permission, role_permission, user, user_role};
-use crate::services::security::decode_token;
+use crate::models::{role_app_permission, role_permission, session, user, user_role};
+use crate::services::security::decode_session_token;
 use crate::state::AppState;
 
 /// Cookie name for session token
@@ -41,10 +42,10 @@ impl AuthenticatedUser {
     }
 }
 
-/// Auth middleware that validates Bearer tokens or session cookies and fetches permissions
+/// Auth middleware that validates session cookies and fetches permissions
 ///
 /// Skips authentication for `/auth/*` routes.
-/// Returns 401 Unauthorized if token is missing or invalid.
+/// Returns 401 Unauthorized if session is missing or invalid.
 pub async fn require_auth(
     State(state): State<AppState>,
     mut req: Request,
@@ -57,16 +58,16 @@ pub async fn require_auth(
         return next.run(req).await;
     }
 
-    // Extract token from Bearer header or session cookie
+    // Extract session token from cookie
     let token = match extract_token(&req) {
         Some(t) => t,
         None => {
-            return unauthorized_response("Missing or invalid authentication");
+            return unauthorized_response("Missing or invalid session");
         }
     };
 
-    // Validate token and get user with permissions
-    let auth_user = match authenticate_user(&state, &token).await {
+    // Validate session and get user with permissions
+    let auth_user = match authenticate_session(&state, &token).await {
         Ok(u) => u,
         Err(msg) => {
             return unauthorized_response(&msg);
@@ -79,27 +80,8 @@ pub async fn require_auth(
     next.run(req).await
 }
 
-/// Extract token from Bearer header or session cookie
-/// Priority: Bearer token (API clients) > Cookie (browser sessions)
-fn extract_token(req: &Request) -> Option<String> {
-    // Try Bearer token first
-    if let Some(token) = extract_bearer_token(req) {
-        return Some(token);
-    }
-    // Fall back to session cookie
-    extract_cookie_token(req)
-}
-
-/// Extract Bearer token from Authorization header
-fn extract_bearer_token(req: &Request) -> Option<String> {
-    let auth_header = req.headers().get(header::AUTHORIZATION)?;
-    let auth_str = auth_header.to_str().ok()?;
-    let token = auth_str.strip_prefix("Bearer ")?;
-    Some(token.to_string())
-}
-
 /// Extract session token from cookie
-fn extract_cookie_token(req: &Request) -> Option<String> {
+fn extract_token(req: &Request) -> Option<String> {
     let cookies = req.headers().get(header::COOKIE)?;
     let cookie_str = cookies.to_str().ok()?;
 
@@ -112,24 +94,32 @@ fn extract_cookie_token(req: &Request) -> Option<String> {
     None
 }
 
-/// Validate JWT token, fetch user and their permissions
-async fn authenticate_user(state: &AppState, token: &str) -> Result<AuthenticatedUser, String> {
-    // Decode and validate the token
-    let claims = decode_token(token).map_err(|_| "Invalid or expired token".to_string())?;
+/// Authenticate using session token (from cookie)
+/// Validates the signed JWT, looks up session in database, and updates last_accessed_at
+async fn authenticate_session(state: &AppState, token: &str) -> Result<AuthenticatedUser, String> {
+    // Decode and validate the session token
+    let claims =
+        decode_session_token(token).map_err(|_| "Invalid or expired session".to_string())?;
 
-    // Check if it's a refresh token (not allowed for API access)
-    if claims.token_type.as_deref() == Some("refresh") {
-        return Err("Refresh tokens cannot be used for API access".to_string());
+    // Look up session in database
+    let session = Session::find_by_id(&claims.sid)
+        .one(&state.db)
+        .await
+        .map_err(|e| format!("Database error: {}", e))?
+        .ok_or_else(|| "Session not found".to_string())?;
+
+    // Check if session is revoked
+    if session.is_revoked {
+        return Err("Session has been revoked".to_string());
     }
 
-    // Parse user ID from subject
-    let user_id: i64 = claims
-        .sub
-        .parse()
-        .map_err(|_| "Invalid token subject".to_string())?;
+    // Check if session is expired (double-check against DB value)
+    if session.expires_at < Utc::now() {
+        return Err("Session has expired".to_string());
+    }
 
     // Fetch user from database
-    let user = User::find_by_id(user_id)
+    let user = User::find_by_id(session.user_id)
         .filter(user::Column::IsActive.eq(true))
         .filter(user::Column::IsApproved.eq(true))
         .one(&state.db)
@@ -137,8 +127,20 @@ async fn authenticate_user(state: &AppState, token: &str) -> Result<Authenticate
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or_else(|| "User not found or inactive".to_string())?;
 
+    // Update last_accessed_at (fire and forget - don't block on this)
+    let session_id = session.id.clone();
+    let db = state.db.clone();
+    tokio::spawn(async move {
+        let update = session::ActiveModel {
+            id: Set(session_id),
+            last_accessed_at: Set(Utc::now()),
+            ..Default::default()
+        };
+        let _ = update.update(&db).await;
+    });
+
     // Fetch all permissions for this user from their roles
-    let permissions = fetch_user_permissions(state, user_id).await;
+    let permissions = fetch_user_permissions(state, session.user_id).await;
 
     Ok(AuthenticatedUser { user, permissions })
 }

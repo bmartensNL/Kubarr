@@ -126,6 +126,7 @@ async fn seed_defaults(db: &DbConn) -> Result<()> {
 
         // Add all permissions for admin role
         let all_permissions = [
+            "app.*", // Access to all apps via proxy
             "apps.view",
             "apps.install",
             "apps.delete",
@@ -136,6 +137,8 @@ async fn seed_defaults(db: &DbConn) -> Result<()> {
             "storage.download",
             "logs.view",
             "monitoring.view",
+            "networking.view",
+            "networking.manage",
             "users.view",
             "users.manage",
             "users.reset_password",
@@ -199,9 +202,12 @@ async fn seed_defaults(db: &DbConn) -> Result<()> {
 
     if let Some(admin) = admin_role {
         let required_permissions = [
+            "app.*", // Access to all apps via proxy
             "audit.view",
             "audit.manage",
             "users.reset_password",
+            "networking.view",
+            "networking.manage",
         ];
 
         for perm in required_permissions {

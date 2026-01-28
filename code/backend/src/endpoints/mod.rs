@@ -2,6 +2,7 @@ pub mod apps;
 pub mod audit;
 pub mod auth;
 pub mod extractors;
+pub mod frontend;
 pub mod logs;
 pub mod monitoring;
 pub mod networking;
@@ -35,12 +36,17 @@ pub fn create_router(state: AppState) -> Router {
         .nest("/api", api_routes(state.clone()))
         .nest("/proxy", proxy::proxy_routes(state.clone()))
         .layer(axum_middleware::from_fn_with_state(
-            state,
+            state.clone(),
             require_auth,
         ));
 
-    // Merge public and protected routes
-    public_routes.merge(protected_routes)
+    // Frontend fallback router (unauthenticated)
+    let fallback_router = Router::new()
+        .fallback(frontend::proxy_frontend)
+        .with_state(state);
+
+    // Merge public and protected routes, with frontend proxy as fallback
+    public_routes.merge(protected_routes).merge(fallback_router)
 }
 
 /// API routes under /api/* (protected by auth middleware)

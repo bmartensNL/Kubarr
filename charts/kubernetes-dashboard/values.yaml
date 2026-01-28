@@ -84,5 +84,6 @@ podAnnotations: {}
 networkPolicy:
   enabled: true
   ingressFrom:
+    - kubarr         # kubarr dashboard proxy
     - nginx  # nginx reverse proxy
   egressTo: []  # Dashboard needs to talk to kube-apiserver (allowed by default)

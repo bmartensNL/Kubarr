@@ -7,6 +7,10 @@ metadata:
     {{- include "victoriametrics.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.victoriametrics.replicaCount }}
+  # VictoriaMetrics uses a file lock on the data directory, so we must stop
+  # the old pod before starting a new one
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "victoriametrics.selectorLabels" . | nindent 6 }}
@@ -48,6 +52,13 @@ spec:
             - "-retentionPeriod={{ .Values.victoriametrics.retention }}"
             - "-httpListenAddr=:{{ .Values.victoriametrics.service.targetPort }}"
             - "-promscrape.config.strictParse=false"
+            # Minimize RAM usage by disabling caches (data stays on disk)
+            - "-memory.allowedPercent=60"
+            - "-storage.cacheSizeStorageTSID=0"
+            - "-storage.cacheSizeIndexDBIndexBlocks=0"
+            - "-storage.cacheSizeIndexDBDataBlocks=0"
+            - "-storage.cacheSizeIndexDBTagFilters=0"
+            - "-search.maxMemoryPerQuery=32MB"
           ports:
             - name: http
               containerPort: {{ .Values.victoriametrics.service.targetPort }}

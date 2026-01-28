@@ -16,7 +16,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use crate::endpoints;
 use crate::config::CONFIG;
 use crate::db::create_pool;
-use crate::services::{AppCatalog, AuditService, K8sClient, NotificationService};
+use crate::services::{start_network_broadcaster, scheduler, AppCatalog, AuditService, K8sClient, NotificationService, get_private_key};
 use crate::state::AppState;
 
 /// Bootstrap and run the application
@@ -26,6 +26,11 @@ pub async fn run() -> anyhow::Result<()> {
     tracing::info!("Starting Kubarr backend v{}", env!("CARGO_PKG_VERSION"));
 
     let state = init_services().await?;
+
+    // Start background network metrics broadcaster
+    start_network_broadcaster(state.clone());
+    tracing::info!("Network metrics broadcaster started");
+
     let app = create_app(state);
 
     serve(app).await
@@ -49,8 +54,20 @@ async fn init_services() -> anyhow::Result<AppState> {
     let catalog = init_catalog();
     let audit = init_audit(&pool).await;
     let notification = init_notifications(&pool).await;
+    init_jwt_keys();
+
+    // Start periodic task scheduler
+    scheduler::start_scheduler(Arc::new(pool.clone()));
 
     Ok(AppState::new(pool, k8s_client, catalog, audit, notification))
+}
+
+/// Initialize JWT signing keys (loads from disk or generates new ones)
+fn init_jwt_keys() {
+    match get_private_key() {
+        Ok(_) => tracing::info!("JWT signing keys initialized"),
+        Err(e) => tracing::error!("Failed to initialize JWT keys: {}", e),
+    }
 }
 
 /// Initialize the database connection pool (runs migrations automatically)

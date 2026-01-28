@@ -1,15 +1,20 @@
 pub mod audit;
+pub mod cadvisor;
 pub mod catalog;
 pub mod deployment;
 pub mod k8s;
+pub mod network_broadcaster;
 pub mod notification;
 pub mod proxy;
+pub mod scheduler;
 pub mod security;
 
 pub use audit::*;
+pub use cadvisor::*;
 pub use catalog::*;
 pub use deployment::*;
 pub use k8s::*;
+pub use network_broadcaster::start_network_broadcaster;
 pub use notification::NotificationService;
 pub use proxy::*;
 pub use security::*;

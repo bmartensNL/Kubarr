@@ -10,7 +10,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: promtail
+      app.kubernetes.io/name: fluent-bit
   policyTypes:
     - Egress
   egress:
@@ -25,7 +25,7 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # Allow sending logs to Loki
+    # Allow sending logs to VictoriaLogs
     {{- range .Values.networkPolicy.egressTo }}
     - to:
         - namespaceSelector:
@@ -33,7 +33,7 @@ spec:
               kubernetes.io/metadata.name: {{ . }}
       ports:
         - protocol: TCP
-          port: 3100
+          port: 9428
     {{- end }}
     # Allow access to Kubernetes API for pod metadata
     - to:

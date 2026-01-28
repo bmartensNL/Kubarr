@@ -1,11 +1,11 @@
 apiVersion: v2
-name: promtail
-description: Promtail log collector agent for Loki
+name: fluent-bit
+description: Fluent Bit log collector agent for VictoriaLogs
 type: application
 version: 0.1.0
-appVersion: "2.9.3"
+appVersion: "3.2.2"
 annotations:
-  kubarr.io/display-name: "Promtail"
+  kubarr.io/display-name: "Fluent Bit"
   kubarr.io/icon: "📥"
   kubarr.io/category: "monitoring"
   kubarr.io/system: "true"

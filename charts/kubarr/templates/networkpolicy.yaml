@@ -66,14 +66,14 @@ spec:
       ports:
         - protocol: TCP
     {{- end }}
-    # Allow access to Loki for logs
+    # Allow access to VictoriaLogs for logs
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: loki
+              kubernetes.io/metadata.name: victorialogs
       ports:
         - protocol: TCP
-          port: 3100
+          port: 9428
     # Allow access to VictoriaMetrics for metrics
     - to:
         - namespaceSelector:

@@ -35,6 +35,9 @@ pub struct Config {
 
     // Logging
     pub log_level: String,
+
+    // Frontend proxy
+    pub frontend_url: String,
 }
 
 impl Config {
@@ -60,14 +63,14 @@ impl Config {
             default_namespace: env::var("KUBARR_DEFAULT_NAMESPACE")
                 .unwrap_or_else(|_| "media".to_string()),
 
-            // JWT/OAuth2
+            // JWT/OAuth2 - keys stored in /data/ to persist across restarts
             jwt_private_key_path: PathBuf::from(
                 env::var("KUBARR_JWT_PRIVATE_KEY_PATH")
-                    .unwrap_or_else(|_| "/secrets/jwt-private.pem".to_string()),
+                    .unwrap_or_else(|_| "/data/jwt-private.pem".to_string()),
             ),
             jwt_public_key_path: PathBuf::from(
                 env::var("KUBARR_JWT_PUBLIC_KEY_PATH")
-                    .unwrap_or_else(|_| "/secrets/jwt-public.pem".to_string()),
+                    .unwrap_or_else(|_| "/data/jwt-public.pem".to_string()),
             ),
             jwt_algorithm: env::var("KUBARR_JWT_ALGORITHM").unwrap_or_else(|_| "RS256".to_string()),
             oauth2_enabled: env::var("KUBARR_OAUTH2_ENABLED")
@@ -88,6 +91,18 @@ impl Config {
 
             // Logging
             log_level: env::var("KUBARR_LOG_LEVEL").unwrap_or_else(|_| "info".to_string()),
+
+            // Frontend proxy
+            frontend_url: env::var("KUBARR_FRONTEND_URL").unwrap_or_else(|_| {
+                if env::var("KUBARR_IN_CLUSTER")
+                    .map(|v| v.to_lowercase() == "true")
+                    .unwrap_or(false)
+                {
+                    "http://kubarr-frontend.kubarr.svc.cluster.local:80".to_string()
+                } else {
+                    "http://localhost:3000".to_string()
+                }
+            }),
         }
     }
 

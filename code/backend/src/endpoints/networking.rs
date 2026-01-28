@@ -1,19 +1,29 @@
-use axum::{extract::State, routing::get, Json, Router};
+use axum::{
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        State,
+    },
+    response::IntoResponse,
+    routing::get,
+    Json, Router,
+};
+use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
+use tracing::debug;
 
-use crate::middleware::permissions::{Authorized, NetworkingView};
 use crate::error::Result;
+use crate::middleware::permissions::{Authorized, NetworkingView};
+use crate::services::cadvisor::{aggregate_by_namespace, fetch_cadvisor_metrics};
 use crate::state::AppState;
 
-/// VictoriaMetrics URL (inside cluster)
-const VICTORIAMETRICS_URL: &str = "http://victoriametrics.victoriametrics.svc.cluster.local:8428";
 
 /// Create networking routes
 pub fn networking_routes(state: AppState) -> Router {
     Router::new()
         .route("/topology", get(get_network_topology))
         .route("/stats", get(get_network_stats))
+        .route("/ws", get(ws_handler))
         .with_state(state)
 }
 
@@ -69,33 +79,16 @@ pub struct NetworkStats {
 }
 
 // ============================================================================
-// VictoriaMetrics Query Helpers
+// Namespace filtering
 // ============================================================================
 
-async fn query_vm(query: &str) -> Vec<serde_json::Value> {
-    let client = reqwest::Client::new();
-    let url = format!("{}/api/v1/query", VICTORIAMETRICS_URL);
-
-    match client
-        .get(&url)
-        .query(&[("query", query)])
-        .timeout(std::time::Duration::from_secs(10))
-        .send()
-        .await
-    {
-        Ok(resp) => {
-            if let Ok(data) = resp.json::<serde_json::Value>().await {
-                if data.get("status") == Some(&serde_json::json!("success")) {
-                    return data["data"]["result"]
-                        .as_array()
-                        .cloned()
-                        .unwrap_or_default();
-                }
-            }
-            Vec::new()
-        }
-        Err(_) => Vec::new(),
-    }
+/// Check if a namespace should be excluded from display
+fn is_excluded_namespace(namespace: &str) -> bool {
+    namespace.starts_with("kube-")
+        || namespace == "local-path-storage"
+        || namespace == "default"
+        || namespace == "linux"
+        || namespace.is_empty()
 }
 
 // ============================================================================
@@ -103,85 +96,51 @@ async fn query_vm(query: &str) -> Vec<serde_json::Value> {
 // ============================================================================
 
 /// Get network topology with nodes and edges
+/// Uses direct cAdvisor metrics for real-time network data
 async fn get_network_topology(
     State(state): State<AppState>,
     _auth: Authorized<NetworkingView>,
 ) -> Result<Json<NetworkTopology>> {
-    // Query network metrics from VictoriaMetrics - get ALL namespaces
-    let rx_query =
-        r#"sum by (namespace) (rate(container_network_receive_bytes_total{interface!="lo"}[5m]))"#;
-    let tx_query =
-        r#"sum by (namespace) (rate(container_network_transmit_bytes_total{interface!="lo"}[5m]))"#;
-    let pod_count_query = r#"count by (namespace) (kube_pod_info)"#;
+    // Fetch metrics directly from cAdvisor via K8s API
+    let k8s_guard = state.k8s_client.read().await;
+    let k8s = match k8s_guard.as_ref() {
+        Some(k8s) => k8s,
+        None => {
+            // No K8s client available, return empty topology
+            return Ok(Json(NetworkTopology {
+                nodes: Vec::new(),
+                edges: Vec::new(),
+            }));
+        }
+    };
 
-    let rx_results = query_vm(rx_query).await;
-    let tx_results = query_vm(tx_query).await;
-    let pod_results = query_vm(pod_count_query).await;
+    // Fetch raw metrics from all nodes
+    let raw_metrics = fetch_cadvisor_metrics(k8s.client()).await;
+    let current_metrics = aggregate_by_namespace(&raw_metrics);
 
-    // Build namespace metrics map - include ALL namespaces
+    // Calculate rates using cached values, with fallback to last known rates
     let mut metrics_map: HashMap<String, (f64, f64, i32)> = HashMap::new();
 
-    // Process RX results
-    for result in &rx_results {
-        if let Some(namespace) = result["metric"]["namespace"].as_str() {
-            // Skip kube-system and other internal k8s namespaces
-            if namespace.starts_with("kube-")
-                || namespace == "local-path-storage"
-                || namespace == "default"
-                || namespace == "linux"
-                || namespace.is_empty()
-            {
-                continue;
-            }
-            if let Some(value) = result["value"][1].as_str() {
-                let rx_val: f64 = value.parse().unwrap_or(0.0);
-                metrics_map
-                    .entry(namespace.to_string())
-                    .or_insert((0.0, 0.0, 1))
-                    .0 = rx_val;
-            }
+    for (namespace, current) in &current_metrics {
+        if is_excluded_namespace(namespace) {
+            continue;
         }
-    }
 
-    // Process TX results
-    for result in &tx_results {
-        if let Some(namespace) = result["metric"]["namespace"].as_str() {
-            if namespace.starts_with("kube-")
-                || namespace == "local-path-storage"
-                || namespace == "default"
-                || namespace == "linux"
-                || namespace.is_empty()
-            {
-                continue;
-            }
-            if let Some(value) = result["value"][1].as_str() {
-                let tx_val: f64 = value.parse().unwrap_or(0.0);
-                metrics_map
-                    .entry(namespace.to_string())
-                    .or_insert((0.0, 0.0, 1))
-                    .1 = tx_val;
-            }
-        }
-    }
+        // Read rates from cache (updated by background broadcaster)
+        let (rx_rate, tx_rate) =
+            if let Some(cached) = state.network_metrics_cache.get(namespace).await {
+                (
+                    cached.last_rates.rx_bytes_per_sec,
+                    cached.last_rates.tx_bytes_per_sec,
+                )
+            } else {
+                (0.0, 0.0)
+            };
 
-    // Process pod count results
-    for result in &pod_results {
-        if let Some(namespace) = result["metric"]["namespace"].as_str() {
-            if namespace.starts_with("kube-")
-                || namespace == "local-path-storage"
-                || namespace == "default"
-                || namespace == "linux"
-                || namespace.is_empty()
-            {
-                continue;
-            }
-            if let Some(value) = result["value"][1].as_str() {
-                let count: i32 = value.parse().unwrap_or(1);
-                if let Some(entry) = metrics_map.get_mut(namespace) {
-                    entry.2 = count;
-                }
-            }
-        }
+        metrics_map.insert(
+            namespace.clone(),
+            (rx_rate, tx_rate, current.pod_count as i32),
+        );
     }
 
     // Color palette for nodes
@@ -228,15 +187,14 @@ async fn get_network_topology(
     }
 
     // Discover edges from Kubernetes Services
-    let mut edges: Vec<NetworkEdge> = Vec::new();
     let namespace_set: HashSet<String> = metrics_map.keys().cloned().collect();
+    let edges = discover_service_connections(k8s, &namespace_set).await;
 
-    if let Some(k8s) = state.k8s_client.read().await.as_ref() {
-        // Discover service connections by examining services and their endpoints
-        edges = discover_service_connections(k8s, &namespace_set).await;
-    }
+    // Drop the lock before returning
+    drop(k8s_guard);
 
     // Deduplicate edges
+    let mut edges = edges;
     edges.sort_by(|a, b| (&a.source, &a.target).cmp(&(&b.source, &b.target)));
     edges.dedup_by(|a, b| a.source == b.source && a.target == b.target);
 
@@ -538,91 +496,134 @@ async fn discover_service_connections(
 }
 
 /// Get detailed network statistics per app
+/// Uses direct cAdvisor metrics for real-time network data
 async fn get_network_stats(
+    State(state): State<AppState>,
     _auth: Authorized<NetworkingView>,
 ) -> Result<Json<Vec<NetworkStats>>> {
-    // Query all network metrics - get ALL namespaces
-    let queries = [
-        (
-            r#"sum by (namespace) (rate(container_network_receive_bytes_total{interface!="lo"}[5m]))"#,
-            "rx_bytes",
-        ),
-        (
-            r#"sum by (namespace) (rate(container_network_transmit_bytes_total{interface!="lo"}[5m]))"#,
-            "tx_bytes",
-        ),
-        (
-            r#"sum by (namespace) (rate(container_network_receive_packets_total{interface!="lo"}[5m]))"#,
-            "rx_packets",
-        ),
-        (
-            r#"sum by (namespace) (rate(container_network_transmit_packets_total{interface!="lo"}[5m]))"#,
-            "tx_packets",
-        ),
-        (
-            r#"sum by (namespace) (rate(container_network_receive_errors_total{interface!="lo"}[5m]))"#,
-            "rx_errors",
-        ),
-        (
-            r#"sum by (namespace) (rate(container_network_transmit_errors_total{interface!="lo"}[5m]))"#,
-            "tx_errors",
-        ),
-        (
-            r#"sum by (namespace) (rate(container_network_receive_packets_dropped_total{interface!="lo"}[5m]))"#,
-            "rx_dropped",
-        ),
-        (
-            r#"sum by (namespace) (rate(container_network_transmit_packets_dropped_total{interface!="lo"}[5m]))"#,
-            "tx_dropped",
-        ),
-        (r#"count by (namespace) (kube_pod_info)"#, "pod_count"),
-    ];
-
-    let mut metrics_map: HashMap<String, HashMap<String, f64>> = HashMap::new();
-
-    for (query, metric_name) in queries {
-        let results = query_vm(query).await;
-        for result in results {
-            if let Some(namespace) = result["metric"]["namespace"].as_str() {
-                // Skip internal k8s namespaces
-                if namespace.starts_with("kube-")
-                    || namespace == "local-path-storage"
-                    || namespace == "default"
-                    || namespace == "linux"
-                    || namespace.is_empty()
-                {
-                    continue;
-                }
-                if let Some(value) = result["value"][1].as_str() {
-                    let val: f64 = value.parse().unwrap_or(0.0);
-                    metrics_map
-                        .entry(namespace.to_string())
-                        .or_default()
-                        .insert(metric_name.to_string(), val);
-                }
-            }
+    // Fetch metrics directly from cAdvisor via K8s API
+    let k8s_guard = state.k8s_client.read().await;
+    let k8s = match k8s_guard.as_ref() {
+        Some(k8s) => k8s,
+        None => {
+            // No K8s client available, return empty stats
+            return Ok(Json(Vec::new()));
         }
+    };
+
+    // Fetch raw metrics from all nodes
+    let raw_metrics = fetch_cadvisor_metrics(k8s.client()).await;
+    let current_metrics = aggregate_by_namespace(&raw_metrics);
+
+    // Drop the lock before processing
+    drop(k8s_guard);
+
+    // Calculate rates using cached values, with fallback to last known rates
+    let mut stats: Vec<NetworkStats> = Vec::new();
+
+    for (namespace, current) in &current_metrics {
+        if is_excluded_namespace(namespace) {
+            continue;
+        }
+
+        // Read rates from cache (updated by background broadcaster)
+        let (rx_bytes, tx_bytes, rx_packets, tx_packets, rx_errors, tx_errors, rx_dropped, tx_dropped) =
+            if let Some(cached) = state.network_metrics_cache.get(namespace).await {
+                let r = &cached.last_rates;
+                (
+                    r.rx_bytes_per_sec,
+                    r.tx_bytes_per_sec,
+                    r.rx_packets_per_sec,
+                    r.tx_packets_per_sec,
+                    r.rx_errors_per_sec,
+                    r.tx_errors_per_sec,
+                    r.rx_dropped_per_sec,
+                    r.tx_dropped_per_sec,
+                )
+            } else {
+                (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+            };
+
+        stats.push(NetworkStats {
+            namespace: namespace.clone(),
+            app_name: capitalize_first(namespace),
+            rx_bytes_per_sec: (rx_bytes * 100.0).round() / 100.0,
+            tx_bytes_per_sec: (tx_bytes * 100.0).round() / 100.0,
+            rx_packets_per_sec: (rx_packets * 100.0).round() / 100.0,
+            tx_packets_per_sec: (tx_packets * 100.0).round() / 100.0,
+            rx_errors_per_sec: (rx_errors * 100.0).round() / 100.0,
+            tx_errors_per_sec: (tx_errors * 100.0).round() / 100.0,
+            rx_dropped_per_sec: (rx_dropped * 100.0).round() / 100.0,
+            tx_dropped_per_sec: (tx_dropped * 100.0).round() / 100.0,
+            pod_count: current.pod_count as i32,
+        });
+        // Note: Cache is updated by get_network_topology, not here
+        // to avoid race conditions when both endpoints are called simultaneously
     }
 
-    // Build stats list
-    let stats: Vec<NetworkStats> = metrics_map
-        .into_iter()
-        .map(|(namespace, metrics)| NetworkStats {
-            namespace: namespace.clone(),
-            app_name: capitalize_first(&namespace),
-            rx_bytes_per_sec: (metrics.get("rx_bytes").unwrap_or(&0.0) * 100.0).round() / 100.0,
-            tx_bytes_per_sec: (metrics.get("tx_bytes").unwrap_or(&0.0) * 100.0).round() / 100.0,
-            rx_packets_per_sec: (metrics.get("rx_packets").unwrap_or(&0.0) * 100.0).round() / 100.0,
-            tx_packets_per_sec: (metrics.get("tx_packets").unwrap_or(&0.0) * 100.0).round() / 100.0,
-            rx_errors_per_sec: (metrics.get("rx_errors").unwrap_or(&0.0) * 100.0).round() / 100.0,
-            tx_errors_per_sec: (metrics.get("tx_errors").unwrap_or(&0.0) * 100.0).round() / 100.0,
-            rx_dropped_per_sec: (metrics.get("rx_dropped").unwrap_or(&0.0) * 100.0).round() / 100.0,
-            tx_dropped_per_sec: (metrics.get("tx_dropped").unwrap_or(&0.0) * 100.0).round() / 100.0,
-            pod_count: metrics.get("pod_count").unwrap_or(&1.0).round() as i32,
-        })
-        .collect();
-
     Ok(Json(stats))
+}
+
+// ============================================================================
+// WebSocket Handler
+// ============================================================================
+
+/// WebSocket upgrade handler for real-time network metrics
+async fn ws_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    tracing::info!("WebSocket upgrade request received");
+    ws.on_upgrade(move |socket| handle_socket(socket, state))
+}
+
+/// Handle WebSocket connection
+async fn handle_socket(socket: WebSocket, state: AppState) {
+    let (mut sender, mut receiver) = socket.split();
+
+    // Subscribe to the broadcast channel
+    let mut rx = state.network_metrics_tx.subscribe();
+
+    tracing::info!("New WebSocket client connected for network metrics, subscribers: {}", state.network_metrics_tx.receiver_count());
+
+    // Spawn task to forward broadcast messages to WebSocket
+    let send_task = tokio::spawn(async move {
+        while let Ok(msg) = rx.recv().await {
+            if sender.send(Message::Text(msg.into())).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Handle incoming messages (ping/pong, close)
+    let recv_task = tokio::spawn(async move {
+        while let Some(result) = receiver.next().await {
+            match result {
+                Ok(Message::Ping(data)) => {
+                    debug!("Received ping from WebSocket client");
+                    // Pong is handled automatically by axum
+                    let _ = data;
+                }
+                Ok(Message::Close(_)) => {
+                    debug!("WebSocket client requested close");
+                    break;
+                }
+                Err(e) => {
+                    debug!("WebSocket error: {}", e);
+                    break;
+                }
+                _ => {}
+            }
+        }
+    });
+
+    // Wait for either task to complete (client disconnect or error)
+    tokio::select! {
+        _ = send_task => {},
+        _ = recv_task => {},
+    }
+
+    tracing::info!("WebSocket client disconnected");
 }
 
 // ============================================================================

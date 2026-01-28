@@ -1,20 +1,20 @@
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::{header, HeaderMap, HeaderValue},
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{delete, get, post},
     Json, Router,
 };
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use chrono::{Duration, Utc};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 
-use crate::endpoints::extractors::{get_user_app_access, get_user_permissions};
 use crate::middleware::auth::SESSION_COOKIE_NAME;
 use crate::config::CONFIG;
 use crate::models::prelude::*;
-use crate::models::user;
+use crate::models::{session, user};
 use crate::error::{AppError, Result};
-use crate::services::{create_access_token, verify_password, verify_totp};
+use crate::services::{create_session_token, decode_session_token, verify_password, verify_totp};
 use crate::state::AppState;
 
 /// Create auth routes for session management
@@ -22,7 +22,8 @@ pub fn auth_routes(state: AppState) -> Router {
     Router::new()
         .route("/login", post(login))
         .route("/logout", post(logout))
-        .route("/refresh", post(refresh_session))
+        .route("/sessions", get(list_sessions))
+        .route("/sessions/:session_id", delete(revoke_session))
         .with_state(state)
 }
 
@@ -44,9 +45,14 @@ pub struct LoginResponse {
     pub email: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct RefreshRequest {
-    pub refresh_token: Option<String>,
+#[derive(Debug, Serialize)]
+pub struct SessionInfo {
+    pub id: String,
+    pub user_agent: Option<String>,
+    pub ip_address: Option<String>,
+    pub created_at: String,
+    pub last_accessed_at: String,
+    pub is_current: bool,
 }
 
 // ============================================================================
@@ -80,6 +86,7 @@ fn clear_session_cookie() -> HeaderValue {
 /// Login with username and password, returns session cookie
 async fn login(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(request): Json<LoginRequest>,
 ) -> Result<Response> {
     // Find user by username or email
@@ -123,103 +130,164 @@ async fn login(
         }
     }
 
-    // Get user permissions for token
-    let permissions = get_user_permissions(&state.db, found_user.id).await;
-    let allowed_apps = get_user_app_access(&state.db, found_user.id).await;
+    // Create session record in database
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let now = Utc::now();
+    let expires_at = now + Duration::days(7);
 
-    // Create access token (7 days for session)
-    let access_token = create_access_token(
-        &found_user.id.to_string(),
-        Some(&found_user.email),
-        None,
-        None,
-        Some(604800), // 7 days
-        Some(permissions),
-        Some(allowed_apps),
-    )?;
+    // Extract user agent and IP from headers
+    let user_agent = headers
+        .get(header::USER_AGENT)
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.chars().take(255).collect::<String>());
+
+    let ip_address = headers
+        .get("x-forwarded-for")
+        .or_else(|| headers.get("x-real-ip"))
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.split(',').next().unwrap_or(s).trim().to_string());
+
+    let session = session::ActiveModel {
+        id: Set(session_id.clone()),
+        user_id: Set(found_user.id),
+        user_agent: Set(user_agent),
+        ip_address: Set(ip_address),
+        created_at: Set(now),
+        expires_at: Set(expires_at),
+        last_accessed_at: Set(now),
+        is_revoked: Set(false),
+    };
+    session.insert(&state.db).await?;
+
+    // Create minimal session token (JWT containing only session ID)
+    let session_token = create_session_token(&session_id)?;
 
     // Build response with cookie
     let response = Json(LoginResponse {
         user_id: found_user.id,
-        username: found_user.username,
-        email: found_user.email,
+        username: found_user.username.clone(),
+        email: found_user.email.clone(),
     });
 
     // Determine if we should set Secure flag (check if running behind HTTPS)
     let secure = CONFIG.oauth2_issuer_url.starts_with("https://");
 
+    tracing::info!(
+        user_id = found_user.id,
+        username = found_user.username,
+        "User logged in, session created"
+    );
+
     Ok((
-        [(header::SET_COOKIE, create_session_cookie(&access_token, secure))],
+        [(header::SET_COOKIE, create_session_cookie(&session_token, secure))],
         response,
     )
         .into_response())
 }
 
-/// Logout - clears the session cookie
-async fn logout() -> Response {
-    ([(header::SET_COOKIE, clear_session_cookie())], Json(serde_json::json!({"message": "Logged out"}))).into_response()
-}
-
-/// Refresh the session token
-async fn refresh_session(
+/// Logout - revokes the session and clears the cookie
+async fn logout(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(request): Json<RefreshRequest>,
 ) -> Result<Response> {
-    use crate::services::security::decode_token;
-
-    // Get current token from cookie or request body
-    let current_token = extract_session_token(&headers)
-        .or(request.refresh_token)
-        .ok_or_else(|| AppError::Unauthorized("No session to refresh".to_string()))?;
-
-    // Decode and validate current token
-    let claims = decode_token(&current_token)
-        .map_err(|_| AppError::Unauthorized("Invalid or expired session".to_string()))?;
-
-    // Don't allow refresh tokens to be used for session refresh
-    if claims.token_type.as_deref() == Some("refresh") {
-        return Err(AppError::BadRequest(
-            "Cannot use refresh token for session refresh".to_string(),
-        ));
+    // Try to get and revoke the current session
+    if let Some(token) = extract_session_token(&headers) {
+        if let Ok(claims) = decode_session_token(&token) {
+            // Revoke the session in the database
+            let _ = Session::delete_by_id(&claims.sid).exec(&state.db).await;
+            tracing::info!(session_id = claims.sid, "Session revoked on logout");
+        }
     }
 
-    // Get user ID from token
-    let user_id: i64 = claims
-        .sub
-        .parse()
-        .map_err(|_| AppError::Unauthorized("Invalid session".to_string()))?;
-
-    // Verify user still exists and is active
-    let found_user = User::find_by_id(user_id)
-        .filter(user::Column::IsActive.eq(true))
-        .filter(user::Column::IsApproved.eq(true))
-        .one(&state.db)
-        .await?
-        .ok_or_else(|| AppError::Unauthorized("User not found or inactive".to_string()))?;
-
-    // Get fresh permissions
-    let permissions = get_user_permissions(&state.db, found_user.id).await;
-    let allowed_apps = get_user_app_access(&state.db, found_user.id).await;
-
-    // Create new access token
-    let new_token = create_access_token(
-        &found_user.id.to_string(),
-        Some(&found_user.email),
-        None,
-        None,
-        Some(604800), // 7 days
-        Some(permissions),
-        Some(allowed_apps),
-    )?;
-
-    let secure = CONFIG.oauth2_issuer_url.starts_with("https://");
-
     Ok((
-        [(header::SET_COOKIE, create_session_cookie(&new_token, secure))],
-        Json(serde_json::json!({"message": "Session refreshed"})),
+        [(header::SET_COOKIE, clear_session_cookie())],
+        Json(serde_json::json!({"message": "Logged out"})),
     )
         .into_response())
+}
+
+/// List all active sessions for the current user
+async fn list_sessions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<SessionInfo>>> {
+    // Get current session from cookie
+    let token = extract_session_token(&headers)
+        .ok_or_else(|| AppError::Unauthorized("Not authenticated".to_string()))?;
+
+    let claims = decode_session_token(&token)
+        .map_err(|_| AppError::Unauthorized("Invalid or expired session".to_string()))?;
+
+    // Get the current session to find user_id
+    let current_session = Session::find_by_id(&claims.sid)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::Unauthorized("Session not found".to_string()))?;
+
+    // Get all active sessions for this user
+    let sessions = Session::find()
+        .filter(session::Column::UserId.eq(current_session.user_id))
+        .filter(session::Column::IsRevoked.eq(false))
+        .filter(session::Column::ExpiresAt.gt(Utc::now()))
+        .all(&state.db)
+        .await?;
+
+    let session_infos: Vec<SessionInfo> = sessions
+        .into_iter()
+        .map(|s| SessionInfo {
+            id: s.id.clone(),
+            user_agent: s.user_agent,
+            ip_address: s.ip_address,
+            created_at: s.created_at.to_rfc3339(),
+            last_accessed_at: s.last_accessed_at.to_rfc3339(),
+            is_current: s.id == claims.sid,
+        })
+        .collect();
+
+    Ok(Json(session_infos))
+}
+
+/// Revoke a specific session (must belong to current user)
+async fn revoke_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+) -> Result<Json<serde_json::Value>> {
+    // Get current session from cookie
+    let token = extract_session_token(&headers)
+        .ok_or_else(|| AppError::Unauthorized("Not authenticated".to_string()))?;
+
+    let claims = decode_session_token(&token)
+        .map_err(|_| AppError::Unauthorized("Invalid or expired session".to_string()))?;
+
+    // Get the current session to find user_id
+    let current_session = Session::find_by_id(&claims.sid)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::Unauthorized("Session not found".to_string()))?;
+
+    // Find the session to revoke
+    let target_session = Session::find_by_id(&session_id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Session not found".to_string()))?;
+
+    // Verify it belongs to the same user
+    if target_session.user_id != current_session.user_id {
+        return Err(AppError::Forbidden("Cannot revoke another user's session".to_string()));
+    }
+
+    // Don't allow revoking current session (use logout instead)
+    if target_session.id == claims.sid {
+        return Err(AppError::BadRequest("Cannot revoke current session. Use logout instead.".to_string()));
+    }
+
+    // Delete the session
+    Session::delete_by_id(&session_id).exec(&state.db).await?;
+
+    tracing::info!(session_id = session_id, "Session revoked by user");
+
+    Ok(Json(serde_json::json!({"message": "Session revoked"})))
 }
 
 /// Extract session token from cookie header

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { networkingApi, NetworkTopology, formatBandwidth, formatPackets } from '../api/networking'
+import { NetworkTopology, formatBandwidth, formatPackets } from '../api/networking'
+import { useNetworkMetricsWs, ConnectionMode } from '../hooks/useNetworkMetricsWs'
 import { AppIcon } from '../components/AppIcon'
 import {
   ReactFlow,
@@ -24,7 +24,6 @@ import dagre from 'dagre'
 import {
   Network,
   RefreshCw,
-  Gauge,
   AlertCircle,
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -34,6 +33,8 @@ import {
   Zap,
   Maximize2,
   Minimize2,
+  Radio,
+  RotateCw,
 } from 'lucide-react'
 
 // ============================================================================
@@ -723,17 +724,67 @@ function NetworkStatsTable({ stats }: { stats: any[] }) {
 }
 
 // ============================================================================
+// Connection Status Indicator
+// ============================================================================
+
+interface ConnectionStatusProps {
+  mode: ConnectionMode
+}
+
+function ConnectionStatus({ mode }: ConnectionStatusProps) {
+  const config = {
+    websocket: {
+      icon: Radio,
+      label: 'Live',
+      className: 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400',
+      iconClassName: 'text-green-500',
+    },
+    polling: {
+      icon: RotateCw,
+      label: 'Polling',
+      className: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400',
+      iconClassName: 'text-yellow-500',
+    },
+    disconnected: {
+      icon: WifiOff,
+      label: 'Disconnected',
+      className: 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400',
+      iconClassName: 'text-gray-400',
+    },
+  }
+
+  const { icon: Icon, label, className, iconClassName } = config[mode]
+
+  return (
+    <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${className}`}>
+      <Icon size={12} className={iconClassName} />
+      <span>{label}</span>
+    </div>
+  )
+}
+
+// ============================================================================
 // Main Page Component
 // ============================================================================
 
 // Infrastructure namespaces to hide by default
-const INFRA_NAMESPACES = ['promtail', 'victoriametrics', 'loki']
+const INFRA_NAMESPACES = ['fluent-bit', 'victoriametrics', 'victorialogs']
 
 export default function NetworkingPage() {
-  const [autoRefresh, setAutoRefresh] = useState(true)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [showInfra, setShowInfra] = useState(false)
   const networkFlowRef = useRef<HTMLDivElement>(null)
+
+  // Use WebSocket hook for real-time updates with HTTP polling fallback
+  const {
+    topology,
+    stats,
+    connectionMode,
+    error: wsError,
+  } = useNetworkMetricsWs()
+
+  const isLoading = !topology && !stats
+  const hasError = wsError && connectionMode === 'disconnected'
 
   // Fullscreen toggle
   const toggleFullscreen = useCallback(() => {
@@ -763,39 +814,11 @@ export default function NetworkingPage() {
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
   }, [])
 
-  // Fetch topology
-  const {
-    data: topology,
-    isLoading: topologyLoading,
-    refetch: refetchTopology,
-    error: topologyError,
-  } = useQuery({
-    queryKey: ['networking', 'topology'],
-    queryFn: networkingApi.getTopology,
-    refetchInterval: autoRefresh ? 15000 : false,
-  })
-
-  // Fetch stats
-  const {
-    data: stats,
-    isLoading: statsLoading,
-    refetch: refetchStats,
-  } = useQuery({
-    queryKey: ['networking', 'stats'],
-    queryFn: networkingApi.getStats,
-    refetchInterval: autoRefresh ? 15000 : false,
-  })
-
-  const handleRefresh = () => {
-    refetchTopology()
-    refetchStats()
-  }
-
   // Calculate totals
-  const totalRx = stats?.reduce((sum, s) => sum + s.rx_bytes_per_sec, 0) || 0
-  const totalTx = stats?.reduce((sum, s) => sum + s.tx_bytes_per_sec, 0) || 0
-  const totalErrors = stats?.reduce((sum, s) => sum + s.rx_errors_per_sec + s.tx_errors_per_sec, 0) || 0
-  const totalDropped = stats?.reduce((sum, s) => sum + s.rx_dropped_per_sec + s.tx_dropped_per_sec, 0) || 0
+  const totalRx = stats.reduce((sum, s) => sum + s.rx_bytes_per_sec, 0)
+  const totalTx = stats.reduce((sum, s) => sum + s.tx_bytes_per_sec, 0)
+  const totalErrors = stats.reduce((sum, s) => sum + s.rx_errors_per_sec + s.tx_errors_per_sec, 0)
+  const totalDropped = stats.reduce((sum, s) => sum + s.rx_dropped_per_sec + s.tx_dropped_per_sec, 0)
 
   // Get internet traffic from the external node
   const externalNode = topology?.nodes.find(n => n.type === 'external')
@@ -817,16 +840,16 @@ export default function NetworkingPage() {
     return { nodes: filteredNodes, edges: filteredEdges }
   }, [topology, showInfra])
 
-  if (topologyError) {
+  if (hasError) {
     return (
       <div className="flex flex-col items-center justify-center h-[60vh] text-center">
         <AlertCircle size={64} className="text-red-500 mb-4" />
         <h2 className="text-2xl font-bold mb-2 text-gray-900 dark:text-white">Error Loading Network Data</h2>
         <p className="text-gray-500 dark:text-gray-400 max-w-md">
-          Could not fetch network topology data. Make sure VictoriaMetrics is running.
+          Could not connect to network metrics. Check your connection and try again.
         </p>
         <button
-          onClick={handleRefresh}
+          onClick={() => window.location.reload()}
           className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white"
         >
           Retry
@@ -849,23 +872,13 @@ export default function NetworkingPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <ConnectionStatus mode={connectionMode} />
           <button
-            onClick={() => setAutoRefresh(!autoRefresh)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-              autoRefresh
-                ? 'bg-green-600 hover:bg-green-700 text-white'
-                : 'bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-white'
-            }`}
-          >
-            <Gauge size={18} />
-            {autoRefresh ? 'Live' : 'Paused'}
-          </button>
-          <button
-            onClick={handleRefresh}
-            disabled={topologyLoading || statsLoading}
+            onClick={() => window.location.reload()}
+            disabled={isLoading}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 text-white"
           >
-            <RefreshCw size={18} className={topologyLoading || statsLoading ? 'animate-spin' : ''} />
+            <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
             Refresh
           </button>
         </div>
@@ -932,7 +945,7 @@ export default function NetworkingPage() {
                   ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
                   : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
-              title={showInfra ? 'Hide infrastructure' : 'Show infrastructure (promtail, loki, victoriametrics)'}
+              title={showInfra ? 'Hide infrastructure' : 'Show infrastructure (fluent-bit, victorialogs, victoriametrics)'}
             >
               <span>{showInfra ? 'Infra: ON' : 'Infra: OFF'}</span>
             </button>
@@ -965,7 +978,7 @@ export default function NetworkingPage() {
               </button>
             </div>
           )}
-          {topologyLoading ? (
+          {isLoading ? (
             <div className="flex items-center justify-center h-full">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
             </div>
@@ -981,11 +994,11 @@ export default function NetworkingPage() {
           <Network size={20} />
           Network Statistics
         </h2>
-        {statsLoading ? (
+        {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
           </div>
-        ) : stats && stats.length > 0 ? (
+        ) : stats.length > 0 ? (
           <NetworkStatsTable stats={stats} />
         ) : (
           <div className="bg-white dark:bg-gray-800 rounded-lg p-8 text-center text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700">
@@ -996,12 +1009,12 @@ export default function NetworkingPage() {
         )}
       </div>
 
-      {/* Auto-refresh indicator */}
-      {autoRefresh && (
-        <div className="text-center text-sm text-gray-500 dark:text-gray-500">
-          Auto-refreshing every 15 seconds
-        </div>
-      )}
+      {/* Connection mode indicator */}
+      <div className="text-center text-sm text-gray-500 dark:text-gray-500">
+        {connectionMode === 'websocket' && 'Real-time updates via WebSocket'}
+        {connectionMode === 'polling' && 'Updating via HTTP polling (reconnecting...)'}
+        {connectionMode === 'disconnected' && 'Disconnected'}
+      </div>
     </div>
   )
 }

@@ -276,8 +276,8 @@ data:
         },
         {
           "datasource": {
-            "type": "loki",
-            "uid": "loki"
+            "type": "victoriametrics-logs-datasource",
+            "uid": "victorialogs"
           },
           "gridPos": {
             "h": 10,

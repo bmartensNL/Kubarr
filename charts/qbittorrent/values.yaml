@@ -26,11 +26,11 @@ qbittorrent:
   # Resource limits and requests
   resources:
     requests:
-      cpu: 200m
-      memory: 512Mi
+      cpu: 100m
+      memory: 128Mi
     limits:
-      cpu: 2000m
-      memory: 4Gi
+      # No CPU limit - allow unlimited cores for fast transfers
+      memory: 512Mi
 
   # Environment variables
   env:
@@ -53,6 +53,16 @@ qbittorrent:
       AuthSubnetWhitelistEnabled: "true"
       # Whitelist all private networks (pod network will be in this range)
       AuthSubnetWhitelist: "10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16"
+    BitTorrent:
+      # Limit disk cache to reduce RAM usage (in MiB, -1 = auto which uses lots of RAM)
+      Session\DiskCacheSize: "64"
+      # Disk cache expiry (seconds)
+      Session\DiskCacheTTL: "60"
+      # Limit connections to reduce memory
+      Session\MaxConnections: "200"
+      Session\MaxConnectionsPerTorrent: "50"
+      Session\MaxUploads: "20"
+      Session\MaxUploadsPerTorrent: "4"
 
   # Probes configuration
   livenessProbe:
@@ -60,20 +70,20 @@ qbittorrent:
     httpGet:
       path: /
       port: 8080
-    initialDelaySeconds: 30
+    initialDelaySeconds: 60
     periodSeconds: 30
     timeoutSeconds: 10
-    failureThreshold: 3
+    failureThreshold: 5
 
   readinessProbe:
     enabled: true
     httpGet:
       path: /
       port: 8080
-    initialDelaySeconds: 15
+    initialDelaySeconds: 30
     periodSeconds: 10
     timeoutSeconds: 5
-    failureThreshold: 3
+    failureThreshold: 6
 
 # Persistent volumes configuration
 persistence:
@@ -168,6 +178,7 @@ storage:
 networkPolicy:
   enabled: true
   ingressFrom:
+    - kubarr         # kubarr dashboard proxy
     - nginx  # nginx reverse proxy
     - sonarr         # arr apps connecting to download client
     - radarr

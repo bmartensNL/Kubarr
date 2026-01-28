@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy manifests
-COPY Cargo.toml Cargo.lock ./
+COPY code/backend/Cargo.toml code/backend/Cargo.lock ./
 
 # Create dummy main to cache dependencies
 RUN mkdir src && echo "fn main() {}" > src/main.rs
@@ -18,7 +18,7 @@ RUN cargo build --release
 RUN rm -rf src
 
 # Copy source code
-COPY src ./src
+COPY code/backend/src ./src
 
 # Build the actual application
 RUN touch src/main.rs && cargo build --release
@@ -28,14 +28,19 @@ FROM debian:trixie-slim
 
 WORKDIR /app
 
-# Install runtime dependencies
+# Install runtime dependencies and helm
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libssl3t64 \
+    curl \
+    && curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the binary
 COPY --from=builder /app/target/release/kubarr /app/kubarr
+
+# Copy charts directory
+COPY charts /app/charts
 
 # Create data directory
 RUN mkdir -p /data
@@ -45,6 +50,7 @@ ENV KUBARR_HOST=0.0.0.0
 ENV KUBARR_PORT=8080
 ENV KUBARR_LOG_LEVEL=info
 ENV KUBARR_OAUTH2_ISSUER_URL=http://localhost:8080
+ENV KUBARR_CHARTS_DIR=/app/charts
 
 EXPOSE 8080
 

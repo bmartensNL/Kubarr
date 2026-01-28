@@ -20,12 +20,12 @@ data:
         jsonData:
           timeInterval: "30s"
       {{- end }}
-      {{- if .Values.grafana.datasources.loki.enabled }}
-      - name: Loki
-        type: loki
-        uid: loki
+      {{- if .Values.grafana.datasources.victorialogs.enabled }}
+      - name: VictoriaLogs
+        type: victoriametrics-logs-datasource
+        uid: victorialogs
         access: proxy
-        url: {{ .Values.grafana.datasources.loki.url }}
+        url: {{ .Values.grafana.datasources.victorialogs.url }}
         editable: false
         jsonData:
           maxLines: 1000

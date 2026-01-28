@@ -15,18 +15,18 @@ victoriametrics:
     port: 8428
     targetPort: 8428
 
-  # VictoriaMetrics uses significantly less resources than Prometheus
+  # VictoriaMetrics with minimal caching - trades query speed for low RAM
   resources:
     requests:
-      cpu: 100m
-      memory: 128Mi
+      cpu: 50m
+      memory: 64Mi
     limits:
       cpu: 500m
-      memory: 512Mi
+      memory: 192Mi
 
-  retention: "15d"
+  retention: "7d"
 
-  scrapeInterval: "30s"
+  scrapeInterval: "60s"
 
   livenessProbe:
     enabled: true
@@ -79,5 +79,5 @@ networkPolicy:
     - jellyfin
     - jellyseerr
     - sabnzbd
-    - loki
-    - promtail
+    - victorialogs
+    - fluent-bit

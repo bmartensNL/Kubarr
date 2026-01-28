@@ -37,9 +37,9 @@ grafana:
     prometheus:
       enabled: true
       url: "http://victoriametrics.victoriametrics.svc.cluster.local:8428"
-    loki:
+    victorialogs:
       enabled: true
-      url: "http://loki.loki.svc.cluster.local:3100"
+      url: "http://victorialogs.victorialogs.svc.cluster.local:9428"
 
   # Enable anonymous access (protected by oauth2-proxy)
   auth:
@@ -88,7 +88,8 @@ podAnnotations: {}
 networkPolicy:
   enabled: true
   ingressFrom:
+    - kubarr         # kubarr dashboard proxy
     - nginx  # nginx reverse proxy
   egressTo:
     - victoriametrics
-    - loki
+    - victorialogs

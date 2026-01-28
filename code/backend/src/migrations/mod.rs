@@ -17,6 +17,7 @@ mod m20260127_000014_create_notification_events;
 mod m20260127_000015_create_user_notification_prefs;
 mod m20260127_000016_create_notification_logs;
 mod m20260127_000017_create_user_notifications;
+mod m20260128_000001_create_sessions;
 
 pub struct Migrator;
 
@@ -41,6 +42,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260127_000015_create_user_notification_prefs::Migration),
             Box::new(m20260127_000016_create_notification_logs::Migration),
             Box::new(m20260127_000017_create_user_notifications::Migration),
+            Box::new(m20260128_000001_create_sessions::Migration),
         ]
     }
 }

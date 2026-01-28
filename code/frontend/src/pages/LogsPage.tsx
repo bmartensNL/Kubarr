@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { logsApi, LokiStream, LokiLogEntry } from '../api/logs'
 import { AppIcon } from '../components/AppIcon'
 import {
@@ -7,12 +7,63 @@ import {
   Clock,
   Filter,
   ChevronDown,
+  ChevronUp,
   AlertCircle,
   FileText,
   Play,
   Pause,
-  Check
+  Check,
+  AlertTriangle
 } from 'lucide-react'
+
+// Available log levels for filtering
+const LOG_LEVELS = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL', 'TRACE'] as const
+type LogLevel = typeof LOG_LEVELS[number]
+
+// Sort configuration
+type SortField = 'timestamp' | 'level' | 'app' | 'message'
+type SortDirection = 'asc' | 'desc'
+
+// Cookie name for storing filter preferences
+const LOGS_FILTER_COOKIE = 'kubarr_logs_filters'
+
+// Cookie utility functions
+function setCookie(name: string, value: string, days: number = 365) {
+  const expires = new Date(Date.now() + days * 864e5).toUTCString()
+  document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax`
+}
+
+function getCookie(name: string): string | null {
+  const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'))
+  return match ? decodeURIComponent(match[2]) : null
+}
+
+// Filter preferences interface
+interface LogsFilterPrefs {
+  selectedLevels: LogLevel[]
+  selectedApps: string[]
+  timeRangeValue: string
+  sortField: SortField
+  sortDirection: SortDirection
+}
+
+// Load filter preferences from cookie
+function loadFilterPrefs(): Partial<LogsFilterPrefs> {
+  try {
+    const cookie = getCookie(LOGS_FILTER_COOKIE)
+    if (cookie) {
+      return JSON.parse(cookie)
+    }
+  } catch (e) {
+    console.error('Failed to load logs filter preferences:', e)
+  }
+  return {}
+}
+
+// Save filter preferences to cookie
+function saveFilterPrefs(prefs: LogsFilterPrefs) {
+  setCookie(LOGS_FILTER_COOKIE, JSON.stringify(prefs))
+}
 
 // Get display label for app (capitalize first letter)
 function getAppLabel(app: string): string {
@@ -43,6 +94,17 @@ function formatTimestamp(timestamp: string): string {
   })
 }
 
+// Log level row colors (subtle backgrounds for full row)
+const LOG_LEVEL_ROW_COLORS: Record<string, string> = {
+  DEBUG: 'bg-gray-50 dark:bg-gray-900/30',
+  INFO: '', // default, no special color
+  WARN: 'bg-yellow-50 dark:bg-yellow-900/20',
+  WARNING: 'bg-yellow-50 dark:bg-yellow-900/20',
+  ERROR: 'bg-red-50 dark:bg-red-900/30',
+  FATAL: 'bg-red-100 dark:bg-red-900/50',
+  TRACE: 'bg-purple-50 dark:bg-purple-900/20',
+}
+
 // Flatten streams into a single sorted list of log entries
 function flattenStreams(streams: LokiStream[] | null | undefined): Array<LokiLogEntry & { labels: Record<string, string> }> {
   const entries: Array<LokiLogEntry & { labels: Record<string, string> }> = []
@@ -68,9 +130,17 @@ function flattenStreams(streams: LokiStream[] | null | undefined): Array<LokiLog
 }
 
 export default function LogsPage() {
+  // Load saved preferences from cookie
+  const savedPrefs = useMemo(() => loadFilterPrefs(), [])
+
   const [apps, setApps] = useState<string[]>([])
   const [selectedApps, setSelectedApps] = useState<string[]>([])
-  const [timeRange, setTimeRange] = useState(TIME_RANGES[1]) // Default to 1 hour
+  const [selectedLevels, setSelectedLevels] = useState<LogLevel[]>(
+    savedPrefs.selectedLevels?.filter(l => LOG_LEVELS.includes(l)) || [...LOG_LEVELS]
+  )
+  const [timeRange, setTimeRange] = useState(
+    TIME_RANGES.find(r => r.value === savedPrefs.timeRangeValue) || TIME_RANGES[1]
+  )
   const [searchText, setSearchText] = useState('')
   const [streams, setStreams] = useState<LokiStream[]>([])
   const [loading, setLoading] = useState(false)
@@ -78,9 +148,23 @@ export default function LogsPage() {
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [showAppDropdown, setShowAppDropdown] = useState(false)
   const [showTimeDropdown, setShowTimeDropdown] = useState(false)
+  const [showLevelDropdown, setShowLevelDropdown] = useState(false)
+  const [sortField, setSortField] = useState<SortField>(savedPrefs.sortField || 'timestamp')
+  const [sortDirection, setSortDirection] = useState<SortDirection>(savedPrefs.sortDirection || 'desc')
 
   const logsContainerRef = useRef<HTMLDivElement>(null)
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Save filter preferences to cookie when they change
+  useEffect(() => {
+    saveFilterPrefs({
+      selectedLevels,
+      selectedApps,
+      timeRangeValue: timeRange.value,
+      sortField,
+      sortDirection,
+    })
+  }, [selectedLevels, selectedApps, timeRange.value, sortField, sortDirection])
 
   // Load apps (namespaces) on mount
   useEffect(() => {
@@ -89,11 +173,18 @@ export default function LogsPage() {
         const ns = await logsApi.getNamespaces()
         const appList = Array.isArray(ns) ? ns : []
         setApps(appList)
-        // Select all apps by default
-        setSelectedApps(appList)
+        // Restore saved apps, filtering to only include apps that still exist
+        const savedApps = savedPrefs.selectedApps
+        if (savedApps && savedApps.length > 0) {
+          const validSavedApps = savedApps.filter(app => appList.includes(app))
+          setSelectedApps(validSavedApps.length > 0 ? validSavedApps : appList)
+        } else {
+          // Select all apps by default
+          setSelectedApps(appList)
+        }
       } catch (err) {
         console.error('Failed to load apps:', err)
-        setError('Failed to connect to Loki. Make sure Loki is running.')
+        setError('Failed to connect to VictoriaLogs. Make sure VictoriaLogs is running.')
         setApps([])
         setSelectedApps([])
       }
@@ -194,8 +285,71 @@ export default function LogsPage() {
     }
   }
 
-  // Flatten and filter entries
-  const entries = flattenStreams(streams)
+  // Toggle level selection
+  const toggleLevel = (level: LogLevel) => {
+    setSelectedLevels(prev =>
+      prev.includes(level)
+        ? prev.filter(l => l !== level)
+        : [...prev, level]
+    )
+  }
+
+  // Select/deselect all levels
+  const toggleAllLevels = () => {
+    if (selectedLevels.length === LOG_LEVELS.length) {
+      setSelectedLevels([])
+    } else {
+      setSelectedLevels([...LOG_LEVELS])
+    }
+  }
+
+  // Handle column header click for sorting
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDirection(field === 'timestamp' ? 'desc' : 'asc')
+    }
+  }
+
+  // Flatten, filter, and sort entries
+  const entries = useMemo(() => {
+    const flattened = flattenStreams(streams)
+
+    // Filter by selected levels
+    const filtered = flattened.filter(entry => {
+      const level = entry.level?.toUpperCase() as LogLevel
+      if (!level) return selectedLevels.length === LOG_LEVELS.length // Show entries without level if all levels selected
+      return selectedLevels.includes(level)
+    })
+
+    // Sort entries
+    return filtered.sort((a, b) => {
+      let comparison = 0
+
+      switch (sortField) {
+        case 'timestamp':
+          comparison = new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+          break
+        case 'level':
+          const levelA = a.level?.toUpperCase() || ''
+          const levelB = b.level?.toUpperCase() || ''
+          comparison = levelA.localeCompare(levelB)
+          break
+        case 'app':
+          const appA = a.labels.namespace || ''
+          const appB = b.labels.namespace || ''
+          comparison = appA.localeCompare(appB)
+          break
+        case 'message':
+          comparison = (a.line || '').localeCompare(b.line || '')
+          break
+      }
+
+      return sortDirection === 'asc' ? comparison : -comparison
+    })
+  }, [streams, selectedLevels, sortField, sortDirection])
 
   // Get selected apps display text
   const getSelectedAppsText = () => {
@@ -207,6 +361,33 @@ export default function LogsPage() {
     return `${selectedApps.length} apps`
   }
 
+  // Get selected levels display text
+  const getSelectedLevelsText = () => {
+    if (selectedLevels.length === 0) return 'No levels'
+    if (selectedLevels.length === LOG_LEVELS.length) return 'All levels'
+    if (selectedLevels.length === 1) return selectedLevels[0]
+    return `${selectedLevels.length} levels`
+  }
+
+  // Get level color for badge
+  const getLevelColor = (level: string) => {
+    switch (level) {
+      case 'DEBUG': return 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+      case 'INFO': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
+      case 'WARN': return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300'
+      case 'ERROR': return 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300'
+      case 'FATAL': return 'bg-red-200 text-red-800 dark:bg-red-900/70 dark:text-red-200'
+      case 'TRACE': return 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300'
+      default: return 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+    }
+  }
+
+  // Sort icon component
+  const SortIcon = ({ field }: { field: SortField }) => {
+    if (sortField !== field) return <ChevronDown size={14} className="opacity-30" />
+    return sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+  }
+
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
@@ -215,7 +396,7 @@ export default function LogsPage() {
           <FileText className="text-blue-500 dark:text-blue-400" />
           Logs
         </h1>
-        <p className="text-gray-500 dark:text-gray-400 mt-1">View application logs from Loki</p>
+        <p className="text-gray-500 dark:text-gray-400 mt-1">View application logs from VictoriaLogs</p>
       </div>
 
       {/* Filters Bar */}
@@ -266,6 +447,61 @@ export default function LogsPage() {
                       </div>
                       <AppIcon appName={app} size={32} />
                       <span className="flex-1 font-medium">{getAppLabel(app)}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Level Filter */}
+        <div className="relative">
+          <button
+            onClick={() => setShowLevelDropdown(!showLevelDropdown)}
+            className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-750 transition-colors text-gray-900 dark:text-white"
+          >
+            <AlertTriangle size={16} />
+            <span>{getSelectedLevelsText()}</span>
+            <ChevronDown size={16} />
+          </button>
+
+          {showLevelDropdown && (
+            <div className="absolute top-full left-0 mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-50">
+              <div className="p-2 border-b border-gray-200 dark:border-gray-700">
+                <button
+                  onClick={toggleAllLevels}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors text-gray-900 dark:text-white"
+                >
+                  <div className={`w-5 h-5 rounded border flex items-center justify-center ${
+                    selectedLevels.length === LOG_LEVELS.length
+                      ? 'bg-blue-600 border-blue-600'
+                      : 'border-gray-300 dark:border-gray-600'
+                  }`}>
+                    {selectedLevels.length === LOG_LEVELS.length && <Check size={14} className="text-white" />}
+                  </div>
+                  <span className="font-medium">
+                    {selectedLevels.length === LOG_LEVELS.length ? 'Deselect All' : 'Select All'}
+                  </span>
+                </button>
+              </div>
+              <div className="p-2 space-y-1">
+                {LOG_LEVELS.map(level => {
+                  const isSelected = selectedLevels.includes(level)
+                  return (
+                    <button
+                      key={level}
+                      onClick={() => toggleLevel(level)}
+                      className="w-full flex items-center gap-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors text-left text-gray-900 dark:text-white"
+                    >
+                      <div className={`w-5 h-5 rounded border flex items-center justify-center ${
+                        isSelected ? 'bg-blue-600 border-blue-600' : 'border-gray-300 dark:border-gray-600'
+                      }`}>
+                        {isSelected && <Check size={14} className="text-white" />}
+                      </div>
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${getLevelColor(level)}`}>
+                        {level}
+                      </span>
                     </button>
                   )
                 })}
@@ -345,12 +581,13 @@ export default function LogsPage() {
       </div>
 
       {/* Close dropdowns on click outside */}
-      {(showAppDropdown || showTimeDropdown) && (
+      {(showAppDropdown || showTimeDropdown || showLevelDropdown) && (
         <div
           className="fixed inset-0 z-40"
           onClick={() => {
             setShowAppDropdown(false)
             setShowTimeDropdown(false)
+            setShowLevelDropdown(false)
           }}
         />
       )}
@@ -388,26 +625,72 @@ export default function LogsPage() {
           </div>
         ) : (
           <table className="w-full">
+            <thead className="sticky top-0 bg-gray-200 dark:bg-gray-900 border-b border-gray-300 dark:border-gray-700">
+              <tr>
+                <th
+                  onClick={() => handleSort('timestamp')}
+                  className="px-3 py-2 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 cursor-pointer hover:bg-gray-300 dark:hover:bg-gray-800 transition-colors whitespace-nowrap"
+                >
+                  <div className="flex items-center gap-1">
+                    Time
+                    <SortIcon field="timestamp" />
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('level')}
+                  className="px-2 py-2 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 cursor-pointer hover:bg-gray-300 dark:hover:bg-gray-800 transition-colors whitespace-nowrap"
+                >
+                  <div className="flex items-center gap-1">
+                    Level
+                    <SortIcon field="level" />
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('app')}
+                  className="px-2 py-2 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 cursor-pointer hover:bg-gray-300 dark:hover:bg-gray-800 transition-colors whitespace-nowrap"
+                >
+                  <div className="flex items-center gap-1">
+                    App
+                    <SortIcon field="app" />
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('message')}
+                  className="px-3 py-2 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 cursor-pointer hover:bg-gray-300 dark:hover:bg-gray-800 transition-colors"
+                >
+                  <div className="flex items-center gap-1">
+                    Message
+                    <SortIcon field="message" />
+                  </div>
+                </th>
+              </tr>
+            </thead>
             <tbody>
               {entries.map((entry, index) => {
                 const appName = entry.labels.namespace || 'unknown'
+                const level = entry.level?.toUpperCase()
+                const rowColor = level ? LOG_LEVEL_ROW_COLORS[level] || '' : ''
 
                 return (
                   <tr
                     key={`${entry.timestamp}-${index}`}
-                    className="hover:bg-gray-200 dark:hover:bg-gray-900/50 border-b border-gray-200 dark:border-gray-800/50"
+                    className={`border-b border-gray-200 dark:border-gray-800/50 ${rowColor}`}
                   >
                     <td className="px-3 py-1 text-gray-500 whitespace-nowrap align-top text-xs">
                       {formatTimestamp(entry.timestamp)}
+                    </td>
+                    <td className="px-2 py-1 whitespace-nowrap align-top">
+                      {level && (
+                        <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${getLevelColor(level)}`}>
+                          {level}
+                        </span>
+                      )}
                     </td>
                     <td className="px-2 py-1 whitespace-nowrap align-top">
                       <div className="inline-flex items-center gap-1.5 px-1.5 py-0.5 text-xs rounded bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-200">
                         <AppIcon appName={appName} size={18} />
                         <span>{getAppLabel(appName)}</span>
                       </div>
-                    </td>
-                    <td className="px-2 py-1 text-gray-500 dark:text-gray-400 whitespace-nowrap align-top text-xs max-w-[150px] truncate" title={entry.labels.pod || ''}>
-                      {entry.labels.container || entry.labels.pod?.split('-').slice(0, -2).join('-') || ''}
                     </td>
                     <td className="px-3 py-1 text-gray-700 dark:text-gray-200 whitespace-pre-wrap break-all">
                       {entry.line}

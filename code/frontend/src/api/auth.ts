@@ -15,16 +15,30 @@ export type SessionLoginStatus = 'success' | '2fa_required' | '2fa_setup_require
 export interface SessionLoginResponse {
   status: SessionLoginStatus;
   challenge_token?: string;
+  // Backend returns these on success
+  user_id?: number;
+  username?: string;
+  email?: string;
 }
 
 export interface LoginRequest {
   username: string;
   password: string;
+  totp_code?: string;
 }
 
 export interface Verify2FARequest {
   challenge_token: string;
   code: string;
+}
+
+export interface SessionInfo {
+  id: string;
+  user_agent: string | null;
+  ip_address: string | null;
+  created_at: string;
+  last_accessed_at: string;
+  is_current: boolean;
 }
 
 // ============================================================================
@@ -33,37 +47,66 @@ export interface Verify2FARequest {
 
 /**
  * Login with username and password
- * Returns status indicating if 2FA is required
+ * Returns user info on success, or requires 2FA
  */
 export const sessionLogin = async (credentials: LoginRequest): Promise<SessionLoginResponse> => {
-  const response = await authClient.post<SessionLoginResponse>('/session/login', credentials);
-  return response.data;
+  try {
+    const response = await authClient.post<SessionLoginResponse>('/login', credentials);
+    // Backend returns user info directly on success
+    return { ...response.data, status: 'success' };
+  } catch (error: unknown) {
+    if (axios.isAxiosError(error) && error.response?.status === 400) {
+      const detail = error.response.data?.detail || '';
+      if (detail.includes('Two-factor authentication code required')) {
+        return { status: '2fa_required' };
+      }
+    }
+    throw error;
+  }
 };
 
 /**
- * Verify 2FA code during login
+ * Verify 2FA code during login (sends credentials again with TOTP)
  */
-export const verify2FA = async (data: Verify2FARequest): Promise<SessionLoginResponse> => {
-  const response = await authClient.post<SessionLoginResponse>('/session/2fa/verify', data);
-  return response.data;
+export const verify2FA = async (
+  credentials: LoginRequest,
+  code: string
+): Promise<SessionLoginResponse> => {
+  return sessionLogin({ ...credentials, totp_code: code });
 };
 
 /**
  * Logout (clears session cookie)
  */
 export const sessionLogout = async (): Promise<{ success: boolean }> => {
-  const response = await authClient.post<{ success: boolean }>('/session/logout');
+  const response = await authClient.post('/logout');
+  return { success: true, ...response.data };
+};
+
+/**
+ * Verify current session is valid by checking /api/users/me
+ */
+export const verifySession = async (): Promise<boolean> => {
+  try {
+    // Use the main API client to check if authenticated
+    const response = await axios.get('/api/users/me', { withCredentials: true });
+    return response.status === 200;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Get all active sessions for the current user
+ */
+export const getSessions = async (): Promise<SessionInfo[]> => {
+  const response = await authClient.get<SessionInfo[]>('/sessions');
   return response.data;
 };
 
 /**
- * Verify current session is valid
+ * Revoke a specific session
  */
-export const verifySession = async (): Promise<boolean> => {
-  try {
-    await authClient.get('/session/verify');
-    return true;
-  } catch {
-    return false;
-  }
+export const revokeSession = async (sessionId: string): Promise<void> => {
+  await authClient.delete(`/sessions/${sessionId}`);
 };

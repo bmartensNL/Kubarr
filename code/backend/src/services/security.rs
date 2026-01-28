@@ -47,6 +47,13 @@ pub struct Claims {
     pub allowed_apps: Option<Vec<String>>, // Apps user can access (e.g., ["sonarr", "radarr", "*"])
 }
 
+/// Minimal JWT claims for session tokens (stored in cookie)
+/// Contains only the session ID - expiration is checked in the database
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SessionClaims {
+    pub sid: String, // Session ID (UUID)
+}
+
 /// Get the JWT private key (PEM format)
 pub fn get_private_key() -> Result<String> {
     // Fast path: check cache with read lock
@@ -76,9 +83,25 @@ pub fn get_private_key() -> Result<String> {
         }
     }
 
-    // Generate in-memory key for development
-    tracing::warn!("JWT private key not found, generating temporary key");
+    // Generate new key pair and persist to disk
+    tracing::info!("JWT private key not found, generating new persistent key pair");
     let (private_pem, public_pem) = generate_rsa_key_pair()?;
+
+    // Try to save keys to disk for persistence across restarts
+    if let Some(parent) = CONFIG.jwt_private_key_path.parent() {
+        if parent.exists() {
+            if let Err(e) = fs::write(&CONFIG.jwt_private_key_path, &private_pem) {
+                tracing::warn!("Failed to save private key to disk: {}", e);
+            } else {
+                tracing::info!("JWT private key saved to {:?}", CONFIG.jwt_private_key_path);
+            }
+            if let Err(e) = fs::write(&CONFIG.jwt_public_key_path, &public_pem) {
+                tracing::warn!("Failed to save public key to disk: {}", e);
+            } else {
+                tracing::info!("JWT public key saved to {:?}", CONFIG.jwt_public_key_path);
+            }
+        }
+    }
 
     *priv_cache = Some(private_pem.clone());
     drop(priv_cache); // Release private key lock before acquiring public key lock
@@ -253,6 +276,37 @@ pub fn decode_token(token: &str) -> Result<Claims> {
     validation.leeway = 0;
 
     let token_data = decode::<Claims>(token, &decoding_key, &validation)?;
+    Ok(token_data.claims)
+}
+
+/// Create a minimal session token (JWT containing only session ID)
+/// This is stored in the cookie - expiration and user data are looked up from the database
+pub fn create_session_token(session_id: &str) -> Result<String> {
+    let claims = SessionClaims {
+        sid: session_id.to_string(),
+    };
+
+    let private_key = get_private_key()?;
+    let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes())
+        .map_err(|e| AppError::Internal(format!("Invalid private key: {}", e)))?;
+
+    let header = Header::new(jsonwebtoken::Algorithm::RS256);
+    encode(&header, &claims, &encoding_key).map_err(|e| e.into())
+}
+
+/// Decode and validate a session token
+/// Returns the session ID if signature is valid - expiration is checked in the database
+pub fn decode_session_token(token: &str) -> Result<SessionClaims> {
+    let public_key = get_public_key()?;
+    let decoding_key = DecodingKey::from_rsa_pem(public_key.as_bytes())
+        .map_err(|e| AppError::Internal(format!("Invalid public key: {}", e)))?;
+
+    let mut validation = Validation::new(jsonwebtoken::Algorithm::RS256);
+    validation.validate_exp = false; // Expiration checked in database
+    validation.validate_aud = false;
+    validation.required_spec_claims.clear(); // No required claims
+
+    let token_data = decode::<SessionClaims>(token, &decoding_key, &validation)?;
     Ok(token_data.claims)
 }
 

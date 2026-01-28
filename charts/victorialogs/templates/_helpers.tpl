@@ -1,14 +1,14 @@
 {{/*
 Expand the name of the chart.
 */}}
-{{- define "promtail.name" -}}
+{{- define "victorialogs.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Create a default fully qualified app name.
 */}}
-{{- define "promtail.fullname" -}}
+{{- define "victorialogs.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -24,16 +24,16 @@ Create a default fully qualified app name.
 {{/*
 Create chart name and version as used by the chart label.
 */}}
-{{- define "promtail.chart" -}}
+{{- define "victorialogs.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Common labels
 */}}
-{{- define "promtail.labels" -}}
-helm.sh/chart: {{ include "promtail.chart" . }}
-{{ include "promtail.selectorLabels" . }}
+{{- define "victorialogs.labels" -}}
+helm.sh/chart: {{ include "victorialogs.chart" . }}
+{{ include "victorialogs.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -43,17 +43,17 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{/*
 Selector labels
 */}}
-{{- define "promtail.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "promtail.name" . }}
+{{- define "victorialogs.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "victorialogs.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
 Create the name of the service account to use
 */}}
-{{- define "promtail.serviceAccountName" -}}
+{{- define "victorialogs.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
-{{- default (include "promtail.fullname" .) .Values.serviceAccount.name }}
+{{- default (include "victorialogs.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}

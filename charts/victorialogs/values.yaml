@@ -1,56 +1,60 @@
 namespace:
   create: false  # kubarr deployment manager creates the namespace
-  name: loki
+  name: victorialogs
 
-loki:
+victorialogs:
   replicaCount: 1
 
   image:
-    repository: grafana/loki
-    tag: "2.9.3"
+    repository: victoriametrics/victoria-logs
+    tag: "v1.3.2-victorialogs"
     pullPolicy: IfNotPresent
 
   service:
     type: ClusterIP
-    port: 3100
-    targetPort: 3100
-
-  # Path prefix for reverse proxy (empty - Loki API already includes /loki/ prefix)
-  pathPrefix: ""
+    port: 9428
+    targetPort: 9428
 
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
+      cpu: 10m
+      memory: 32Mi
     limits:
-      cpu: 500m
-      memory: 1Gi
+      cpu: 200m
+      memory: 256Mi
 
-  retention: "168h"
+  # Data retention period
+  retention: "7d"
+
+  # Storage path inside container
+  storagePath: /data
 
   livenessProbe:
     enabled: true
-    initialDelaySeconds: 45
+    initialDelaySeconds: 5
     periodSeconds: 10
     timeoutSeconds: 5
     failureThreshold: 3
 
   readinessProbe:
     enabled: true
-    initialDelaySeconds: 15
+    initialDelaySeconds: 5
     periodSeconds: 10
     timeoutSeconds: 5
     failureThreshold: 3
 
+  # Extra command line arguments
+  extraArgs: []
+
 persistence:
   enabled: true
-  size: 20Gi
+  size: 10Gi
   storageClass: ""
   accessMode: ReadWriteOnce
 
 serviceAccount:
   create: true
-  name: loki
+  name: victorialogs
 
 nodeSelector: {}
 tolerations: []
@@ -61,7 +65,6 @@ podAnnotations: {}
 networkPolicy:
   enabled: true
   ingressFrom:
-    - nginx  # nginx reverse proxy
-    - kubarr  # for log queries
+    - fluent-bit     # for log ingestion
     - grafana        # for log queries
-    - promtail       # for log ingestion
+    - kubarr         # for log queries

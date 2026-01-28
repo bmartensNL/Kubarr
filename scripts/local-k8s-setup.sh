@@ -34,8 +34,19 @@ fi
 
 # Create kind cluster if not exists
 if ! kind get clusters 2>/dev/null | grep -q "kubarr"; then
-    echo "Creating kind cluster 'kubarr'..."
-    kind create cluster --name kubarr --wait 60s
+    echo "Creating kind cluster 'kubarr' with port mappings..."
+
+    # Create kind config with port mappings
+    cat <<EOF | kind create cluster --name kubarr --wait 60s --config=-
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+  extraPortMappings:
+  - containerPort: 30080
+    hostPort: 8080
+    protocol: TCP
+EOF
 else
     echo "Kind cluster 'kubarr' already exists"
 fi
@@ -43,36 +54,12 @@ fi
 # Set kubectl context
 kubectl cluster-info --context kind-kubarr
 
-# Build Docker image
-echo "Building Docker image..."
-cd "$PROJECT_ROOT/backend"
-docker build -t kubarr:local .
-
-# Load image into kind
-echo "Loading image into kind cluster..."
-kind load docker-image kubarr:local --name kubarr
-
-# Apply Kubernetes manifests
-echo "Deploying to Kubernetes..."
-kubectl apply -f "$PROJECT_ROOT/k8s/namespace.yaml"
-kubectl apply -f "$PROJECT_ROOT/k8s/rbac.yaml"
-kubectl apply -f "$PROJECT_ROOT/k8s/service.yaml"
-kubectl apply -f "$PROJECT_ROOT/k8s/deployment.yaml"
-
-# Wait for deployment
-echo "Waiting for deployment to be ready..."
-kubectl rollout status deployment/kubarr -n kubarr --timeout=120s
-
 echo ""
 echo "=== Setup Complete ==="
 echo ""
-echo "To access Kubarr, run:"
-echo "  kubectl port-forward -n kubarr svc/kubarr 8080:8080"
+echo "Run ./scripts/deploy.sh to build and deploy Kubarr"
 echo ""
-echo "Then open: http://localhost:8080"
-echo ""
-echo "To view logs:"
-echo "  kubectl logs -n kubarr -l app.kubernetes.io/name=kubarr -f"
+echo "Once deployed, access Kubarr at: http://localhost:8080"
 echo ""
 echo "To delete the cluster:"
 echo "  kind delete cluster --name kubarr"

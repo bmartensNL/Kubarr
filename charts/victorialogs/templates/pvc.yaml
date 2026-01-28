@@ -2,15 +2,15 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "loki.fullname" . }}-data
+  name: {{ include "victorialogs.fullname" . }}-data
   namespace: {{ .Values.namespace.name }}
   labels:
-    {{- include "loki.labels" . | nindent 4 }}
+    {{- include "victorialogs.labels" . | nindent 4 }}
 spec:
   accessModes:
     - {{ .Values.persistence.accessMode }}
   {{- if .Values.persistence.storageClass }}
-  storageClassName: {{ .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass | quote }}
   {{- end }}
   resources:
     requests:

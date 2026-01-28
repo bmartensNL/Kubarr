@@ -18,6 +18,7 @@ import { MonitoringProvider } from './contexts/MonitoringContext'
 import { VersionFooter } from './components/VersionFooter'
 import { PageTransition } from './components/PageTransition'
 import { setupApi } from './api/setup'
+import { sessionLogout } from './api/auth'
 import { Grid3X3, HardDrive, FileText, Activity, Settings, User, LogOut, Ship, ChevronDown, Sun, Moon, Monitor, Network, Menu, X, Shield, Bell, Check, Trash2, AlertCircle, Info, AlertTriangle } from 'lucide-react'
 import { notificationsApi, Notification } from './api/notifications'
 
@@ -281,15 +282,18 @@ function NotificationInbox() {
 }
 
 function UserMenu() {
-  const { user, loading } = useAuth()
+  const { user, loading, logout } = useAuth()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const location = useLocation()
 
-  const handleLogout = () => {
-    // Redirect to oauth2-proxy sign out endpoint to clear session cookie
-    // Don't call logout() first - it triggers ProtectedRoute redirect before navigation
-    // rd=/ will trigger OAuth redirect after session is cleared
-    window.location.href = '/oauth2/sign_out?rd=/'
+  const handleLogout = async () => {
+    try {
+      await sessionLogout()
+    } catch (e) {
+      // Ignore errors - cookie will be cleared anyway
+    }
+    logout()
+    window.location.href = '/login'
   }
 
   if (loading || !user) return null
@@ -334,13 +338,24 @@ function UserMenu() {
 }
 
 function Navigation() {
-  const { hasPermission } = useAuth()
+  const { hasPermission, logout } = useAuth()
   const location = useLocation()
   const [systemDropdownOpen, setSystemDropdownOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [mobileSystemOpen, setMobileSystemOpen] = useState(false)
 
   const isActive = (path: string) => location.pathname === path
+
+  const handleLogout = async () => {
+    setMobileMenuOpen(false)
+    try {
+      await sessionLogout()
+    } catch (e) {
+      // Ignore errors
+    }
+    logout()
+    window.location.href = '/login'
+  }
 
   // Check which system menu items are visible
   const canViewResources = hasPermission('monitoring.view')
@@ -661,10 +676,7 @@ function Navigation() {
 
             {/* Logout button */}
             <button
-              onClick={() => {
-                setMobileMenuOpen(false)
-                window.location.href = '/oauth2/sign_out?rd=/'
-              }}
+              onClick={handleLogout}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-md text-base font-medium text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
             >
               <LogOut size={20} strokeWidth={2} />

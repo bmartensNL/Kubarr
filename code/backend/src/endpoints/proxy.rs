@@ -13,7 +13,7 @@ use axum::{
 
 use crate::error::{AppError, Result};
 use crate::middleware::Authenticated;
-use crate::services::{is_websocket_upgrade, proxy_websocket, ProxyService};
+use crate::services::{is_websocket_upgrade, proxy_websocket};
 use crate::state::AppState;
 
 /// Create proxy routes
@@ -63,8 +63,7 @@ async fn proxy_app(
     }
 
     // Proxy HTTP request
-    let proxy = ProxyService::new();
-    proxy.proxy_http(&target_url, method, headers, body).await
+    state.proxy.proxy_http(&target_url, method, headers, body).await
 }
 
 /// Check if user has permission to access the app
@@ -80,32 +79,42 @@ async fn check_app_permission(state: &AppState, user_id: i64, app_name: &str) ->
 
 /// Get the target URL for an app
 async fn get_app_target_url(state: &AppState, app_name: &str, path: &str) -> Result<String> {
-    // Get K8s client
-    let k8s_guard = state.k8s_client.read().await;
-    let k8s = k8s_guard
-        .as_ref()
-        .ok_or_else(|| AppError::ServiceUnavailable("Kubernetes not available".to_string()))?;
+    // Check cache first
+    let base_url = if let Some(cached_url) = state.endpoint_cache.get(app_name).await {
+        cached_url
+    } else {
+        // Get K8s client
+        let k8s_guard = state.k8s_client.read().await;
+        let k8s = k8s_guard
+            .as_ref()
+            .ok_or_else(|| AppError::ServiceUnavailable("Kubernetes not available".to_string()))?;
 
-    // Get service endpoints for the app
-    // Apps are deployed in namespaces named after the app
-    let endpoints = k8s.get_service_endpoints(app_name, app_name).await?;
+        // Get service endpoints for the app
+        // Apps are deployed in namespaces named after the app
+        let endpoints = k8s.get_service_endpoints(app_name, app_name).await?;
 
-    if endpoints.is_empty() {
-        return Err(AppError::NotFound(format!(
-            "App {} not found or not ready",
-            app_name
-        )));
-    }
+        if endpoints.is_empty() {
+            return Err(AppError::NotFound(format!(
+                "App {} not found or not ready",
+                app_name
+            )));
+        }
 
-    // Use the first endpoint
-    let endpoint = &endpoints[0];
+        // Use the first endpoint
+        let endpoint = &endpoints[0];
 
-    // Build the internal URL
-    // Format: http://{service_name}.{namespace}.svc.cluster.local:{port}/{path}
-    let base_url = format!(
-        "http://{}.{}.svc.cluster.local:{}",
-        endpoint.name, endpoint.namespace, endpoint.port
-    );
+        // Build the internal URL
+        // Format: http://{service_name}.{namespace}.svc.cluster.local:{port}/{path}
+        let base_url = format!(
+            "http://{}.{}.svc.cluster.local:{}",
+            endpoint.name, endpoint.namespace, endpoint.port
+        );
+
+        // Cache the base URL
+        state.endpoint_cache.set(app_name, base_url.clone()).await;
+
+        base_url
+    };
 
     // Append path
     let path = path.trim_start_matches('/');

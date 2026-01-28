@@ -3,6 +3,7 @@ import apiClient from './client'
 export interface LokiLogEntry {
   timestamp: string
   line: string
+  level?: string
 }
 
 export interface LokiStream {
@@ -25,7 +26,7 @@ export interface LokiQueryParams {
 
 export const logsApi = {
   /**
-   * Get all available labels from Loki
+   * Get all available labels from VictoriaLogs
    */
   getLabels: async (): Promise<string[]> => {
     const response = await apiClient.get<string[]>('/logs/loki/labels')
@@ -49,7 +50,7 @@ export const logsApi = {
   },
 
   /**
-   * Query logs from Loki
+   * Query logs from VictoriaLogs (uses legacy Loki API endpoint for compatibility)
    */
   queryLogs: async (params: LokiQueryParams): Promise<LokiQueryResponse> => {
     const response = await apiClient.get<LokiQueryResponse>('/logs/loki/query', {

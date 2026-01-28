@@ -1,30 +1,19 @@
 import { useState, useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
-import { User, Mail, Shield, Sun, Moon, Monitor, Check, Key, Smartphone, AlertTriangle, Eye, EyeOff, Loader2, Link2, Unlink, Menu, X, Palette, Info } from 'lucide-react'
+import { User, Mail, Shield, Sun, Moon, Monitor, Check, Key, Smartphone, AlertTriangle, Eye, EyeOff, Loader2, Link2, Unlink, Palette, Info, Clock, Globe, Trash2, History } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import type { Theme, TwoFactorStatusResponse, TwoFactorSetupResponse } from '../api/users'
 import { changeOwnPassword, get2FAStatus, setup2FA, enable2FA, disable2FA } from '../api/users'
 import { oauthApi, type LinkedAccount, type AvailableProvider } from '../api/oauth'
-
-type AccountSection = 'profile' | 'appearance' | 'security' | 'linked-accounts'
+import { getSessions, revokeSession, type SessionInfo } from '../api/auth'
+import { auditApi, type AuditLog } from '../api/audit'
 
 export default function AccountPage() {
   const { user, isAdmin } = useAuth()
   const { theme, setTheme } = useTheme()
-  const [searchParams, setSearchParams] = useSearchParams()
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
-
-  // Get active section from URL
-  const activeSection = (searchParams.get('section') as AccountSection) || 'profile'
-
-  const setActiveSection = (section: AccountSection) => {
-    setSearchParams({ section })
-    setMobileSidebarOpen(false)
-  }
 
   // Password change state
   const [currentPassword, setCurrentPassword] = useState('')
@@ -53,6 +42,15 @@ export default function AccountPage() {
   const [unlinkingProvider, setUnlinkingProvider] = useState<string | null>(null)
   const [linkedAccountError, setLinkedAccountError] = useState('')
   const [linkedAccountSuccess, setLinkedAccountSuccess] = useState('')
+
+  // Sessions state
+  const [sessions, setSessions] = useState<SessionInfo[]>([])
+  const [loadingSessions, setLoadingSessions] = useState(true)
+  const [revokingSession, setRevokingSession] = useState<string | null>(null)
+
+  // Audit log state
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
+  const [loadingAudit, setLoadingAudit] = useState(true)
 
   // Load 2FA status on mount
   useEffect(() => {
@@ -87,6 +85,37 @@ export default function AccountPage() {
     }
     loadLinkedAccounts()
   }, [])
+
+  // Load sessions on mount
+  useEffect(() => {
+    const loadSessions = async () => {
+      try {
+        const data = await getSessions()
+        setSessions(data)
+      } catch (err) {
+        console.error('Failed to load sessions:', err)
+      } finally {
+        setLoadingSessions(false)
+      }
+    }
+    loadSessions()
+  }, [])
+
+  // Load audit logs for current user
+  useEffect(() => {
+    const loadAuditLogs = async () => {
+      if (!user) return
+      try {
+        const data = await auditApi.getLogs({ user_id: user.id, per_page: 10 })
+        setAuditLogs(data.logs)
+      } catch (err) {
+        console.error('Failed to load audit logs:', err)
+      } finally {
+        setLoadingAudit(false)
+      }
+    }
+    loadAuditLogs()
+  }, [user])
 
   // Password change handler
   const handlePasswordChange = async (e: React.FormEvent) => {
@@ -209,6 +238,43 @@ export default function AccountPage() {
     window.location.href = oauthApi.getLinkUrl(provider)
   }
 
+  // Revoke session
+  const handleRevokeSession = async (sessionId: string) => {
+    setRevokingSession(sessionId)
+    try {
+      await revokeSession(sessionId)
+      setSessions(prev => prev.filter(s => s.id !== sessionId))
+    } catch (err) {
+      console.error('Failed to revoke session:', err)
+    } finally {
+      setRevokingSession(null)
+    }
+  }
+
+  // Format user agent for display
+  const formatUserAgent = (ua: string | null): string => {
+    if (!ua) return 'Unknown device'
+    if (ua.includes('Firefox')) return 'Firefox'
+    if (ua.includes('Chrome')) return 'Chrome'
+    if (ua.includes('Safari')) return 'Safari'
+    if (ua.includes('Edge')) return 'Edge'
+    return ua.slice(0, 30) + '...'
+  }
+
+  // Format relative time
+  const formatRelativeTime = (dateStr: string): string => {
+    const date = new Date(dateStr)
+    const now = new Date()
+    const diff = now.getTime() - date.getTime()
+    const minutes = Math.floor(diff / 60000)
+    const hours = Math.floor(diff / 3600000)
+    const days = Math.floor(diff / 86400000)
+    if (minutes < 1) return 'Just now'
+    if (minutes < 60) return `${minutes}m ago`
+    if (hours < 24) return `${hours}h ago`
+    return `${days}d ago`
+  }
+
   // Get provider icon
   const getProviderIcon = (provider: string) => {
     if (provider === 'google') {
@@ -257,579 +323,586 @@ export default function AccountPage() {
     )
   }
 
-  const sidebarItems = [
-    { id: 'profile' as AccountSection, label: 'Profile', icon: User },
-    { id: 'appearance' as AccountSection, label: 'Appearance', icon: Palette },
-    { id: 'security' as AccountSection, label: 'Security', icon: Key },
-    { id: 'linked-accounts' as AccountSection, label: 'Linked Accounts', icon: Link2 },
-  ]
-
   return (
-    <div className="flex h-full w-full relative">
-      {/* Mobile Sidebar Toggle Button */}
-      <button
-        onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
-        className="md:hidden fixed bottom-4 right-4 z-50 flex items-center justify-center w-14 h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg transition-colors"
-        aria-label="Toggle account menu"
-      >
-        {mobileSidebarOpen ? <X size={24} /> : <Menu size={24} />}
-      </button>
-
-      {/* Mobile Sidebar Overlay */}
-      {mobileSidebarOpen && (
-        <div
-          className="md:hidden fixed inset-0 bg-black/50 z-40"
-          onClick={() => setMobileSidebarOpen(false)}
-        />
-      )}
-
-      {/* Left Sidebar */}
-      <div className={`
-        ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-        md:translate-x-0
-        fixed md:relative
-        inset-y-0 left-0
-        z-40 md:z-auto
-        w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex-shrink-0 flex flex-col
-        transition-transform duration-200 ease-in-out
-      `}>
-        <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <User size={20} className="text-gray-500 dark:text-gray-400" />
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Account</h2>
-            </div>
-            <button
-              onClick={() => setMobileSidebarOpen(false)}
-              className="md:hidden p-1 rounded-md text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
-            >
-              <X size={20} />
-            </button>
-          </div>
-        </div>
-        <nav className="p-2 flex-1 overflow-auto">
-          {sidebarItems.map((item) => {
-            const Icon = item.icon
-            return (
-              <button
-                key={item.id}
-                onClick={() => setActiveSection(item.id)}
-                className={`w-full flex items-center justify-between px-3 py-3 md:py-2 rounded-md mb-1 transition-colors ${
-                  activeSection === item.id
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
-                }`}
-              >
-                <div className="flex items-center space-x-3">
-                  <Icon size={18} />
-                  <span>{item.label}</span>
-                </div>
-              </button>
-            )
-          })}
-        </nav>
+    <div className="h-full w-full overflow-auto p-4 md:p-6">
+      {/* Page Header */}
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Account Settings</h1>
+        <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
+          Manage your profile, appearance, security, and linked accounts
+        </p>
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 overflow-auto p-4 md:p-6 min-w-0">
-        {/* Mobile Section Header */}
-        <div className="md:hidden mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
-          <button
-            onClick={() => setMobileSidebarOpen(true)}
-            className="flex items-center gap-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
-          >
-            <Menu size={20} />
-            <span className="text-sm">Account Menu</span>
-          </button>
+      {/* Mosaic Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-6">
+        {/* Profile Panel */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+            <User size={20} className="text-blue-500" />
+            Profile
+          </h3>
+          <div className="space-y-4">
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                <User size={20} className="text-blue-600 dark:text-blue-400" />
+              </div>
+              <div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Username</div>
+                <div className="font-medium">{user.username}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                <Mail size={20} className="text-green-600 dark:text-green-400" />
+              </div>
+              <div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Email</div>
+                <div className="font-medium">{user.email}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
+                <Shield size={20} className="text-purple-600 dark:text-purple-400" />
+              </div>
+              <div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Role</div>
+                <div className="font-medium">
+                  {isAdmin ? (
+                    <span className="inline-flex items-center gap-1">
+                      Administrator
+                      <span className="px-1.5 py-0.5 text-xs bg-blue-600 text-white rounded font-medium">Admin</span>
+                    </span>
+                  ) : (
+                    user.roles?.length ? user.roles.map(r => r.name).join(', ') : 'User'
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Account Info */}
+          <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+              <Info size={16} />
+              Account Information
+            </h4>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-500 dark:text-gray-400">Account created</span>
+                <span>{new Date(user.created_at).toLocaleDateString()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500 dark:text-gray-400">Last updated</span>
+                <span>{new Date(user.updated_at).toLocaleDateString()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500 dark:text-gray-400">Status</span>
+                <span className={user.is_active ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
+                  {user.is_active ? 'Active' : 'Inactive'}
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* Profile Section */}
-        {activeSection === 'profile' && (
-          <div className="space-y-6 max-w-2xl">
-            <div>
-              <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Profile</h3>
-              <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
-                Your account information
-              </p>
-            </div>
-
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-              <div className="space-y-4">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                    <User size={20} className="text-blue-600 dark:text-blue-400" />
-                  </div>
-                  <div>
-                    <div className="text-sm text-gray-500 dark:text-gray-400">Username</div>
-                    <div className="font-medium">{user.username}</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-                    <Mail size={20} className="text-green-600 dark:text-green-400" />
-                  </div>
-                  <div>
-                    <div className="text-sm text-gray-500 dark:text-gray-400">Email</div>
-                    <div className="font-medium">{user.email}</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
-                    <Shield size={20} className="text-purple-600 dark:text-purple-400" />
-                  </div>
-                  <div>
-                    <div className="text-sm text-gray-500 dark:text-gray-400">Role</div>
-                    <div className="font-medium">
-                      {isAdmin ? (
-                        <span className="inline-flex items-center gap-1">
-                          Administrator
-                          <span className="px-1.5 py-0.5 text-xs bg-blue-600 text-white rounded font-medium">Admin</span>
-                        </span>
-                      ) : (
-                        user.roles?.length ? user.roles.map(r => r.name).join(', ') : 'User'
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Account Info */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-              <h4 className="text-lg font-medium text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                <Info size={18} />
-                Account Information
-              </h4>
-              <div className="space-y-3 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-500 dark:text-gray-400">Account created</span>
-                  <span>{new Date(user.created_at).toLocaleDateString()}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500 dark:text-gray-400">Last updated</span>
-                  <span>{new Date(user.updated_at).toLocaleDateString()}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500 dark:text-gray-400">Status</span>
-                  <span className={user.is_active ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
-                    {user.is_active ? 'Active' : 'Inactive'}
-                  </span>
-                </div>
-              </div>
-            </div>
+        {/* Appearance Panel */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <Palette size={20} className="text-purple-500" />
+              Appearance
+            </h3>
+            {saving && (
+              <span className="text-sm text-gray-500 dark:text-gray-400">Saving...</span>
+            )}
+            {saved && (
+              <span className="text-sm text-green-600 dark:text-green-400 flex items-center gap-1">
+                <Check size={16} />
+                Saved
+              </span>
+            )}
           </div>
-        )}
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+            Choose how Kubarr looks to you. Select a single theme, or sync with your system.
+          </p>
+          <div className="grid grid-cols-3 gap-3">
+            {themes.map(({ value, icon: Icon, label, description }) => (
+              <button
+                key={value}
+                onClick={() => handleThemeChange(value)}
+                disabled={saving}
+                className={`relative flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-all ${
+                  theme === value
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                    : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                }`}
+              >
+                {theme === value && (
+                  <div className="absolute top-2 right-2">
+                    <Check size={16} className="text-blue-500" />
+                  </div>
+                )}
+                <Icon size={24} className={theme === value ? 'text-blue-500' : 'text-gray-500 dark:text-gray-400'} />
+                <div className="text-sm font-medium">{label}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400 text-center">{description}</div>
+              </button>
+            ))}
+          </div>
+        </div>
 
-        {/* Appearance Section */}
-        {activeSection === 'appearance' && (
-          <div className="space-y-6 max-w-2xl">
-            <div>
-              <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Appearance</h3>
-              <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
-                Customize how Kubarr looks to you
-              </p>
+        {/* Linked Accounts Panel */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+            <Link2 size={20} className="text-cyan-500" />
+            Linked Accounts
+          </h3>
+
+          {loadingLinkedAccounts ? (
+            <div className="flex items-center gap-2 text-gray-500">
+              <Loader2 size={16} className="animate-spin" />
+              Loading...
             </div>
+          ) : (
+            <>
+              {linkedAccountError && (
+                <div className="p-3 mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-600 dark:text-red-400 text-sm">
+                  {linkedAccountError}
+                </div>
+              )}
+              {linkedAccountSuccess && (
+                <div className="p-3 mb-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-green-600 dark:text-green-400 text-sm flex items-center gap-2">
+                  <Check size={16} />
+                  {linkedAccountSuccess}
+                </div>
+              )}
 
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h4 className="text-lg font-medium text-gray-900 dark:text-white">Theme</h4>
-                {saving && (
-                  <span className="text-sm text-gray-500 dark:text-gray-400">Saving...</span>
-                )}
-                {saved && (
-                  <span className="text-sm text-green-600 dark:text-green-400 flex items-center gap-1">
-                    <Check size={16} />
-                    Saved
-                  </span>
-                )}
-              </div>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                Choose how Kubarr looks to you. Select a single theme, or sync with your system.
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Link your account to sign in with Google or Microsoft.
               </p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {themes.map(({ value, icon: Icon, label, description }) => (
-                  <button
-                    key={value}
-                    onClick={() => handleThemeChange(value)}
-                    disabled={saving}
-                    className={`relative flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-all ${
-                      theme === value
-                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
-                    }`}
-                  >
-                    {theme === value && (
-                      <div className="absolute top-2 right-2">
-                        <Check size={16} className="text-blue-500" />
+
+              {/* Linked accounts list */}
+              {linkedAccounts.length > 0 && (
+                <div className="space-y-3 mb-4">
+                  {linkedAccounts.map(account => (
+                    <div
+                      key={account.provider}
+                      className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-900 rounded-lg"
+                    >
+                      <div className="flex items-center gap-3">
+                        {getProviderIcon(account.provider)}
+                        <div>
+                          <div className="font-medium capitalize">{account.provider}</div>
+                          <div className="text-sm text-gray-500 dark:text-gray-400">
+                            {account.email || account.display_name || 'Connected'}
+                          </div>
+                        </div>
                       </div>
-                    )}
-                    <Icon size={24} className={theme === value ? 'text-blue-500' : 'text-gray-500 dark:text-gray-400'} />
-                    <div className="text-sm font-medium">{label}</div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400 text-center">{description}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Security Section */}
-        {activeSection === 'security' && (
-          <div className="space-y-6 max-w-2xl">
-            <div>
-              <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Security</h3>
-              <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
-                Manage your password and two-factor authentication
-              </p>
-            </div>
-
-            {/* Password Change */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-              <h4 className="text-lg font-medium text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                <Key size={18} />
-                Change Password
-              </h4>
-              <form onSubmit={handlePasswordChange} className="space-y-4">
-                {passwordError && (
-                  <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-600 dark:text-red-400 text-sm">
-                    {passwordError}
-                  </div>
-                )}
-                {passwordSuccess && (
-                  <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-green-600 dark:text-green-400 text-sm flex items-center gap-2">
-                    <Check size={16} />
-                    {passwordSuccess}
-                  </div>
-                )}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Current Password
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showCurrentPassword ? 'text' : 'password'}
-                      value={currentPassword}
-                      onChange={(e) => setCurrentPassword(e.target.value)}
-                      className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      required
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                    >
-                      {showCurrentPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                    </button>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    New Password
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showNewPassword ? 'text' : 'password'}
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      minLength={8}
-                      required
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowNewPassword(!showNewPassword)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                    >
-                      {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                    </button>
-                  </div>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Minimum 8 characters</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Confirm New Password
-                  </label>
-                  <input
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  />
-                </div>
-                <button
-                  type="submit"
-                  disabled={changingPassword}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-medium flex items-center gap-2"
-                >
-                  {changingPassword && <Loader2 size={16} className="animate-spin" />}
-                  Change Password
-                </button>
-              </form>
-            </div>
-
-            {/* Two-Factor Authentication */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-              <h4 className="text-lg font-medium text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                <Smartphone size={18} />
-                Two-Factor Authentication
-              </h4>
-
-              {loading2FA ? (
-                <div className="flex items-center gap-2 text-gray-500">
-                  <Loader2 size={16} className="animate-spin" />
-                  Loading...
-                </div>
-              ) : (
-                <>
-                  {twoFactorError && (
-                    <div className="p-3 mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-600 dark:text-red-400 text-sm">
-                      {twoFactorError}
-                    </div>
-                  )}
-                  {twoFactorSuccess && (
-                    <div className="p-3 mb-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-green-600 dark:text-green-400 text-sm flex items-center gap-2">
-                      <Check size={16} />
-                      {twoFactorSuccess}
-                    </div>
-                  )}
-
-                  {/* Status Display */}
-                  <div className="flex items-center gap-3 mb-4">
-                    <span className="text-sm text-gray-600 dark:text-gray-400">Status:</span>
-                    {twoFactorStatus?.enabled ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded text-sm font-medium">
-                        <Check size={14} />
-                        Enabled
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-sm font-medium">
-                        Disabled
-                      </span>
-                    )}
-                    {twoFactorStatus?.required_by_role && !twoFactorStatus?.enabled && (
-                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded text-sm font-medium">
-                        <AlertTriangle size={14} />
-                        Required by your role
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Setup Flow */}
-                  {!twoFactorStatus?.enabled && !setupData && (
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                        Add an extra layer of security to your account by enabling two-factor authentication.
-                        You'll need an authenticator app like Google Authenticator, Authy, or 1Password.
-                      </p>
                       <button
-                        onClick={handleSetup2FA}
-                        disabled={processing2FA}
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-medium flex items-center gap-2"
+                        onClick={() => handleUnlinkAccount(account.provider)}
+                        disabled={unlinkingProvider === account.provider}
+                        className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg font-medium flex items-center gap-1.5"
                       >
-                        {processing2FA && <Loader2 size={16} className="animate-spin" />}
-                        Set Up Two-Factor Authentication
+                        {unlinkingProvider === account.provider ? (
+                          <Loader2 size={14} className="animate-spin" />
+                        ) : (
+                          <Unlink size={14} />
+                        )}
+                        Unlink
                       </button>
                     </div>
-                  )}
+                  ))}
+                </div>
+              )}
 
-                  {/* QR Code and Verification */}
-                  {setupData && (
-                    <div className="space-y-4">
-                      <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
-                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                          Scan this QR code with your authenticator app, then enter the 6-digit code below to verify.
-                        </p>
-                        <div className="flex flex-col sm:flex-row gap-6 items-start">
-                          <div className="bg-white p-3 rounded-lg">
-                            <QRCodeSVG
-                              value={setupData.provisioning_uri}
-                              size={180}
-                              level="M"
-                            />
-                          </div>
-                          <div className="flex-1 space-y-3">
-                            <div>
-                              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                                Manual Entry Key
-                              </label>
-                              <code className="block px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-sm font-mono break-all">
-                                {setupData.secret}
-                              </code>
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Verification Code
-                              </label>
-                              <input
-                                type="text"
-                                value={verificationCode}
-                                onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                                placeholder="000000"
-                                maxLength={6}
-                                className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center font-mono text-lg tracking-wider"
-                              />
-                            </div>
-                          </div>
-                        </div>
+              {/* Link new provider buttons */}
+              {availableProviders.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {availableProviders
+                    .filter(p => !linkedAccounts.some(a => a.provider === p.id))
+                    .map(provider => (
+                      <button
+                        key={provider.id}
+                        onClick={() => handleLinkAccount(provider.id)}
+                        className="px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-lg font-medium flex items-center gap-2"
+                      >
+                        {getProviderIcon(provider.id)}
+                        Link {provider.name}
+                      </button>
+                    ))}
+                </div>
+              )}
+
+              {availableProviders.length === 0 && linkedAccounts.length === 0 && (
+                <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+                  No OAuth providers are currently configured by the administrator.
+                </p>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Security Panel - Change Password */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+            <Key size={20} className="text-amber-500" />
+            Change Password
+          </h3>
+          <form onSubmit={handlePasswordChange} className="space-y-4">
+            {passwordError && (
+              <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-600 dark:text-red-400 text-sm">
+                {passwordError}
+              </div>
+            )}
+            {passwordSuccess && (
+              <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-green-600 dark:text-green-400 text-sm flex items-center gap-2">
+                <Check size={16} />
+                {passwordSuccess}
+              </div>
+            )}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Current Password
+              </label>
+              <div className="relative">
+                <input
+                  type={showCurrentPassword ? 'text' : 'password'}
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                >
+                  {showCurrentPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                New Password
+              </label>
+              <div className="relative">
+                <input
+                  type={showNewPassword ? 'text' : 'password'}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  minLength={8}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword(!showNewPassword)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                >
+                  {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Minimum 8 characters</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Confirm New Password
+              </label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                required
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={changingPassword}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-medium flex items-center gap-2"
+            >
+              {changingPassword && <Loader2 size={16} className="animate-spin" />}
+              Change Password
+            </button>
+          </form>
+        </div>
+
+        {/* Active Sessions Panel */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+            <Globe size={20} className="text-blue-500" />
+            Active Sessions
+          </h3>
+
+          {loadingSessions ? (
+            <div className="flex items-center gap-2 text-gray-500">
+              <Loader2 size={16} className="animate-spin" />
+              Loading...
+            </div>
+          ) : sessions.length === 0 ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400">No active sessions</p>
+          ) : (
+            <div className="space-y-3">
+              {sessions.map(session => (
+                <div
+                  key={session.id}
+                  className={`p-3 rounded-lg border ${
+                    session.is_current
+                      ? 'border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20'
+                      : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm truncate">
+                          {formatUserAgent(session.user_agent)}
+                        </span>
+                        {session.is_current && (
+                          <span className="px-1.5 py-0.5 text-xs bg-blue-600 text-white rounded font-medium">
+                            Current
+                          </span>
+                        )}
                       </div>
-                      <div className="flex gap-3">
-                        <button
-                          onClick={handleEnable2FA}
-                          disabled={processing2FA || verificationCode.length !== 6}
-                          className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white rounded-lg font-medium flex items-center gap-2"
-                        >
-                          {processing2FA && <Loader2 size={16} className="animate-spin" />}
-                          Verify & Enable
-                        </button>
-                        <button
-                          onClick={cancelSetup}
-                          className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg font-medium"
-                        >
-                          Cancel
-                        </button>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-3">
+                        {session.ip_address && (
+                          <span className="flex items-center gap-1">
+                            <Globe size={12} />
+                            {session.ip_address}
+                          </span>
+                        )}
+                        <span className="flex items-center gap-1">
+                          <Clock size={12} />
+                          {formatRelativeTime(session.last_accessed_at)}
+                        </span>
                       </div>
                     </div>
-                  )}
+                    {!session.is_current && (
+                      <button
+                        onClick={() => handleRevokeSession(session.id)}
+                        disabled={revokingSession === session.id}
+                        className="p-1.5 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 rounded transition-colors"
+                        title="Revoke session"
+                      >
+                        {revokingSession === session.id ? (
+                          <Loader2 size={16} className="animate-spin" />
+                        ) : (
+                          <Trash2 size={16} />
+                        )}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
-                  {/* Disable 2FA */}
-                  {twoFactorStatus?.enabled && (
-                    <div className="space-y-4">
-                      <p className="text-sm text-gray-600 dark:text-gray-400">
-                        To disable two-factor authentication, enter your password below.
-                      </p>
-                      {twoFactorStatus.required_by_role && (
-                        <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg text-amber-700 dark:text-amber-400 text-sm flex items-center gap-2">
-                          <AlertTriangle size={16} />
-                          Your role requires 2FA. You cannot disable it while assigned to this role.
+        {/* Recent Activity Panel */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+            <History size={20} className="text-indigo-500" />
+            Recent Activity
+          </h3>
+
+          {loadingAudit ? (
+            <div className="flex items-center gap-2 text-gray-500">
+              <Loader2 size={16} className="animate-spin" />
+              Loading...
+            </div>
+          ) : auditLogs.length === 0 ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400">No recent activity</p>
+          ) : (
+            <div className="space-y-2">
+              {auditLogs.map(log => (
+                <div
+                  key={log.id}
+                  className={`p-2 rounded text-sm border-l-2 ${
+                    log.success
+                      ? 'border-l-green-500 bg-gray-50 dark:bg-gray-900'
+                      : 'border-l-red-500 bg-red-50 dark:bg-red-900/20'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium truncate">{log.action.replace(/_/g, ' ')}</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                      {formatRelativeTime(log.timestamp)}
+                    </span>
+                  </div>
+                  {log.resource_type && (
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      {log.resource_type}
+                      {log.resource_id && `: ${log.resource_id}`}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Security Panel - Two-Factor Authentication */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 lg:col-span-2 2xl:col-span-1">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+            <Smartphone size={20} className="text-green-500" />
+            Two-Factor Authentication
+          </h3>
+
+          {loading2FA ? (
+            <div className="flex items-center gap-2 text-gray-500">
+              <Loader2 size={16} className="animate-spin" />
+              Loading...
+            </div>
+          ) : (
+            <>
+              {twoFactorError && (
+                <div className="p-3 mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-600 dark:text-red-400 text-sm">
+                  {twoFactorError}
+                </div>
+              )}
+              {twoFactorSuccess && (
+                <div className="p-3 mb-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-green-600 dark:text-green-400 text-sm flex items-center gap-2">
+                  <Check size={16} />
+                  {twoFactorSuccess}
+                </div>
+              )}
+
+              {/* Status Display */}
+              <div className="flex items-center gap-3 mb-4">
+                <span className="text-sm text-gray-600 dark:text-gray-400">Status:</span>
+                {twoFactorStatus?.enabled ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded text-sm font-medium">
+                    <Check size={14} />
+                    Enabled
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-sm font-medium">
+                    Disabled
+                  </span>
+                )}
+                {twoFactorStatus?.required_by_role && !twoFactorStatus?.enabled && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded text-sm font-medium">
+                    <AlertTriangle size={14} />
+                    Required by your role
+                  </span>
+                )}
+              </div>
+
+              {/* Setup Flow */}
+              {!twoFactorStatus?.enabled && !setupData && (
+                <div>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                    Add an extra layer of security to your account by enabling two-factor authentication.
+                    You'll need an authenticator app like Google Authenticator, Authy, or 1Password.
+                  </p>
+                  <button
+                    onClick={handleSetup2FA}
+                    disabled={processing2FA}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-medium flex items-center gap-2"
+                  >
+                    {processing2FA && <Loader2 size={16} className="animate-spin" />}
+                    Set Up Two-Factor Authentication
+                  </button>
+                </div>
+              )}
+
+              {/* QR Code and Verification */}
+              {setupData && (
+                <div className="space-y-4">
+                  <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                      Scan this QR code with your authenticator app, then enter the 6-digit code below to verify.
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-6 items-start">
+                      <div className="bg-white p-3 rounded-lg">
+                        <QRCodeSVG
+                          value={setupData.provisioning_uri}
+                          size={180}
+                          level="M"
+                        />
+                      </div>
+                      <div className="flex-1 space-y-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                            Manual Entry Key
+                          </label>
+                          <code className="block px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-sm font-mono break-all">
+                            {setupData.secret}
+                          </code>
                         </div>
-                      )}
-                      <div className="flex gap-3 items-end">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Password
+                            Verification Code
                           </label>
                           <input
-                            type="password"
-                            value={disablePassword}
-                            onChange={(e) => setDisablePassword(e.target.value)}
-                            className="w-48 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            disabled={twoFactorStatus.required_by_role}
+                            type="text"
+                            value={verificationCode}
+                            onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                            placeholder="000000"
+                            maxLength={6}
+                            className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center font-mono text-lg tracking-wider"
                           />
                         </div>
-                        <button
-                          onClick={handleDisable2FA}
-                          disabled={processing2FA || twoFactorStatus.required_by_role || !disablePassword}
-                          className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed text-white rounded-lg font-medium flex items-center gap-2"
-                        >
-                          {processing2FA && <Loader2 size={16} className="animate-spin" />}
-                          Disable 2FA
-                        </button>
                       </div>
                     </div>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Linked Accounts Section */}
-        {activeSection === 'linked-accounts' && (
-          <div className="space-y-6 max-w-2xl">
-            <div>
-              <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Linked Accounts</h3>
-              <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
-                Connect external accounts for easier sign-in
-              </p>
-            </div>
-
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-              {loadingLinkedAccounts ? (
-                <div className="flex items-center gap-2 text-gray-500">
-                  <Loader2 size={16} className="animate-spin" />
-                  Loading...
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleEnable2FA}
+                      disabled={processing2FA || verificationCode.length !== 6}
+                      className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white rounded-lg font-medium flex items-center gap-2"
+                    >
+                      {processing2FA && <Loader2 size={16} className="animate-spin" />}
+                      Verify & Enable
+                    </button>
+                    <button
+                      onClick={cancelSetup}
+                      className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg font-medium"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
-              ) : (
-                <>
-                  {linkedAccountError && (
-                    <div className="p-3 mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-600 dark:text-red-400 text-sm">
-                      {linkedAccountError}
-                    </div>
-                  )}
-                  {linkedAccountSuccess && (
-                    <div className="p-3 mb-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-green-600 dark:text-green-400 text-sm flex items-center gap-2">
-                      <Check size={16} />
-                      {linkedAccountSuccess}
-                    </div>
-                  )}
-
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                    Link your account to sign in with Google or Microsoft. You can also use these accounts to sign in without a password.
-                  </p>
-
-                  {/* Linked accounts list */}
-                  {linkedAccounts.length > 0 && (
-                    <div className="space-y-3 mb-4">
-                      {linkedAccounts.map(account => (
-                        <div
-                          key={account.provider}
-                          className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-900 rounded-lg"
-                        >
-                          <div className="flex items-center gap-3">
-                            {getProviderIcon(account.provider)}
-                            <div>
-                              <div className="font-medium capitalize">{account.provider}</div>
-                              <div className="text-sm text-gray-500 dark:text-gray-400">
-                                {account.email || account.display_name || 'Connected'}
-                              </div>
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => handleUnlinkAccount(account.provider)}
-                            disabled={unlinkingProvider === account.provider}
-                            className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg font-medium flex items-center gap-1.5"
-                          >
-                            {unlinkingProvider === account.provider ? (
-                              <Loader2 size={14} className="animate-spin" />
-                            ) : (
-                              <Unlink size={14} />
-                            )}
-                            Unlink
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Link new provider buttons */}
-                  {availableProviders.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {availableProviders
-                        .filter(p => !linkedAccounts.some(a => a.provider === p.id))
-                        .map(provider => (
-                          <button
-                            key={provider.id}
-                            onClick={() => handleLinkAccount(provider.id)}
-                            className="px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-lg font-medium flex items-center gap-2"
-                          >
-                            {getProviderIcon(provider.id)}
-                            Link {provider.name}
-                          </button>
-                        ))}
-                    </div>
-                  )}
-
-                  {availableProviders.length === 0 && linkedAccounts.length === 0 && (
-                    <p className="text-sm text-gray-500 dark:text-gray-400 italic">
-                      No OAuth providers are currently configured by the administrator.
-                    </p>
-                  )}
-                </>
               )}
-            </div>
-          </div>
-        )}
+
+              {/* Disable 2FA */}
+              {twoFactorStatus?.enabled && (
+                <div className="space-y-4">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    To disable two-factor authentication, enter your password below.
+                  </p>
+                  {twoFactorStatus.required_by_role && (
+                    <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg text-amber-700 dark:text-amber-400 text-sm flex items-center gap-2">
+                      <AlertTriangle size={16} />
+                      Your role requires 2FA. You cannot disable it while assigned to this role.
+                    </div>
+                  )}
+                  <div className="flex gap-3 items-end">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Password
+                      </label>
+                      <input
+                        type="password"
+                        value={disablePassword}
+                        onChange={(e) => setDisablePassword(e.target.value)}
+                        className="w-48 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        disabled={twoFactorStatus.required_by_role}
+                      />
+                    </div>
+                    <button
+                      onClick={handleDisable2FA}
+                      disabled={processing2FA || twoFactorStatus.required_by_role || !disablePassword}
+                      className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed text-white rounded-lg font-medium flex items-center gap-2"
+                    >
+                      {processing2FA && <Loader2 size={16} className="animate-spin" />}
+                      Disable 2FA
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   )

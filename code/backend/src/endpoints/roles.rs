@@ -414,7 +414,7 @@ async fn list_all_permissions(
         ("sabnzbd", "Access SABnzbd Usenet client"),
         ("grafana", "Access Grafana dashboards"),
         ("victoriametrics", "Access VictoriaMetrics"),
-        ("loki", "Access Loki log aggregation"),
+        ("victorialogs", "Access VictoriaLogs log storage"),
         ("kubernetes-dashboard", "Access Kubernetes Dashboard"),
     ];
 

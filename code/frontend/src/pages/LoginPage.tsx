@@ -15,7 +15,6 @@ export default function LoginPage() {
 
   // 2FA state
   const [step, setStep] = useState<LoginStep>('credentials')
-  const [challengeToken, setChallengeToken] = useState<string | null>(null)
   const [totpCode, setTotpCode] = useState('')
   const totpInputRef = useRef<HTMLInputElement>(null)
 
@@ -106,7 +105,6 @@ export default function LoginPage() {
           break
         case '2fa_required':
           // Need to enter TOTP code
-          setChallengeToken(response.challenge_token || null)
           setStep('2fa_required')
           setLoading(false)
           break
@@ -119,21 +117,22 @@ export default function LoginPage() {
           throw new Error('Unexpected response')
       }
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { error?: string } }, message?: string }
-      setError(error.response?.data?.error || error.message || 'Login failed')
+      const error = err as { response?: { data?: { detail?: string } }, message?: string }
+      setError(error.response?.data?.detail || error.message || 'Login failed')
       setLoading(false)
     }
   }
 
   const handleTotpSubmit = async (e: FormEvent) => {
     e.preventDefault()
-    if (!challengeToken || totpCode.length !== 6) return
+    if (totpCode.length !== 6) return
 
     setError(null)
     setLoading(true)
 
     try {
-      const response = await verify2FA({ challenge_token: challengeToken, code: totpCode })
+      // Backend expects credentials + totp_code in single request
+      const response = await verify2FA({ username, password }, totpCode)
 
       if (response.status === 'success') {
         // Session cookie is set by backend - redirect to complete OAuth flow or home
@@ -142,8 +141,8 @@ export default function LoginPage() {
         throw new Error('Unexpected response')
       }
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { error?: string } }, message?: string }
-      setError(error.response?.data?.error || error.message || 'Verification failed')
+      const error = err as { response?: { data?: { detail?: string } }, message?: string }
+      setError(error.response?.data?.detail || error.message || 'Verification failed')
       setTotpCode('')
       setLoading(false)
     }
@@ -151,7 +150,6 @@ export default function LoginPage() {
 
   const handleBack = () => {
     setStep('credentials')
-    setChallengeToken(null)
     setTotpCode('')
     setError(null)
     setPassword('') // Clear password for security

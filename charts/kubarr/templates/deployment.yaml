@@ -48,9 +48,9 @@ spec:
             - name: KUBARR_DB_PATH
               value: "/data/kubarr.db"
             - name: KUBARR_JWT_PRIVATE_KEY_PATH
-              value: "/secrets/jwt-private.pem"
+              value: "/data/jwt-private.pem"
             - name: KUBARR_JWT_PUBLIC_KEY_PATH
-              value: "/secrets/jwt-public.pem"
+              value: "/data/jwt-public.pem"
             {{- end }}
             {{- if .Values.storage.hostPath.enabled }}
             - name: KUBARR_STORAGE_PATH
@@ -61,9 +61,6 @@ spec:
             {{- if .Values.oauth2.enabled }}
             - name: data
               mountPath: /data
-            - name: jwt-keys
-              mountPath: /secrets
-              readOnly: true
             {{- end }}
             {{- if .Values.storage.hostPath.enabled }}
             - name: storage
@@ -82,9 +79,6 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: {{ include "kubarr.fullname" . }}-data
-        - name: jwt-keys
-          secret:
-            secretName: {{ .Values.auth.jwt.existingSecret | default (printf "%s-jwt-keys" (include "kubarr.fullname" .)) }}
         {{- end }}
         {{- if .Values.storage.hostPath.enabled }}
         - name: storage

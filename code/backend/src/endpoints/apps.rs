@@ -143,6 +143,9 @@ async fn install_app(
         .deploy_app(&request, storage_path.as_deref())
         .await?;
 
+    // Invalidate cache to ensure fresh lookup when app becomes ready
+    state.endpoint_cache.invalidate(&request.app_name).await;
+
     Ok(Json(status))
 }
 
@@ -171,6 +174,9 @@ async fn delete_app(
 
     let manager = DeploymentManager::new(client, &catalog);
     manager.remove_app(&app_name).await?;
+
+    // Invalidate endpoint cache for deleted app
+    state.endpoint_cache.invalidate(&app_name).await;
 
     Ok(Json(serde_json::json!({
         "success": true,
@@ -212,6 +218,9 @@ async fn restart_app(
             deleted_count += 1;
         }
     }
+
+    // Invalidate endpoint cache since service endpoint may change after restart
+    state.endpoint_cache.invalidate(&app_name).await;
 
     Ok(Json(serde_json::json!({
         "success": true,

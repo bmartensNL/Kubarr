@@ -8,6 +8,7 @@ pub mod oauth_provider;
 pub mod pending_2fa_challenge;
 pub mod role;
 pub mod role_app_permission;
+pub mod session;
 pub mod role_permission;
 pub mod system_setting;
 pub mod user;
@@ -29,6 +30,7 @@ pub mod prelude {
     pub use super::role::{self, Entity as Role};
     pub use super::role_app_permission::{self, Entity as RoleAppPermission};
     pub use super::role_permission::{self, Entity as RolePermission};
+    pub use super::session::{self, Entity as Session};
     pub use super::system_setting::{self, Entity as SystemSetting};
     pub use super::user::{self, Entity as User};
     pub use super::user_notification::{self, Entity as UserNotification};

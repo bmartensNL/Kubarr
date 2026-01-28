@@ -1,0 +1,65 @@
+namespace:
+  create: false  # kubarr deployment manager creates the namespace
+  name: fluent-bit
+
+fluentbit:
+  image:
+    repository: fluent/fluent-bit
+    tag: "3.2.2"
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+  # VictoriaLogs push endpoint (Loki-compatible API)
+  logsUrl: "http://victorialogs.victorialogs.svc.cluster.local:9428"
+
+  # Container log paths on host
+  podLogPath: /var/log/pods
+
+  # Namespaces to collect logs from (comma-separated list for Lua matching)
+  allowedNamespaces:
+    - sonarr
+    - radarr
+    - qbittorrent
+    - transmission
+    - deluge
+    - rutorrent
+    - jellyfin
+    - jellyseerr
+    - jackett
+    - sabnzbd
+    - kubarr
+    - nginx
+    - oauth2-proxy
+    - victoriametrics
+    - victorialogs
+    - fluent-bit
+    - grafana
+
+rbac:
+  create: true
+
+serviceAccount:
+  create: true
+  name: fluent-bit
+
+tolerations:
+  - effect: NoSchedule
+    operator: Exists
+  - effect: NoExecute
+    operator: Exists
+
+podAnnotations: {}
+
+# Network policy configuration
+networkPolicy:
+  enabled: true
+  # Fluent Bit needs to send logs to VictoriaLogs
+  egressTo:
+    - victorialogs
