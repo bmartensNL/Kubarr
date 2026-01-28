@@ -10,5 +10,5 @@ pub mod services;
 pub use application::bootstrapper;
 pub use application::config;
 pub use application::error;
-pub use application::pool as db;
+pub use application::database as db;
 pub use application::state;

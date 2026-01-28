@@ -15,7 +15,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::endpoints;
 use crate::config::CONFIG;
-use crate::db::create_pool;
+use crate::db;
 use crate::services::{start_network_broadcaster, scheduler, AppCatalog, AuditService, K8sClient, NotificationService, get_private_key};
 use crate::state::AppState;
 
@@ -70,11 +70,11 @@ fn init_jwt_keys() {
     }
 }
 
-/// Initialize the database connection pool (runs migrations automatically)
+/// Initialize the database connection (runs migrations automatically)
 async fn init_database() -> anyhow::Result<sea_orm::DatabaseConnection> {
-    let pool = create_pool().await?;
-    tracing::info!("Database connection established (migrations applied)");
-    Ok(pool)
+    let conn = db::connect().await?;
+    tracing::info!("Database connection established");
+    Ok(conn)
 }
 
 /// Initialize the Kubernetes client
