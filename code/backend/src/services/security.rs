@@ -8,8 +8,8 @@ use rsa::{
     pkcs8::{DecodePublicKey, EncodePrivateKey, EncodePublicKey, LineEnding},
     RsaPrivateKey, RsaPublicKey,
 };
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
-use std::fs;
 
 use crate::config::CONFIG;
 use crate::error::{AppError, Result};
@@ -17,6 +17,10 @@ use crate::error::{AppError, Result};
 // JWT token expiration times (in seconds)
 const ACCESS_TOKEN_EXPIRE: i64 = 3600; // 1 hour
 const REFRESH_TOKEN_EXPIRE: i64 = 604800; // 7 days
+
+// Database keys for system_settings
+const JWT_PRIVATE_KEY_SETTING: &str = "jwt_private_key";
+const JWT_PUBLIC_KEY_SETTING: &str = "jwt_public_key";
 
 // In-memory key cache
 static PRIVATE_KEY: Lazy<RwLock<Option<String>>> = Lazy::new(|| RwLock::new(None));
@@ -54,108 +58,106 @@ pub struct SessionClaims {
     pub sid: String, // Session ID (UUID)
 }
 
+/// Initialize JWT keys from database (call once during startup)
+/// Generates new keys if not present and stores them in the database
+pub async fn init_jwt_keys(db: &sea_orm::DatabaseConnection) -> Result<()> {
+    use crate::models::prelude::*;
+    use crate::models::system_setting;
+
+    // Try to load existing keys from database
+    let private_setting = SystemSetting::find()
+        .filter(system_setting::Column::Key.eq(JWT_PRIVATE_KEY_SETTING))
+        .one(db)
+        .await?;
+
+    let public_setting = SystemSetting::find()
+        .filter(system_setting::Column::Key.eq(JWT_PUBLIC_KEY_SETTING))
+        .one(db)
+        .await?;
+
+    let (private_pem, public_pem) = match (private_setting, public_setting) {
+        (Some(priv_s), Some(pub_s)) if !priv_s.value.is_empty() && !pub_s.value.is_empty() => {
+            tracing::info!("JWT keys loaded from database");
+            (priv_s.value, pub_s.value)
+        }
+        _ => {
+            // Generate new key pair
+            tracing::info!("Generating new JWT key pair");
+            let (private_pem, public_pem) = generate_rsa_key_pair()?;
+
+            let now = chrono::Utc::now();
+
+            // Save private key
+            let private_model = system_setting::ActiveModel {
+                key: Set(JWT_PRIVATE_KEY_SETTING.to_string()),
+                value: Set(private_pem.clone()),
+                description: Set(Some("JWT signing private key (RSA)".to_string())),
+                updated_at: Set(now),
+            };
+            // Use insert or update based on whether it exists
+            if SystemSetting::find()
+                .filter(system_setting::Column::Key.eq(JWT_PRIVATE_KEY_SETTING))
+                .one(db)
+                .await?
+                .is_some()
+            {
+                private_model.update(db).await?;
+            } else {
+                private_model.insert(db).await?;
+            }
+
+            // Save public key
+            let public_model = system_setting::ActiveModel {
+                key: Set(JWT_PUBLIC_KEY_SETTING.to_string()),
+                value: Set(public_pem.clone()),
+                description: Set(Some("JWT signing public key (RSA)".to_string())),
+                updated_at: Set(now),
+            };
+            if SystemSetting::find()
+                .filter(system_setting::Column::Key.eq(JWT_PUBLIC_KEY_SETTING))
+                .one(db)
+                .await?
+                .is_some()
+            {
+                public_model.update(db).await?;
+            } else {
+                public_model.insert(db).await?;
+            }
+
+            tracing::info!("JWT keys saved to database");
+            (private_pem, public_pem)
+        }
+    };
+
+    // Cache in memory
+    {
+        let mut cache = PRIVATE_KEY.write();
+        *cache = Some(private_pem);
+    }
+    {
+        let mut cache = PUBLIC_KEY.write();
+        *cache = Some(public_pem);
+    }
+
+    Ok(())
+}
+
 /// Get the JWT private key (PEM format)
+/// Must be called after init_jwt_keys()
 pub fn get_private_key() -> Result<String> {
-    // Fast path: check cache with read lock
-    {
-        let cache = PRIVATE_KEY.read();
-        if let Some(key) = cache.as_ref() {
-            return Ok(key.clone());
-        }
-    }
-
-    // Slow path: acquire write lock with double-checked locking
-    let mut priv_cache = PRIVATE_KEY.write();
-
-    // Double-check: another thread might have initialized while we waited
-    if let Some(key) = priv_cache.as_ref() {
-        return Ok(key.clone());
-    }
-
-    // Try to load from file
-    if CONFIG.jwt_private_key_path.exists() {
-        let content = fs::read_to_string(&CONFIG.jwt_private_key_path)
-            .map_err(|e| AppError::Internal(format!("Failed to read private key: {}", e)))?;
-
-        if !content.trim().is_empty() {
-            *priv_cache = Some(content.clone());
-            return Ok(content);
-        }
-    }
-
-    // Generate new key pair and persist to disk
-    tracing::info!("JWT private key not found, generating new persistent key pair");
-    let (private_pem, public_pem) = generate_rsa_key_pair()?;
-
-    // Try to save keys to disk for persistence across restarts
-    if let Some(parent) = CONFIG.jwt_private_key_path.parent() {
-        if parent.exists() {
-            if let Err(e) = fs::write(&CONFIG.jwt_private_key_path, &private_pem) {
-                tracing::warn!("Failed to save private key to disk: {}", e);
-            } else {
-                tracing::info!("JWT private key saved to {:?}", CONFIG.jwt_private_key_path);
-            }
-            if let Err(e) = fs::write(&CONFIG.jwt_public_key_path, &public_pem) {
-                tracing::warn!("Failed to save public key to disk: {}", e);
-            } else {
-                tracing::info!("JWT public key saved to {:?}", CONFIG.jwt_public_key_path);
-            }
-        }
-    }
-
-    *priv_cache = Some(private_pem.clone());
-    drop(priv_cache); // Release private key lock before acquiring public key lock
-
-    {
-        let mut pub_cache = PUBLIC_KEY.write();
-        // Only set if not already set
-        if pub_cache.is_none() {
-            *pub_cache = Some(public_pem);
-        }
-    }
-
-    Ok(private_pem)
+    let cache = PRIVATE_KEY.read();
+    cache
+        .clone()
+        .ok_or_else(|| AppError::Internal("JWT keys not initialized. Call init_jwt_keys() first.".to_string()))
 }
 
 /// Get the JWT public key (PEM format)
+/// Must be called after init_jwt_keys()
 pub fn get_public_key() -> Result<String> {
-    // Fast path: check cache with read lock
-    {
-        let cache = PUBLIC_KEY.read();
-        if let Some(key) = cache.as_ref() {
-            return Ok(key.clone());
-        }
-    }
-
-    // Slow path: acquire write lock with double-checked locking
-    let mut pub_cache = PUBLIC_KEY.write();
-
-    // Double-check: another thread might have initialized while we waited
-    if let Some(key) = pub_cache.as_ref() {
-        return Ok(key.clone());
-    }
-
-    // Try to load from file
-    if CONFIG.jwt_public_key_path.exists() {
-        let content = fs::read_to_string(&CONFIG.jwt_public_key_path)
-            .map_err(|e| AppError::Internal(format!("Failed to read public key: {}", e)))?;
-
-        if !content.trim().is_empty() {
-            *pub_cache = Some(content.clone());
-            return Ok(content);
-        }
-    }
-
-    // Release lock before calling get_private_key to avoid deadlock
-    drop(pub_cache);
-
-    // Trigger private key generation which also generates public key
-    get_private_key()?;
-
     let cache = PUBLIC_KEY.read();
     cache
         .clone()
-        .ok_or_else(|| AppError::Internal("Public key not available".to_string()))
+        .ok_or_else(|| AppError::Internal("JWT keys not initialized. Call init_jwt_keys() first.".to_string()))
 }
 
 /// Generate an RSA key pair for JWT signing

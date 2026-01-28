@@ -19,9 +19,6 @@ pub struct Config {
     pub default_namespace: String,
 
     // JWT/OAuth2
-    pub jwt_private_key_path: PathBuf,
-    pub jwt_public_key_path: PathBuf,
-    pub jwt_algorithm: String,
     pub oauth2_enabled: bool,
     pub oauth2_issuer_url: String,
 
@@ -63,16 +60,7 @@ impl Config {
             default_namespace: env::var("KUBARR_DEFAULT_NAMESPACE")
                 .unwrap_or_else(|_| "media".to_string()),
 
-            // JWT/OAuth2 - keys stored in /data/ to persist across restarts
-            jwt_private_key_path: PathBuf::from(
-                env::var("KUBARR_JWT_PRIVATE_KEY_PATH")
-                    .unwrap_or_else(|_| "/data/jwt-private.pem".to_string()),
-            ),
-            jwt_public_key_path: PathBuf::from(
-                env::var("KUBARR_JWT_PUBLIC_KEY_PATH")
-                    .unwrap_or_else(|_| "/data/jwt-public.pem".to_string()),
-            ),
-            jwt_algorithm: env::var("KUBARR_JWT_ALGORITHM").unwrap_or_else(|_| "RS256".to_string()),
+            // JWT/OAuth2 - keys stored in database
             oauth2_enabled: env::var("KUBARR_OAUTH2_ENABLED")
                 .map(|v| v.to_lowercase() == "true")
                 .unwrap_or(false),

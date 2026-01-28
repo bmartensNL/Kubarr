@@ -47,10 +47,6 @@ spec:
               value: "true"
             - name: KUBARR_DB_PATH
               value: "/data/kubarr.db"
-            - name: KUBARR_JWT_PRIVATE_KEY_PATH
-              value: "/data/jwt-private.pem"
-            - name: KUBARR_JWT_PUBLIC_KEY_PATH
-              value: "/data/jwt-public.pem"
             {{- end }}
             {{- if .Values.storage.hostPath.enabled }}
             - name: KUBARR_STORAGE_PATH

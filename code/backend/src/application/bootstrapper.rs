@@ -16,7 +16,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use crate::endpoints;
 use crate::config::CONFIG;
 use crate::db;
-use crate::services::{start_network_broadcaster, scheduler, AppCatalog, AuditService, K8sClient, NotificationService, get_private_key};
+use crate::services::{start_network_broadcaster, scheduler, init_jwt_keys, AppCatalog, AuditService, K8sClient, NotificationService};
 use crate::state::AppState;
 
 /// Bootstrap and run the application
@@ -49,25 +49,20 @@ fn init_tracing() {
 
 /// Initialize all application services
 async fn init_services() -> anyhow::Result<AppState> {
-    let pool = init_database().await?;
+    let conn = init_database().await?;
     let k8s_client = init_kubernetes().await;
     let catalog = init_catalog();
-    let audit = init_audit(&pool).await;
-    let notification = init_notifications(&pool).await;
-    init_jwt_keys();
+    let audit = init_audit(&conn).await;
+    let notification = init_notifications(&conn).await;
+
+    // Initialize JWT keys from database
+    init_jwt_keys(&conn).await?;
+    tracing::info!("JWT signing keys initialized");
 
     // Start periodic task scheduler
-    scheduler::start_scheduler(Arc::new(pool.clone()));
+    scheduler::start_scheduler(Arc::new(conn.clone()));
 
-    Ok(AppState::new(pool, k8s_client, catalog, audit, notification))
-}
-
-/// Initialize JWT signing keys (loads from disk or generates new ones)
-fn init_jwt_keys() {
-    match get_private_key() {
-        Ok(_) => tracing::info!("JWT signing keys initialized"),
-        Err(e) => tracing::error!("Failed to initialize JWT keys: {}", e),
-    }
+    Ok(AppState::new(conn, k8s_client, catalog, audit, notification))
 }
 
 /// Initialize the database connection (runs migrations automatically)
