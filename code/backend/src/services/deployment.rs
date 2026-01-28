@@ -154,15 +154,16 @@ impl<'a> DeploymentManager<'a> {
         }
     }
 
-    /// Get list of deployed app names
+    /// Get list of deployed app names (excludes hidden/system apps like kubarr itself)
     pub async fn get_deployed_apps(&self) -> Vec<String> {
         let namespaces: Api<Namespace> = Api::all(self.k8s.client().clone());
 
-        // Get all catalog app names
+        // Get all catalog app names (excluding hidden apps)
         let catalog_apps: std::collections::HashSet<_> = self
             .catalog
             .get_all_apps()
             .iter()
+            .filter(|app| !app.is_hidden)
             .map(|app| app.name.clone())
             .collect();
 

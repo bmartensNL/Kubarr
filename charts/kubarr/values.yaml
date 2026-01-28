@@ -54,7 +54,7 @@ backend:
     - name: KUBARR_OAUTH2_ISSUER_URL
       value: "http://kubarr.kubarr.svc.cluster.local:8000"
 
-# Frontend configuration (nginx Alpine serving static files with SPA routing)
+# Frontend configuration (BusyBox httpd serving static files)
 frontend:
   replicaCount: 1
 

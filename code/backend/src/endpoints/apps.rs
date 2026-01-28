@@ -48,13 +48,18 @@ pub struct NamespaceQuery {
 // Endpoint Handlers
 // ============================================================================
 
-/// List all apps in the catalog
+/// List all apps in the catalog (excludes hidden apps)
 async fn list_catalog(
     State(state): State<AppState>,
     _auth: Authorized<AppsView>,
 ) -> Result<Json<Vec<AppConfig>>> {
     let catalog = state.catalog.read().await;
-    let apps: Vec<AppConfig> = catalog.get_all_apps().into_iter().cloned().collect();
+    let apps: Vec<AppConfig> = catalog
+        .get_all_apps()
+        .into_iter()
+        .filter(|app| !app.is_hidden)
+        .cloned()
+        .collect();
     Ok(Json(apps))
 }
 
