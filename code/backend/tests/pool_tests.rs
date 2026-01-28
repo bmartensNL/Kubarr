@@ -1,7 +1,7 @@
 //! Tests for database pool and seeding module
 
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use sea_orm_migration::MigratorTrait;
 
 use kubarr::migrations::Migrator;

@@ -1,7 +1,8 @@
 use kubarr::services::security::{
     create_access_token, create_refresh_token, decode_token, generate_authorization_code,
-    generate_cookie_secret, generate_random_string, generate_rsa_key_pair, generate_secure_password,
-    hash_client_secret, hash_password, verify_client_secret, verify_password, verify_pkce,
+    generate_cookie_secret, generate_random_string, generate_rsa_key_pair,
+    generate_secure_password, hash_client_secret, hash_password, verify_client_secret,
+    verify_password, verify_pkce,
 };
 use rsa::pkcs8::{DecodePrivateKey, DecodePublicKey};
 use rsa::{RsaPrivateKey, RsaPublicKey};
@@ -95,10 +96,7 @@ fn test_cookie_secret_generation() {
     assert_ne!(secret1, secret2);
 
     // Verify it's valid base64
-    let decoded = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        &secret1,
-    );
+    let decoded = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &secret1);
     assert!(decoded.is_ok());
     assert_eq!(decoded.unwrap().len(), 32);
 }
@@ -228,7 +226,10 @@ fn test_token_expiration() {
     .expect("Failed to create expired token");
 
     let result = decode_token(&token);
-    assert!(result.is_err(), "Expected token to be expired but decode succeeded");
+    assert!(
+        result.is_err(),
+        "Expected token to be expired but decode succeeded"
+    );
 }
 
 #[test]

@@ -47,8 +47,11 @@ function ThemeToggle() {
       >
         <ButtonIcon size={18} strokeWidth={2} />
       </button>
-      {dropdownOpen && (
-        <div className="absolute top-full right-0 mt-1 w-36 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50">
+      <div className={`absolute top-full right-0 mt-1 w-36 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50 transition-all duration-200 ease-out origin-top-right ${
+        dropdownOpen
+          ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto'
+          : 'opacity-0 scale-95 -translate-y-1 pointer-events-none'
+      }`}>
           {themes.map(({ value, icon: Icon, label }) => (
             <button
               key={value}
@@ -67,7 +70,6 @@ function ThemeToggle() {
             </button>
           ))}
         </div>
-      )}
     </div>
   )
 }
@@ -192,8 +194,11 @@ function NotificationInbox() {
           </span>
         )}
       </button>
-      {dropdownOpen && (
-        <div className="absolute top-full right-0 mt-1 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50 overflow-hidden">
+      <div className={`absolute top-full right-0 mt-1 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50 overflow-hidden transition-all duration-200 ease-out origin-top-right ${
+        dropdownOpen
+          ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto'
+          : 'opacity-0 scale-95 -translate-y-1 pointer-events-none'
+      }`}>
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
             <h3 className="font-semibold text-gray-900 dark:text-white">Notifications</h3>
             {unreadCount > 0 && (
@@ -277,7 +282,6 @@ function NotificationInbox() {
             </Link>
           </div>
         </div>
-      )}
     </div>
   )
 }
@@ -330,8 +334,11 @@ function UserMenu() {
         <span>{user.username}</span>
         <ChevronDown size={16} strokeWidth={2} className={`transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
       </button>
-      {dropdownOpen && (
-        <div className="absolute top-full right-0 pt-1 w-56 z-50">
+      <div className={`absolute top-full right-0 pt-1 w-56 z-50 transition-all duration-200 ease-out origin-top-right ${
+        dropdownOpen
+          ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto'
+          : 'opacity-0 scale-95 -translate-y-1 pointer-events-none'
+      }`}>
           <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg">
             {/* Current account indicator */}
             <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700">
@@ -381,7 +388,6 @@ function UserMenu() {
             </button>
           </div>
         </div>
-      )}
     </div>
   )
 }
@@ -481,8 +487,11 @@ function Navigation() {
                   <span>Status</span>
                   <ChevronDown size={16} strokeWidth={2} className={`transition-transform ${systemDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
-                {systemDropdownOpen && (
-                  <div className="absolute top-full left-0 pt-1 w-48 z-50">
+                <div className={`absolute top-full left-0 pt-1 w-48 z-50 transition-all duration-200 ease-out origin-top ${
+                  systemDropdownOpen
+                    ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto'
+                    : 'opacity-0 scale-95 -translate-y-1 pointer-events-none'
+                }`}>
                     <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg">
                     {canViewResources && (
                       <Link
@@ -551,7 +560,6 @@ function Navigation() {
                     )}
                     </div>
                   </div>
-                )}
               </div>
             )}
             {canViewSettings && (

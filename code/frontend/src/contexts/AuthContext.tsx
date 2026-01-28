@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useMemo } from 'react';
 import { getCurrentUser, User } from '../api/users';
+import { getAccounts, switchAccount as apiSwitchAccount, AccountInfo } from '../api/auth';
 
 interface AuthContextType {
   user: User | null;
@@ -12,6 +13,11 @@ interface AuthContextType {
   canAccessApp: (appName: string) => boolean;
   checkAuth: () => Promise<void>;
   logout: () => void;
+  // Multi-account support
+  accounts: AccountInfo[];
+  otherAccounts: AccountInfo[];
+  switchAccount: (slot: number) => Promise<void>;
+  refreshAccounts: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -31,12 +37,26 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [accounts, setAccounts] = useState<AccountInfo[]>([]);
+
+  const refreshAccounts = async () => {
+    try {
+      const accountList = await getAccounts();
+      setAccounts(accountList);
+    } catch {
+      // Silently fail - accounts list is optional
+    }
+  };
 
   const checkAuth = async () => {
     try {
       setLoading(true);
       const currentUser = await getCurrentUser();
       setUser(currentUser);
+      // Refresh the accounts list from the backend
+      if (currentUser) {
+        await refreshAccounts();
+      }
     } catch (error) {
       setUser(null);
       // If we get a 401, the user is not authenticated
@@ -51,6 +71,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setUser(null);
     // Clear token from localStorage
     localStorage.removeItem('access_token');
+  };
+
+  const switchAccount = async (slot: number) => {
+    try {
+      await apiSwitchAccount(slot);
+      // Reload the page to refresh with the new session
+      window.location.reload();
+    } catch (error) {
+      console.error('Failed to switch account:', error);
+      throw error;
+    }
   };
 
   useEffect(() => {
@@ -89,6 +120,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     return allowedApps.has(appName);
   };
 
+  // Get accounts other than the current active one
+  const otherAccounts = useMemo(() => {
+    return accounts.filter(a => !a.is_active);
+  }, [accounts]);
+
   const value: AuthContextType = {
     user,
     loading,
@@ -100,6 +136,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     canAccessApp,
     checkAuth,
     logout,
+    accounts,
+    otherAccounts,
+    switchAccount,
+    refreshAccounts,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

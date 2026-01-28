@@ -19,6 +19,15 @@ export interface SessionLoginResponse {
   user_id?: number;
   username?: string;
   email?: string;
+  session_slot?: number;
+}
+
+export interface AccountInfo {
+  slot: number;
+  user_id: number;
+  username: string;
+  email: string;
+  is_active: boolean;
 }
 
 export interface LoginRequest {
@@ -109,4 +118,19 @@ export const getSessions = async (): Promise<SessionInfo[]> => {
  */
 export const revokeSession = async (sessionId: string): Promise<void> => {
   await authClient.delete(`/sessions/${sessionId}`);
+};
+
+/**
+ * Get all signed-in accounts
+ */
+export const getAccounts = async (): Promise<AccountInfo[]> => {
+  const response = await authClient.get<AccountInfo[]>('/accounts');
+  return response.data;
+};
+
+/**
+ * Switch to a different account by slot
+ */
+export const switchAccount = async (slot: number): Promise<void> => {
+  await authClient.post(`/switch/${slot}`);
 };

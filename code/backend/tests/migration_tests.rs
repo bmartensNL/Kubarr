@@ -532,9 +532,9 @@ async fn oauth2_authorization_codes_foreign_keys_impl(db: &DatabaseConnection) {
     let has_users_fk = fks
         .iter()
         .any(|(from, table, to)| from == "user_id" && table == "users" && to == "id");
-    let has_clients_fk = fks
-        .iter()
-        .any(|(from, table, to)| from == "client_id" && table == "oauth2_clients" && to == "client_id");
+    let has_clients_fk = fks.iter().any(|(from, table, to)| {
+        from == "client_id" && table == "oauth2_clients" && to == "client_id"
+    });
 
     assert!(
         has_users_fk,
@@ -563,9 +563,9 @@ async fn oauth2_tokens_foreign_keys_impl(db: &DatabaseConnection) {
     let has_users_fk = fks
         .iter()
         .any(|(from, table, to)| from == "user_id" && table == "users" && to == "id");
-    let has_clients_fk = fks
-        .iter()
-        .any(|(from, table, to)| from == "client_id" && table == "oauth2_clients" && to == "client_id");
+    let has_clients_fk = fks.iter().any(|(from, table, to)| {
+        from == "client_id" && table == "oauth2_clients" && to == "client_id"
+    });
 
     assert!(
         has_users_fk,
@@ -792,9 +792,7 @@ async fn can_insert_oauth2_client_and_token_impl(db: &DatabaseConnection) {
         DbBackend::Postgres => "INSERT INTO oauth2_tokens (access_token, client_id, user_id, expires_at, revoked, created_at) VALUES ('token123', 'client123', 1, NOW() + INTERVAL '1 hour', false, NOW())".to_string(),
         _ => panic!("Unsupported database backend"),
     };
-    let result = db
-        .execute(Statement::from_string(backend, token_sql))
-        .await;
+    let result = db.execute(Statement::from_string(backend, token_sql)).await;
 
     assert!(
         result.is_ok(),
@@ -851,9 +849,7 @@ async fn can_insert_notification_data_impl(db: &DatabaseConnection) {
         DbBackend::Postgres => "INSERT INTO user_notifications (user_id, title, message, severity, read, created_at) VALUES (1, 'Test', 'Test message', 'info', false, NOW())".to_string(),
         _ => panic!("Unsupported database backend"),
     };
-    let result = db
-        .execute(Statement::from_string(backend, notif_sql))
-        .await;
+    let result = db.execute(Statement::from_string(backend, notif_sql)).await;
 
     assert!(
         result.is_ok(),
