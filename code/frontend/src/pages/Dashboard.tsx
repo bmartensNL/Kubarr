@@ -1,6 +1,7 @@
 import { AppIcon } from '../components/AppIcon'
 import { useMonitoring } from '../contexts/MonitoringContext'
 import { Cpu, MemoryStick, ArrowDownToLine, ArrowUpFromLine, Server, Container, HardDrive, Activity, AlertCircle } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { appsApi } from '../api/apps'
 
 function formatBytes(bytes: number): string {
@@ -102,8 +103,8 @@ export default function Dashboard() {
         {clusterMetrics && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {/* CPU Usage */}
-            <a
-              href="/resources"
+            <Link
+              to="/resources"
               className="bg-white dark:bg-gray-800 rounded-lg p-5 shadow-sm dark:shadow-none hover:bg-gray-50 dark:hover:bg-gray-700 hover:ring-1 hover:ring-blue-500/50 transition-all cursor-pointer group"
             >
               <div className="flex items-center gap-3 mb-3">
@@ -134,11 +135,11 @@ export default function Dashboard() {
                   style={{ width: `${Math.min(clusterMetrics.cpu_usage_percent, 100)}%` }}
                 />
               </div>
-            </a>
+            </Link>
 
             {/* Memory Usage */}
-            <a
-              href="/resources"
+            <Link
+              to="/resources"
               className="bg-white dark:bg-gray-800 rounded-lg p-5 shadow-sm dark:shadow-none hover:bg-gray-50 dark:hover:bg-gray-700 hover:ring-1 hover:ring-purple-500/50 transition-all cursor-pointer group"
             >
               <div className="flex items-center gap-3 mb-3">
@@ -169,11 +170,11 @@ export default function Dashboard() {
                   style={{ width: `${Math.min(clusterMetrics.memory_usage_percent, 100)}%` }}
                 />
               </div>
-            </a>
+            </Link>
 
             {/* Storage Usage */}
-            <a
-              href="/storage"
+            <Link
+              to="/storage"
               className="bg-white dark:bg-gray-800 rounded-lg p-5 shadow-sm dark:shadow-none hover:bg-gray-50 dark:hover:bg-gray-700 hover:ring-1 hover:ring-rose-500/50 transition-all cursor-pointer group"
             >
               <div className="flex items-center gap-3 mb-3">
@@ -208,11 +209,11 @@ export default function Dashboard() {
                   style={{ width: `${Math.min(clusterMetrics.storage_usage_percent, 100)}%` }}
                 />
               </div>
-            </a>
+            </Link>
 
             {/* Network Traffic */}
-            <a
-              href="/networking"
+            <Link
+              to="/networking"
               className="bg-white dark:bg-gray-800 rounded-lg p-5 shadow-sm dark:shadow-none hover:bg-gray-50 dark:hover:bg-gray-700 hover:ring-1 hover:ring-green-500/50 transition-all cursor-pointer group"
             >
               <div className="flex items-center gap-3 mb-3">
@@ -238,11 +239,11 @@ export default function Dashboard() {
                   <span className="text-orange-400 font-medium">{formatBytesPerSec(clusterMetrics.network_transmit_bytes_per_sec)}</span>
                 </div>
               </div>
-            </a>
+            </Link>
 
             {/* Running Pods */}
-            <a
-              href="/resources"
+            <Link
+              to="/resources"
               className="bg-white dark:bg-gray-800 rounded-lg p-5 shadow-sm dark:shadow-none hover:bg-gray-50 dark:hover:bg-gray-700 hover:ring-1 hover:ring-cyan-500/50 transition-all cursor-pointer group"
             >
               <div className="flex items-center gap-3">
@@ -257,11 +258,11 @@ export default function Dashboard() {
                   <Server className="w-10 h-10" />
                 </div>
               </div>
-            </a>
+            </Link>
 
             {/* Running Containers */}
-            <a
-              href="/resources"
+            <Link
+              to="/resources"
               className="bg-white dark:bg-gray-800 rounded-lg p-5 shadow-sm dark:shadow-none hover:bg-gray-50 dark:hover:bg-gray-700 hover:ring-1 hover:ring-yellow-500/50 transition-all cursor-pointer group"
             >
               <div className="flex items-center gap-3">
@@ -276,11 +277,11 @@ export default function Dashboard() {
                   <Container className="w-10 h-10" />
                 </div>
               </div>
-            </a>
+            </Link>
 
             {/* Cluster Health Summary */}
-            <a
-              href="/resources"
+            <Link
+              to="/resources"
               className="bg-white dark:bg-gray-800 rounded-lg p-5 shadow-sm dark:shadow-none hover:bg-gray-50 dark:hover:bg-gray-700 hover:ring-1 hover:ring-emerald-500/50 transition-all cursor-pointer group md:col-span-2 lg:col-span-1 xl:col-span-2"
             >
               <div className="flex items-center gap-3">
@@ -302,7 +303,7 @@ export default function Dashboard() {
                   )}
                 </div>
               </div>
-            </a>
+            </Link>
           </div>
         )}
       </div>
@@ -371,12 +372,12 @@ export default function Dashboard() {
       ) : (
         <div className="text-center py-12">
           <p className="text-gray-500 dark:text-gray-400 mb-4">No apps installed yet.</p>
-          <a
-            href="/apps"
+          <Link
+            to="/apps"
             className="inline-block bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 px-6 rounded-lg transition-colors"
           >
             Browse Apps
-          </a>
+          </Link>
         </div>
       )}
     </div>
