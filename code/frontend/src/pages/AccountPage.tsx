@@ -1,19 +1,27 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
-import { User, Mail, Shield, Sun, Moon, Monitor, Check, Key, Smartphone, AlertTriangle, Eye, EyeOff, Loader2, Link2, Unlink, Palette, Info, Clock, Globe, Trash2, History } from 'lucide-react'
+import { User, Mail, Shield, Sun, Moon, Monitor, Check, Key, Smartphone, AlertTriangle, Eye, EyeOff, Loader2, Link2, Unlink, Palette, Info, Clock, Globe, Trash2, History, Pencil, X } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import type { Theme, TwoFactorStatusResponse, TwoFactorSetupResponse } from '../api/users'
-import { changeOwnPassword, get2FAStatus, setup2FA, enable2FA, disable2FA } from '../api/users'
+import { changeOwnPassword, get2FAStatus, setup2FA, enable2FA, disable2FA, updateOwnProfile, deleteOwnAccount } from '../api/users'
 import { oauthApi, type LinkedAccount, type AvailableProvider } from '../api/oauth'
 import { getSessions, revokeSession, type SessionInfo } from '../api/auth'
 import { auditApi, type AuditLog } from '../api/audit'
 
 export default function AccountPage() {
-  const { user, isAdmin } = useAuth()
+  const { user, isAdmin, checkAuth, logout } = useAuth()
   const { theme, setTheme } = useTheme()
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+
+  // Profile edit state
+  const [editingProfile, setEditingProfile] = useState(false)
+  const [editUsername, setEditUsername] = useState('')
+  const [editEmail, setEditEmail] = useState('')
+  const [profileError, setProfileError] = useState('')
+  const [profileSuccess, setProfileSuccess] = useState('')
+  const [savingProfile, setSavingProfile] = useState(false)
 
   // Password change state
   const [currentPassword, setCurrentPassword] = useState('')
@@ -51,6 +59,12 @@ export default function AccountPage() {
   // Audit log state
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
   const [loadingAudit, setLoadingAudit] = useState(true)
+
+  // Delete account state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deletePassword, setDeletePassword] = useState('')
+  const [deleteError, setDeleteError] = useState('')
+  const [deletingAccount, setDeletingAccount] = useState(false)
 
   // Load 2FA status on mount
   useEffect(() => {
@@ -275,6 +289,89 @@ export default function AccountPage() {
     return `${days}d ago`
   }
 
+  // Delete account handler
+  const handleDeleteAccount = async () => {
+    setDeleteError('')
+    if (!deletePassword) {
+      setDeleteError('Please enter your password')
+      return
+    }
+
+    setDeletingAccount(true)
+    try {
+      await deleteOwnAccount({ password: deletePassword })
+      // Account deleted successfully - log out and redirect
+      logout()
+      window.location.href = '/login'
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: string } } }
+      setDeleteError(error.response?.data?.error || 'Failed to delete account')
+    } finally {
+      setDeletingAccount(false)
+    }
+  }
+
+  // Cancel delete account
+  const cancelDeleteAccount = () => {
+    setShowDeleteConfirm(false)
+    setDeletePassword('')
+    setDeleteError('')
+  }
+
+  // Start editing profile
+  const startEditProfile = () => {
+    if (user) {
+      setEditUsername(user.username)
+      setEditEmail(user.email)
+      setProfileError('')
+      setProfileSuccess('')
+      setEditingProfile(true)
+    }
+  }
+
+  // Cancel editing profile
+  const cancelEditProfile = () => {
+    setEditingProfile(false)
+    setProfileError('')
+  }
+
+  // Save profile changes
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setProfileError('')
+    setProfileSuccess('')
+
+    if (!editUsername.trim()) {
+      setProfileError('Username cannot be empty')
+      return
+    }
+    if (editUsername.trim().length < 3) {
+      setProfileError('Username must be at least 3 characters')
+      return
+    }
+    if (!editEmail.trim() || !editEmail.includes('@')) {
+      setProfileError('Please enter a valid email address')
+      return
+    }
+
+    setSavingProfile(true)
+    try {
+      await updateOwnProfile({
+        username: editUsername.trim(),
+        email: editEmail.trim(),
+      })
+      await checkAuth() // Refresh user data
+      setProfileSuccess('Profile updated successfully')
+      setEditingProfile(false)
+      setTimeout(() => setProfileSuccess(''), 3000)
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: string } } }
+      setProfileError(error.response?.data?.error || 'Failed to update profile')
+    } finally {
+      setSavingProfile(false)
+    }
+  }
+
   // Get provider icon
   const getProviderIcon = (provider: string) => {
     if (provider === 'google') {
@@ -337,48 +434,120 @@ export default function AccountPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-6">
         {/* Profile Panel */}
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-            <User size={20} className="text-blue-500" />
-            Profile
-          </h3>
-          <div className="space-y-4">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                <User size={20} className="text-blue-600 dark:text-blue-400" />
-              </div>
-              <div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">Username</div>
-                <div className="font-medium">{user.username}</div>
-              </div>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <User size={20} className="text-blue-500" />
+              Profile
+            </h3>
+            {!editingProfile && (
+              <button
+                onClick={startEditProfile}
+                className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                title="Edit profile"
+              >
+                <Pencil size={18} />
+              </button>
+            )}
+          </div>
+
+          {profileSuccess && (
+            <div className="p-3 mb-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-green-600 dark:text-green-400 text-sm flex items-center gap-2">
+              <Check size={16} />
+              {profileSuccess}
             </div>
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-                <Mail size={20} className="text-green-600 dark:text-green-400" />
+          )}
+
+          {editingProfile ? (
+            <form onSubmit={handleSaveProfile} className="space-y-4">
+              {profileError && (
+                <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-600 dark:text-red-400 text-sm">
+                  {profileError}
+                </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Username
+                </label>
+                <input
+                  type="text"
+                  value={editUsername}
+                  onChange={(e) => setEditUsername(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  minLength={3}
+                  required
+                />
               </div>
               <div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">Email</div>
-                <div className="font-medium">{user.email}</div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  value={editEmail}
+                  onChange={(e) => setEditEmail(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                />
               </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
-                <Shield size={20} className="text-purple-600 dark:text-purple-400" />
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  disabled={savingProfile}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-medium flex items-center gap-2"
+                >
+                  {savingProfile && <Loader2 size={16} className="animate-spin" />}
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelEditProfile}
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg font-medium flex items-center gap-1"
+                >
+                  <X size={16} />
+                  Cancel
+                </button>
               </div>
-              <div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">Role</div>
-                <div className="font-medium">
-                  {isAdmin ? (
-                    <span className="inline-flex items-center gap-1">
-                      Administrator
-                      <span className="px-1.5 py-0.5 text-xs bg-blue-600 text-white rounded font-medium">Admin</span>
-                    </span>
-                  ) : (
-                    user.roles?.length ? user.roles.map(r => r.name).join(', ') : 'User'
-                  )}
+            </form>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                  <User size={20} className="text-blue-600 dark:text-blue-400" />
+                </div>
+                <div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">Username</div>
+                  <div className="font-medium">{user.username}</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                  <Mail size={20} className="text-green-600 dark:text-green-400" />
+                </div>
+                <div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">Email</div>
+                  <div className="font-medium">{user.email}</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
+                  <Shield size={20} className="text-purple-600 dark:text-purple-400" />
+                </div>
+                <div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">Role</div>
+                  <div className="font-medium">
+                    {isAdmin ? (
+                      <span className="inline-flex items-center gap-1">
+                        Administrator
+                        <span className="px-1.5 py-0.5 text-xs bg-blue-600 text-white rounded font-medium">Admin</span>
+                      </span>
+                    ) : (
+                      user.roles?.length ? user.roles.map(r => r.name).join(', ') : 'User'
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Account Info */}
           <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
@@ -901,6 +1070,81 @@ export default function AccountPage() {
                 </div>
               )}
             </>
+          )}
+        </div>
+
+        {/* Danger Zone - Delete Account */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-red-200 dark:border-red-800 p-6 lg:col-span-2 2xl:col-span-3">
+          <h3 className="text-lg font-semibold text-red-600 dark:text-red-400 mb-4 flex items-center gap-2">
+            <AlertTriangle size={20} />
+            Danger Zone
+          </h3>
+
+          {!showDeleteConfirm ? (
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium text-gray-900 dark:text-white">Delete Account</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Permanently delete your account and all associated data. This action cannot be undone.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium flex items-center gap-2"
+              >
+                <Trash2 size={16} />
+                Delete Account
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                <p className="text-red-700 dark:text-red-400 font-medium mb-2">
+                  Are you sure you want to delete your account?
+                </p>
+                <p className="text-sm text-red-600 dark:text-red-400">
+                  This will permanently delete your account, preferences, sessions, and all associated data.
+                  This action cannot be undone.
+                </p>
+              </div>
+
+              {deleteError && (
+                <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-600 dark:text-red-400 text-sm">
+                  {deleteError}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Enter your password to confirm
+                </label>
+                <input
+                  type="password"
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  className="w-64 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                  placeholder="Your password"
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={handleDeleteAccount}
+                  disabled={deletingAccount || !deletePassword}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white rounded-lg font-medium flex items-center gap-2"
+                >
+                  {deletingAccount && <Loader2 size={16} className="animate-spin" />}
+                  <Trash2 size={16} />
+                  Yes, Delete My Account
+                </button>
+                <button
+                  onClick={cancelDeleteAccount}
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg font-medium"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
           )}
         </div>
       </div>

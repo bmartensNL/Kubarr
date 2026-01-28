@@ -5,7 +5,7 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, ModelTrait, QueryFilter, QueryOrder, QuerySelect,
+    ActiveModelTrait, ColumnTrait, EntityTrait, ModelTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
     Set,
 };
 use serde::{Deserialize, Serialize};
@@ -24,7 +24,7 @@ use crate::state::AppState;
 pub fn users_routes(state: AppState) -> Router {
     Router::new()
         .route("/", get(list_users).post(create_user))
-        .route("/me", get(get_current_user_info))
+        .route("/me", get(get_current_user_info).patch(update_own_profile).delete(delete_own_account))
         .route(
             "/me/preferences",
             get(get_my_preferences).patch(update_my_preferences),
@@ -98,6 +98,12 @@ pub struct ChangeOwnPasswordRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct UpdateOwnProfileRequest {
+    pub username: Option<String>,
+    pub email: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct AdminResetPasswordRequest {
     pub new_password: String,
 }
@@ -115,6 +121,11 @@ pub struct Enable2FARequest {
 
 #[derive(Debug, Deserialize)]
 pub struct Disable2FARequest {
+    pub password: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteOwnAccountRequest {
     pub password: String,
 }
 
@@ -247,6 +258,135 @@ async fn get_current_user_info(
 ) -> Result<Json<UserResponse>> {
     let response = get_user_with_roles(&state, auth.user_id()).await?;
     Ok(Json(response))
+}
+
+/// Update current user's own profile (username, email)
+async fn update_own_profile(
+    State(state): State<AppState>,
+    auth: Authenticated,
+    Json(data): Json<UpdateOwnProfileRequest>,
+) -> Result<Json<UserResponse>> {
+    let user_id = auth.user_id();
+
+    // Get existing user
+    let existing_user = User::find_by_id(user_id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+
+    // Validate username if provided
+    if let Some(ref username) = data.username {
+        let username = username.trim();
+        if username.is_empty() {
+            return Err(AppError::BadRequest("Username cannot be empty".to_string()));
+        }
+        if username.len() < 3 {
+            return Err(AppError::BadRequest(
+                "Username must be at least 3 characters".to_string(),
+            ));
+        }
+        // Check if username is already taken by another user
+        let existing = User::find()
+            .filter(user::Column::Username.eq(username))
+            .filter(user::Column::Id.ne(user_id))
+            .one(&state.db)
+            .await?;
+        if existing.is_some() {
+            return Err(AppError::BadRequest("Username is already taken".to_string()));
+        }
+    }
+
+    // Validate email if provided
+    if let Some(ref email) = data.email {
+        let email = email.trim();
+        if email.is_empty() {
+            return Err(AppError::BadRequest("Email cannot be empty".to_string()));
+        }
+        if !email.contains('@') {
+            return Err(AppError::BadRequest("Invalid email format".to_string()));
+        }
+        // Check if email is already taken by another user
+        let existing = User::find()
+            .filter(user::Column::Email.eq(email))
+            .filter(user::Column::Id.ne(user_id))
+            .one(&state.db)
+            .await?;
+        if existing.is_some() {
+            return Err(AppError::BadRequest("Email is already taken".to_string()));
+        }
+    }
+
+    let now = Utc::now();
+    let mut user_model: user::ActiveModel = existing_user.into();
+
+    // Update fields if provided
+    if let Some(username) = data.username {
+        user_model.username = Set(username.trim().to_string());
+    }
+    if let Some(email) = data.email {
+        user_model.email = Set(email.trim().to_string());
+    }
+    user_model.updated_at = Set(now);
+
+    user_model.update(&state.db).await?;
+
+    let response = get_user_with_roles(&state, user_id).await?;
+    Ok(Json(response))
+}
+
+/// Delete own account (requires password confirmation)
+async fn delete_own_account(
+    State(state): State<AppState>,
+    auth: Authenticated,
+    Json(data): Json<DeleteOwnAccountRequest>,
+) -> Result<Json<serde_json::Value>> {
+    let user_id = auth.user_id();
+
+    // Get fresh user data to verify password
+    let user_record = User::find_by_id(user_id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+
+    // Verify password
+    if !verify_password(&data.password, &user_record.hashed_password) {
+        return Err(AppError::BadRequest("Incorrect password".to_string()));
+    }
+
+    // Check if user is the only admin
+    let admin_role = Role::find()
+        .filter(role::Column::Name.eq("admin"))
+        .one(&state.db)
+        .await?;
+
+    if let Some(admin_role) = admin_role {
+        // Check if user has admin role
+        let user_has_admin = UserRole::find()
+            .filter(user_role::Column::UserId.eq(user_id))
+            .filter(user_role::Column::RoleId.eq(admin_role.id))
+            .one(&state.db)
+            .await?
+            .is_some();
+
+        if user_has_admin {
+            // Count total admins
+            let admin_count = UserRole::find()
+                .filter(user_role::Column::RoleId.eq(admin_role.id))
+                .count(&state.db)
+                .await?;
+
+            if admin_count == 1 {
+                return Err(AppError::BadRequest(
+                    "Cannot delete account: you are the only administrator".to_string(),
+                ));
+            }
+        }
+    }
+
+    // Delete the user (cascade will handle related records)
+    user_record.delete(&state.db).await?;
+
+    Ok(Json(serde_json::json!({"message": "Account deleted successfully"})))
 }
 
 /// Get current user's preferences

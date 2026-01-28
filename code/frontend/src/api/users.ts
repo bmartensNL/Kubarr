@@ -147,6 +147,21 @@ export const deleteInvite = async (inviteId: number): Promise<{ message: string 
   return response.data;
 };
 
+// Update own profile API
+
+export interface UpdateOwnProfileRequest {
+  username?: string;
+  email?: string;
+}
+
+/**
+ * Update current user's own profile (username, email)
+ */
+export const updateOwnProfile = async (data: UpdateOwnProfileRequest): Promise<User> => {
+  const response = await apiClient.patch<User>('/users/me', data);
+  return response.data;
+};
+
 // Preferences API functions
 
 export interface UpdatePreferencesRequest {
@@ -242,5 +257,21 @@ export const disable2FA = async (password: string): Promise<{ message: string }>
  */
 export const get2FAStatus = async (): Promise<TwoFactorStatusResponse> => {
   const response = await apiClient.get<TwoFactorStatusResponse>('/users/me/2fa/status');
+  return response.data;
+};
+
+// ============================================================================
+// Delete Own Account API
+// ============================================================================
+
+export interface DeleteOwnAccountRequest {
+  password: string;
+}
+
+/**
+ * Delete own account (requires password confirmation)
+ */
+export const deleteOwnAccount = async (data: DeleteOwnAccountRequest): Promise<{ message: string }> => {
+  const response = await apiClient.delete<{ message: string }>('/users/me', { data });
   return response.data;
 };

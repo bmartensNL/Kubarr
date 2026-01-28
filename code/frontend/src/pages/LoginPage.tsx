@@ -1,8 +1,9 @@
 import { useState, FormEvent, useEffect, useRef, useMemo } from 'react'
-import { Ship, Shield, ArrowLeft, Loader2 } from 'lucide-react'
-import { sessionLogin, verify2FA, SessionLoginResponse } from '../api/auth'
+import { Ship, Shield, ArrowLeft, Loader2, User, Check } from 'lucide-react'
+import { sessionLogin, verify2FA, SessionLoginResponse, getAccounts, switchAccount, AccountInfo } from '../api/auth'
 import { getCurrentUser } from '../api/users'
 import { oauthApi, AvailableProvider } from '../api/oauth'
+import { precacheDashboard } from '../utils/precache'
 
 type LoginStep = 'credentials' | '2fa_required' | '2fa_setup_required'
 
@@ -21,6 +22,11 @@ export default function LoginPage() {
   // OAuth providers
   const [oauthProviders, setOauthProviders] = useState<AvailableProvider[]>([])
 
+  // Multi-account state
+  const [existingAccounts, setExistingAccounts] = useState<AccountInfo[]>([])
+  const [showAccountPicker, setShowAccountPicker] = useState(false)
+  const [switchingAccount, setSwitchingAccount] = useState(false)
+
   // Capture OAuth parameters from URL for redirect after login
   const oauthParams = useMemo(() => {
     const params = new URLSearchParams(window.location.search)
@@ -34,9 +40,15 @@ export default function LoginPage() {
     }
   }, [])
 
+  // Check if this is an "add account" flow
+  const isAddAccountFlow = useMemo(() => {
+    const params = new URLSearchParams(window.location.search)
+    return params.get('add_account') === 'true'
+  }, [])
+
   // Get the final redirect destination from OAuth state parameter
   // The state format from oauth2-proxy is: "<csrf_token>:<original_path>"
-  const getRedirectUrl = () => {
+  const redirectUrl = useMemo(() => {
     // Extract the original path from the state parameter if present
     // oauth2-proxy encodes the original path after the colon in the state
     if (oauthParams.state) {
@@ -51,7 +63,7 @@ export default function LoginPage() {
     }
     // Default to home page - oauth2-proxy will start a fresh OAuth flow
     return '/'
-  }
+  }, [oauthParams.state])
 
   // Check if setup is required or user is already logged in
   useEffect(() => {
@@ -68,18 +80,36 @@ export default function LoginPage() {
           }
         }
 
+        // Fetch existing accounts (if any)
+        try {
+          const accounts = await getAccounts()
+          setExistingAccounts(accounts)
+
+          // If this is an add_account flow, show account picker
+          if (isAddAccountFlow && accounts.length > 0) {
+            setShowAccountPicker(true)
+            setCheckingSession(false)
+            return
+          }
+        } catch {
+          // No existing accounts, continue to login
+        }
+
         // Try to get current user - works with both session cookie and oauth2-proxy headers
         await getCurrentUser()
-        // User is authenticated, redirect to dashboard
-        window.location.href = getRedirectUrl()
-        return
+        // User is authenticated, redirect to dashboard (unless adding new account)
+        if (!isAddAccountFlow) {
+          window.location.href = redirectUrl
+          return
+        }
+        setCheckingSession(false)
       } catch {
         // Not authenticated, show login form
         setCheckingSession(false)
       }
     }
     checkSession()
-  }, [getRedirectUrl])
+  }, [redirectUrl, isAddAccountFlow])
 
   // Fetch available OAuth providers
   useEffect(() => {
@@ -93,6 +123,15 @@ export default function LoginPage() {
     }
     fetchProviders()
   }, [])
+
+  // Start precaching dashboard data as soon as we have existing accounts
+  // This means data will be ready instantly when they switch accounts
+  useEffect(() => {
+    if (existingAccounts.length > 0) {
+      // Start fetching dashboard data in the background
+      precacheDashboard()
+    }
+  }, [existingAccounts])
 
   // Focus TOTP input when entering 2FA step
   useEffect(() => {
@@ -112,7 +151,7 @@ export default function LoginPage() {
       switch (response.status) {
         case 'success':
           // Session cookie is set by backend - redirect to complete OAuth flow or home
-          window.location.href = getRedirectUrl()
+          window.location.href = redirectUrl
           break
         case '2fa_required':
           // Need to enter TOTP code
@@ -147,7 +186,7 @@ export default function LoginPage() {
 
       if (response.status === 'success') {
         // Session cookie is set by backend - redirect to complete OAuth flow or home
-        window.location.href = getRedirectUrl()
+        window.location.href = redirectUrl
       } else {
         throw new Error('Unexpected response')
       }
@@ -168,6 +207,23 @@ export default function LoginPage() {
 
   const handleOAuthLogin = (providerId: string) => {
     window.location.href = `/api/oauth/${providerId}/login`
+  }
+
+  const handleSwitchAccount = async (slot: number) => {
+    setSwitchingAccount(true)
+    try {
+      await switchAccount(slot)
+      // Redirect to dashboard after switching
+      window.location.href = redirectUrl
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { detail?: string } }, message?: string }
+      setError(error.response?.data?.detail || error.message || 'Failed to switch account')
+      setSwitchingAccount(false)
+    }
+  }
+
+  const handleAddNewAccount = () => {
+    setShowAccountPicker(false)
   }
 
   const getProviderIcon = (providerId: string) => {
@@ -325,6 +381,84 @@ export default function LoginPage() {
               </button>
             </div>
           </form>
+        </div>
+      </div>
+    )
+  }
+
+  // Account Picker View (when adding another account)
+  if (showAccountPicker && existingAccounts.length > 0) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center px-4">
+        <div className="max-w-md w-full space-y-8">
+          <div className="text-center">
+            <div className="flex justify-center mb-4">
+              <Ship size={48} className="text-blue-500 dark:text-blue-400" strokeWidth={2} />
+            </div>
+            <h2 className="text-3xl font-extrabold text-gray-900 dark:text-white">
+              Choose an account
+            </h2>
+            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+              Select an existing account or sign in with a different one
+            </p>
+          </div>
+
+          {error && (
+            <div className="rounded-md bg-red-100 dark:bg-red-900/50 border border-red-300 dark:border-red-700 p-4">
+              <div className="text-sm text-red-700 dark:text-red-200">{error}</div>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            {existingAccounts.map((account) => (
+              <button
+                type="button"
+                key={account.slot}
+                onClick={() => handleSwitchAccount(account.slot)}
+                disabled={switchingAccount}
+                className={`w-full flex items-center gap-4 p-4 rounded-lg border transition-colors ${
+                  account.is_active
+                    ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700'
+                    : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                <div className="flex-shrink-0 w-10 h-10 bg-gray-200 dark:bg-gray-600 rounded-full flex items-center justify-center">
+                  <User size={20} className="text-gray-600 dark:text-gray-300" />
+                </div>
+                <div className="flex-1 text-left">
+                  <div className="font-medium text-gray-900 dark:text-white">
+                    {account.username}
+                  </div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">
+                    {account.email}
+                  </div>
+                </div>
+                {account.is_active && (
+                  <div className="flex-shrink-0 text-blue-500">
+                    <Check size={20} />
+                  </div>
+                )}
+              </button>
+            ))}
+
+            <div className="relative py-2">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-300 dark:border-gray-600" />
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-2 bg-gray-50 dark:bg-gray-900 text-gray-400">or</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleAddNewAccount}
+              disabled={switchingAccount}
+              className="w-full flex items-center justify-center gap-2 p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span className="text-gray-700 dark:text-gray-300">Sign in with a different account</span>
+            </button>
+          </div>
         </div>
       </div>
     )

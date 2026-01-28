@@ -4,6 +4,7 @@ import { monitoringApi, ClusterMetrics } from '../api/monitoring'
 import { appsApi } from '../api/apps'
 import { preloadIcons } from '../components/AppIcon'
 import type { AppConfig, PodStatus } from '../types'
+import { getPrecached, clearPrecache } from '../utils/precache'
 
 interface AppStatusInfo {
   healthy: boolean
@@ -32,14 +33,19 @@ const MonitoringContext = createContext<MonitoringState | null>(null)
 export function MonitoringProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient()
 
-  // Cluster metrics state
-  const [clusterMetrics, setClusterMetrics] = useState<ClusterMetrics | null>(null)
-  const [metricsLoading, setMetricsLoading] = useState(true)
-  const [metricsAvailable, setMetricsAvailable] = useState<boolean | null>(null)
+  // Check for precached data on initial mount
+  const precachedMetrics = getPrecached<ClusterMetrics>('clusterMetrics')
+  const precachedCatalog = getPrecached<AppConfig[]>('catalog')
+  const precachedInstalled = getPrecached<string[]>('installed')
 
-  // Apps state
-  const [catalog, setCatalog] = useState<AppConfig[]>([])
-  const [installedApps, setInstalledApps] = useState<string[]>([])
+  // Cluster metrics state - initialize from precache if available
+  const [clusterMetrics, setClusterMetrics] = useState<ClusterMetrics | null>(precachedMetrics)
+  const [metricsLoading, setMetricsLoading] = useState(!precachedMetrics)
+  const [metricsAvailable, setMetricsAvailable] = useState<boolean | null>(precachedMetrics ? true : null)
+
+  // Apps state - initialize from precache if available
+  const [catalog, setCatalog] = useState<AppConfig[]>(precachedCatalog || [])
+  const [installedApps, setInstalledApps] = useState<string[]>(precachedInstalled || [])
   const [appStatuses, setAppStatuses] = useState<Record<string, AppStatusInfo>>({})
 
   // Fetch cluster metrics
@@ -119,10 +125,13 @@ export function MonitoringProvider({ children }: { children: ReactNode }) {
 
   // Initial fetch on mount
   useEffect(() => {
+    // Clear precache after consuming it - data will now be managed by this provider
+    clearPrecache()
+
     refreshMetrics()
     refreshAppStatuses()
 
-    // Set up periodic refresh
+    // Set up periodic refresh (continuous streaming)
     const metricsInterval = setInterval(refreshMetrics, 10000)
     const statusInterval = setInterval(refreshAppStatuses, 15000)
 

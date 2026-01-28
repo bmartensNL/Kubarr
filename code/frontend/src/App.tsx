@@ -283,7 +283,7 @@ function NotificationInbox() {
 }
 
 function UserMenu() {
-  const { user, loading, logout } = useAuth()
+  const { user, loading, logout, otherAccounts, switchAccount } = useAuth()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const location = useLocation()
 
@@ -297,15 +297,29 @@ function UserMenu() {
     window.location.href = '/login'
   }
 
+  const handleSwitchAccount = async (slot: number) => {
+    try {
+      await switchAccount(slot)
+    } catch (e) {
+      console.error('Failed to switch account:', e)
+    }
+  }
+
+  const handleAddAccount = () => {
+    window.location.href = '/login?add_account=true'
+  }
+
   if (loading || !user) return null
 
   const isAccountActive = location.pathname === '/account'
 
   return (
-    <div className="relative">
+    <div
+      className="relative"
+      onMouseEnter={() => setDropdownOpen(true)}
+      onMouseLeave={() => setDropdownOpen(false)}
+    >
       <button
-        onClick={() => setDropdownOpen(!dropdownOpen)}
-        onBlur={() => setTimeout(() => setDropdownOpen(false), 150)}
         className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
           isAccountActive
             ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'
@@ -317,21 +331,55 @@ function UserMenu() {
         <ChevronDown size={16} strokeWidth={2} className={`transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
       </button>
       {dropdownOpen && (
-        <div className="absolute top-full right-0 mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50">
-          <Link
-            to="/account"
-            className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-t-md"
-          >
-            <Settings size={16} strokeWidth={2} />
-            <span>Account Settings</span>
-          </Link>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-b-md"
-          >
-            <LogOut size={16} strokeWidth={2} />
-            <span>Logout</span>
-          </button>
+        <div className="absolute top-full right-0 pt-1 w-56 z-50">
+          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg">
+            {/* Current account indicator */}
+            <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700">
+              <div className="text-xs text-gray-500 dark:text-gray-400">Signed in as</div>
+              <div className="font-medium text-gray-900 dark:text-white truncate">{user.username}</div>
+            </div>
+
+            {/* Other accounts */}
+            {otherAccounts.length > 0 && (
+              <div className="border-b border-gray-200 dark:border-gray-700">
+                <div className="px-4 py-1.5 text-xs text-gray-500 dark:text-gray-400">Switch account</div>
+                {otherAccounts.map((account) => (
+                  <button
+                    key={account.slot}
+                    onClick={() => handleSwitchAccount(account.slot)}
+                    className="flex items-center gap-2 w-full px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  >
+                    <User size={14} strokeWidth={2} />
+                    <span className="truncate">{account.username}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Add account */}
+            <button
+              onClick={handleAddAccount}
+              className="flex items-center gap-2 w-full px-4 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              <User size={16} strokeWidth={2} />
+              <span>Add another account</span>
+            </button>
+
+            <Link
+              to="/account"
+              className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              <Settings size={16} strokeWidth={2} />
+              <span>Account Settings</span>
+            </Link>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-b-md"
+            >
+              <LogOut size={16} strokeWidth={2} />
+              <span>Logout</span>
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -392,6 +440,17 @@ function Navigation() {
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-1">
+            <Link
+              to="/"
+              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                isActive('/')
+                  ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              <Ship size={18} strokeWidth={2} />
+              <span>Dashboard</span>
+            </Link>
             {canViewApps && (
               <Link
                 to="/apps"
@@ -406,10 +465,12 @@ function Navigation() {
               </Link>
             )}
             {hasAnySystemPermission && (
-              <div className="relative">
+              <div
+                className="relative"
+                onMouseEnter={() => setSystemDropdownOpen(true)}
+                onMouseLeave={() => setSystemDropdownOpen(false)}
+              >
                 <button
-                  onClick={() => setSystemDropdownOpen(!systemDropdownOpen)}
-                  onBlur={() => setTimeout(() => setSystemDropdownOpen(false), 150)}
                   className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                     isSystemActive
                       ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'
@@ -417,11 +478,12 @@ function Navigation() {
                   }`}
                 >
                   <Activity size={18} strokeWidth={2} />
-                  <span>System</span>
+                  <span>Status</span>
                   <ChevronDown size={16} strokeWidth={2} className={`transition-transform ${systemDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {systemDropdownOpen && (
-                  <div className="absolute top-full left-0 mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50">
+                  <div className="absolute top-full left-0 pt-1 w-48 z-50">
+                    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg">
                     {canViewResources && (
                       <Link
                         to="/resources"
@@ -487,6 +549,7 @@ function Navigation() {
                         <span>Security</span>
                       </Link>
                     )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -556,7 +619,7 @@ function Navigation() {
               </Link>
             )}
 
-            {/* System submenu */}
+            {/* Status submenu */}
             {hasAnySystemPermission && (
               <div>
                 <button
@@ -569,7 +632,7 @@ function Navigation() {
                 >
                   <div className="flex items-center gap-3">
                     <Activity size={20} strokeWidth={2} />
-                    <span>System</span>
+                    <span>Status</span>
                   </div>
                   <ChevronDown size={20} strokeWidth={2} className={`transition-transform ${mobileSystemOpen ? 'rotate-180' : ''}`} />
                 </button>
