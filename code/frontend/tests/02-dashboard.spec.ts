@@ -10,7 +10,7 @@ test.describe('Dashboard', () => {
   test.describe('Overview Section', () => {
     test('shows overview statistics', async ({ page }) => {
       // Should show app statistics cards
-      await expect(page.locator('text=Installed Apps')).toBeVisible();
+      await expect(page.locator('text=Installed Apps').first()).toBeVisible();
       await expect(page.locator('div:has-text("Healthy")').first()).toBeVisible();
       await expect(page.locator('div:has-text("Unhealthy")').first()).toBeVisible();
       await expect(page.locator('div:has-text("Available")').first()).toBeVisible();

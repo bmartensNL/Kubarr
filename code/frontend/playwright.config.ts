@@ -35,6 +35,14 @@ export default defineConfig({
 
     /* Video on failure */
     video: 'retain-on-failure',
+
+    /* Slow down actions for demo (set via SLOW_MO env var) */
+    launchOptions: {
+      slowMo: process.env.SLOW_MO ? parseInt(process.env.SLOW_MO) : 0,
+    },
+
+    /* Large viewport for better visibility */
+    viewport: { width: 1920, height: 1080 },
   },
 
   /* Configure projects for major browsers */
@@ -51,6 +59,8 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
         // Use authenticated state from setup
         storageState: 'tests/.auth/user.json',
+        // Use large viewport for visibility
+        viewport: { width: 1920, height: 1080 },
       },
       dependencies: ['setup'],
     },
