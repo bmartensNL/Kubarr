@@ -91,13 +91,16 @@ async fn health_check() -> &'static str {
 /// Detailed health check endpoint with setup status
 async fn health_check_detailed(State(state): State<AppState>) -> axum::Json<serde_json::Value> {
     // Check if any user with admin role exists (setup complete)
-    let admin_exists = UserRole::find()
-        .join(JoinType::InnerJoin, user_role::Relation::Role.def())
-        .filter(role::Column::Name.eq("admin"))
-        .one(&state.db)
-        .await
-        .map(|r| r.is_some())
-        .unwrap_or(false);
+    let admin_exists = match state.get_db().await {
+        Ok(db) => UserRole::find()
+            .join(JoinType::InnerJoin, user_role::Relation::Role.def())
+            .filter(role::Column::Name.eq("admin"))
+            .one(&db)
+            .await
+            .map(|r| r.is_some())
+            .unwrap_or(false),
+        Err(_) => false,
+    };
 
     axum::Json(serde_json::json!({
         "status": "ok",

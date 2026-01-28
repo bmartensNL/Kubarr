@@ -153,11 +153,18 @@ pub async fn proxy_frontend(
                     claims.sid
                 );
                 // Look up session in database to get user_id
+                let db = match state.get_db().await {
+                    Ok(db) => db,
+                    Err(_) => {
+                        tracing::warn!("Database not available for session lookup");
+                        return proxy_to_frontend(&state, path, query, method, headers, request.into_body()).await;
+                    }
+                };
                 if let Ok(Some(session_record)) = Session::find()
                     .filter(session::Column::Id.eq(&claims.sid))
                     .filter(session::Column::IsRevoked.eq(false))
                     .filter(session::Column::ExpiresAt.gt(Utc::now()))
-                    .one(&state.db)
+                    .one(&db)
                     .await
                 {
                     let user_id = session_record.user_id;
@@ -283,10 +290,68 @@ pub async fn proxy_frontend(
 async fn check_app_permission(state: &AppState, user_id: i64, app_name: &str) -> bool {
     use crate::endpoints::extractors::get_user_permissions;
 
-    let permissions = get_user_permissions(&state.db, user_id).await;
+    let db = match state.get_db().await {
+        Ok(db) => db,
+        Err(_) => return false,
+    };
+    let permissions = get_user_permissions(&db, user_id).await;
 
     // Check for app.* wildcard or specific app.{name} permission
     permissions.contains(&"app.*".to_string()) || permissions.contains(&format!("app.{}", app_name))
+}
+
+/// Helper function to proxy to frontend
+async fn proxy_to_frontend(
+    state: &AppState,
+    path: String,
+    query: String,
+    method: Method,
+    headers: axum::http::HeaderMap,
+    body: Body,
+) -> Result<Response<Body>> {
+    let proxy = &state.proxy;
+
+    // For static assets, proxy directly
+    if is_static_asset(&path) {
+        let target_url = format!("{}{}{}", CONFIG.frontend_url, path, query);
+        tracing::debug!("Proxying static asset: {}", target_url);
+
+        return proxy
+            .proxy_http(&target_url, method, headers, body)
+            .await
+            .map_err(|e| {
+                tracing::error!("Frontend proxy error: {}", e);
+                AppError::BadGateway(format!("Frontend unavailable: {}", e))
+            });
+    }
+
+    // For non-asset paths, try the path first, fall back to index.html on 404
+    let target_url = format!("{}{}{}", CONFIG.frontend_url, path, query);
+    tracing::debug!("Proxying to frontend: {}", target_url);
+
+    let response = proxy
+        .proxy_http(&target_url, method.clone(), headers.clone(), body)
+        .await
+        .map_err(|e| {
+            tracing::error!("Frontend proxy error: {}", e);
+            AppError::BadGateway(format!("Frontend unavailable: {}", e))
+        })?;
+
+    // If 404, serve index.html for SPA routing
+    if response.status() == StatusCode::NOT_FOUND {
+        let index_url = format!("{}/index.html", CONFIG.frontend_url);
+        tracing::debug!("SPA fallback to index.html for path: {}", path);
+
+        return proxy
+            .proxy_http(&index_url, Method::GET, headers, Body::empty())
+            .await
+            .map_err(|e| {
+                tracing::error!("Frontend proxy error (index.html): {}", e);
+                AppError::BadGateway(format!("Frontend unavailable: {}", e))
+            });
+    }
+
+    Ok(response)
 }
 
 /// Get the target URL for an app, returning (base_url, has_base_path, full_target_url)

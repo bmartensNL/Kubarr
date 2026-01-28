@@ -12,7 +12,7 @@ use crate::models::{bootstrap_status, server_config};
 use crate::services::catalog::AppCatalog;
 use crate::services::deployment::DeploymentManager;
 use crate::services::k8s::K8sClient;
-use crate::state::{AppState, SharedDbConn};
+use crate::state::SharedDbConn;
 
 /// Component status for bootstrap
 #[derive(Debug, Clone, Serialize, Deserialize)]

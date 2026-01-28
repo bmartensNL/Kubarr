@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use k8s_openapi::api::core::v1::{Pod, Secret, Service};
 use kube::{
-    api::{Api, ListParams, ObjectMeta},
+    api::{Api, ListParams},
     config::{Config, KubeConfigOptions, Kubeconfig},
     Client,
 };

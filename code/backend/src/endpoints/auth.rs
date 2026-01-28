@@ -129,6 +129,11 @@ fn clear_session_cookie() -> HeaderValue {
 async fn get_existing_sessions(state: &AppState, headers: &HeaderMap) -> Vec<(usize, i64, String)> {
     let mut sessions = Vec::new();
 
+    let db = match state.get_db().await {
+        Ok(db) => db,
+        Err(_) => return sessions,
+    };
+
     let cookies = match headers.get(header::COOKIE) {
         Some(c) => c,
         None => return sessions,
@@ -145,11 +150,9 @@ async fn get_existing_sessions(state: &AppState, headers: &HeaderMap) -> Vec<(us
             if let Some(token) = cookie.strip_prefix(&prefix) {
                 // Decode token to get session ID, then look up user
                 if let Ok(claims) = decode_session_token(token) {
-                    if let Ok(Some(session)) = Session::find_by_id(&claims.sid).one(&state.db).await
-                    {
+                    if let Ok(Some(session)) = Session::find_by_id(&claims.sid).one(&db).await {
                         if !session.is_revoked && session.expires_at > Utc::now() {
-                            if let Ok(Some(user)) =
-                                User::find_by_id(session.user_id).one(&state.db).await
+                            if let Ok(Some(user)) = User::find_by_id(session.user_id).one(&db).await
                             {
                                 sessions.push((i, user.id, user.username.clone()));
                             }
@@ -194,6 +197,8 @@ async fn login(
     headers: HeaderMap,
     Json(request): Json<LoginRequest>,
 ) -> Result<Response> {
+    let db = state.get_db().await?;
+
     // Find user by username or email
     let found_user = User::find()
         .filter(
@@ -201,7 +206,7 @@ async fn login(
                 .eq(&request.username)
                 .or(user::Column::Email.eq(&request.username)),
         )
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::Unauthorized("Invalid credentials".to_string()))?;
 
@@ -262,7 +267,7 @@ async fn login(
         last_accessed_at: Set(now),
         is_revoked: Set(false),
     };
-    session.insert(&state.db).await?;
+    session.insert(&db).await?;
 
     // Create minimal session token (JWT containing only session ID)
     let session_token = create_session_token(&session_id)?;
@@ -315,8 +320,10 @@ async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Result<Res
     if let Some(token) = extract_session_token(&headers) {
         if let Ok(claims) = decode_session_token(&token) {
             // Revoke the session in the database
-            let _ = Session::delete_by_id(&claims.sid).exec(&state.db).await;
-            tracing::info!(session_id = claims.sid, "Session revoked on logout");
+            if let Ok(db) = state.get_db().await {
+                let _ = Session::delete_by_id(&claims.sid).exec(&db).await;
+                tracing::info!(session_id = claims.sid, "Session revoked on logout");
+            }
         }
     }
 
@@ -332,6 +339,8 @@ async fn list_sessions(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<SessionInfo>>> {
+    let db = state.get_db().await?;
+
     // Get current session from cookie
     let token = extract_session_token(&headers)
         .ok_or_else(|| AppError::Unauthorized("Not authenticated".to_string()))?;
@@ -341,7 +350,7 @@ async fn list_sessions(
 
     // Get the current session to find user_id
     let current_session = Session::find_by_id(&claims.sid)
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::Unauthorized("Session not found".to_string()))?;
 
@@ -350,7 +359,7 @@ async fn list_sessions(
         .filter(session::Column::UserId.eq(current_session.user_id))
         .filter(session::Column::IsRevoked.eq(false))
         .filter(session::Column::ExpiresAt.gt(Utc::now()))
-        .all(&state.db)
+        .all(&db)
         .await?;
 
     let session_infos: Vec<SessionInfo> = sessions
@@ -374,6 +383,8 @@ async fn revoke_session(
     headers: HeaderMap,
     Path(session_id): Path<String>,
 ) -> Result<Json<serde_json::Value>> {
+    let db = state.get_db().await?;
+
     // Get current session from cookie
     let token = extract_session_token(&headers)
         .ok_or_else(|| AppError::Unauthorized("Not authenticated".to_string()))?;
@@ -383,13 +394,13 @@ async fn revoke_session(
 
     // Get the current session to find user_id
     let current_session = Session::find_by_id(&claims.sid)
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::Unauthorized("Session not found".to_string()))?;
 
     // Find the session to revoke
     let target_session = Session::find_by_id(&session_id)
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound("Session not found".to_string()))?;
 
@@ -408,7 +419,7 @@ async fn revoke_session(
     }
 
     // Delete the session
-    Session::delete_by_id(&session_id).exec(&state.db).await?;
+    Session::delete_by_id(&session_id).exec(&db).await?;
 
     tracing::info!(session_id = session_id, "Session revoked by user");
 
@@ -491,6 +502,7 @@ async fn list_accounts(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<AccountInfo>>> {
+    let db = state.get_db().await?;
     let existing_sessions = get_existing_sessions(&state, &headers).await;
 
     // Get active slot
@@ -511,7 +523,7 @@ async fn list_accounts(
     let mut accounts = Vec::new();
     for (slot, user_id, username) in &existing_sessions {
         // Get full user info
-        if let Ok(Some(user)) = User::find_by_id(*user_id).one(&state.db).await {
+        if let Ok(Some(user)) = User::find_by_id(*user_id).one(&db).await {
             accounts.push(AccountInfo {
                 slot: *slot,
                 user_id: *user_id,

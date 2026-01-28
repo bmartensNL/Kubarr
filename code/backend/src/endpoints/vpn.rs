@@ -2,7 +2,7 @@
 
 use axum::{
     extract::{Path, State},
-    routing::{delete, get, post, put},
+    routing::{get, post},
     Json, Router,
 };
 use serde::Serialize;
@@ -73,7 +73,8 @@ async fn list_providers(
     State(state): State<AppState>,
     _auth: Authorized<SettingsView>,
 ) -> Result<Json<ProvidersResponse>> {
-    let providers = vpn::list_vpn_providers(&state.db).await?;
+    let db = state.get_db().await?;
+    let providers = vpn::list_vpn_providers(&db).await?;
     Ok(Json(ProvidersResponse { providers }))
 }
 
@@ -83,7 +84,8 @@ async fn get_provider(
     Path(id): Path<i64>,
     _auth: Authorized<SettingsView>,
 ) -> Result<Json<VpnProviderResponse>> {
-    let provider = vpn::get_vpn_provider(&state.db, id).await?;
+    let db = state.get_db().await?;
+    let provider = vpn::get_vpn_provider(&db, id).await?;
     Ok(Json(provider))
 }
 
@@ -93,7 +95,8 @@ async fn create_provider(
     _auth: Authorized<SettingsManage>,
     Json(req): Json<CreateVpnProviderRequest>,
 ) -> Result<Json<VpnProviderResponse>> {
-    let provider = vpn::create_vpn_provider(&state.db, req).await?;
+    let db = state.get_db().await?;
+    let provider = vpn::create_vpn_provider(&db, req).await?;
     Ok(Json(provider))
 }
 
@@ -104,7 +107,8 @@ async fn update_provider(
     _auth: Authorized<SettingsManage>,
     Json(req): Json<UpdateVpnProviderRequest>,
 ) -> Result<Json<VpnProviderResponse>> {
-    let provider = vpn::update_vpn_provider(&state.db, id, req).await?;
+    let db = state.get_db().await?;
+    let provider = vpn::update_vpn_provider(&db, id, req).await?;
     Ok(Json(provider))
 }
 
@@ -114,11 +118,12 @@ async fn delete_provider(
     Path(id): Path<i64>,
     _auth: Authorized<SettingsManage>,
 ) -> Result<Json<serde_json::Value>> {
+    let db = state.get_db().await?;
     let k8s = state.k8s_client.read().await;
     let client = k8s.as_ref().ok_or_else(|| {
         crate::error::AppError::Internal("Kubernetes client not available".to_string())
     })?;
-    vpn::delete_vpn_provider(&state.db, client, id).await?;
+    vpn::delete_vpn_provider(&db, client, id).await?;
     Ok(Json(serde_json::json!({ "success": true })))
 }
 
@@ -128,8 +133,9 @@ async fn test_provider(
     Path(id): Path<i64>,
     _auth: Authorized<SettingsManage>,
 ) -> Result<Json<TestResult>> {
+    let db = state.get_db().await?;
     // Verify provider exists
-    let _provider = vpn::get_vpn_provider(&state.db, id).await?;
+    let _provider = vpn::get_vpn_provider(&db, id).await?;
 
     // For now, just return success if credentials are valid
     // TODO: Implement actual VPN connection test via Gluetun test container

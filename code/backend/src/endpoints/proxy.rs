@@ -113,7 +113,11 @@ async fn proxy_app_inner(
 async fn check_app_permission(state: &AppState, user_id: i64, app_name: &str) -> bool {
     use crate::endpoints::extractors::get_user_permissions;
 
-    let permissions = get_user_permissions(&state.db, user_id).await;
+    let db = match state.get_db().await {
+        Ok(db) => db,
+        Err(_) => return false,
+    };
+    let permissions = get_user_permissions(&db, user_id).await;
 
     // Check for app.* wildcard or specific app.{name} permission
     permissions.contains(&"app.*".to_string()) || permissions.contains(&format!("app.{}", app_name))

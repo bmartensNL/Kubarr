@@ -76,6 +76,7 @@ async fn get_inbox(
     auth: Authenticated,
     Query(query): Query<InboxQuery>,
 ) -> Result<Json<InboxResponse>> {
+    let db = state.get_db().await?;
     let limit = query.limit.unwrap_or(20).min(100);
     let offset = query.offset.unwrap_or(0);
 
@@ -88,7 +89,7 @@ async fn get_inbox(
 
     let total = crate::models::user_notification::Entity::find()
         .filter(crate::models::user_notification::Column::UserId.eq(auth.user_id()))
-        .count(&state.db)
+        .count(&db)
         .await?;
 
     let dtos: Vec<NotificationDto> = notifications
@@ -170,9 +171,10 @@ async fn list_channels(
     State(state): State<AppState>,
     _auth: Authorized<SettingsView>,
 ) -> Result<Json<Vec<ChannelDto>>> {
+    let db = state.get_db().await?;
     let channels = notification_channel::Entity::find()
         .order_by_asc(notification_channel::Column::ChannelType)
-        .all(&state.db)
+        .all(&db)
         .await?;
 
     // Return all channel types, with defaults for unconfigured ones
@@ -215,9 +217,10 @@ async fn get_channel(
     _auth: Authorized<SettingsView>,
     Path(channel_type): Path<String>,
 ) -> Result<Json<ChannelDto>> {
+    let db = state.get_db().await?;
     let channel = notification_channel::Entity::find()
         .filter(notification_channel::Column::ChannelType.eq(&channel_type))
-        .one(&state.db)
+        .one(&db)
         .await?;
 
     match channel {
@@ -256,6 +259,7 @@ async fn update_channel(
     Path(channel_type): Path<String>,
     Json(req): Json<UpdateChannelRequest>,
 ) -> Result<Json<ChannelDto>> {
+    let db = state.get_db().await?;
     // Validate channel type
     if ChannelType::from_str(&channel_type).is_none() {
         return Err(AppError::BadRequest(format!(
@@ -268,7 +272,7 @@ async fn update_channel(
 
     let existing = notification_channel::Entity::find()
         .filter(notification_channel::Column::ChannelType.eq(&channel_type))
-        .one(&state.db)
+        .one(&db)
         .await?;
 
     let channel = if let Some(existing) = existing {
@@ -282,7 +286,7 @@ async fn update_channel(
         }
         active.updated_at = Set(now);
 
-        active.update(&state.db).await?
+        active.update(&db).await?
     } else {
         let config = req.config.unwrap_or(serde_json::json!({}));
         let new_channel = notification_channel::ActiveModel {
@@ -293,7 +297,7 @@ async fn update_channel(
             updated_at: Set(now),
             ..Default::default()
         };
-        new_channel.insert(&state.db).await?
+        new_channel.insert(&db).await?
     };
 
     // Reinitialize providers
@@ -357,9 +361,10 @@ async fn list_events(
     State(state): State<AppState>,
     _auth: Authorized<SettingsView>,
 ) -> Result<Json<Vec<EventSettingDto>>> {
+    let db = state.get_db().await?;
     let events = notification_event::Entity::find()
         .order_by_asc(notification_event::Column::EventType)
-        .all(&state.db)
+        .all(&db)
         .await?;
 
     // Get all possible event types from AuditAction
@@ -400,9 +405,10 @@ async fn update_event(
     Path(event_type): Path<String>,
     Json(req): Json<UpdateEventRequest>,
 ) -> Result<Json<EventSettingDto>> {
+    let db = state.get_db().await?;
     let existing = notification_event::Entity::find()
         .filter(notification_event::Column::EventType.eq(&event_type))
-        .one(&state.db)
+        .one(&db)
         .await?;
 
     let event = if let Some(existing) = existing {
@@ -415,7 +421,7 @@ async fn update_event(
             active.severity = Set(severity);
         }
 
-        active.update(&state.db).await?
+        active.update(&db).await?
     } else {
         let new_event = notification_event::ActiveModel {
             event_type: Set(event_type.clone()),
@@ -423,7 +429,7 @@ async fn update_event(
             severity: Set(req.severity.unwrap_or_else(|| "info".to_string())),
             ..Default::default()
         };
-        new_event.insert(&state.db).await?
+        new_event.insert(&db).await?
     };
 
     Ok(Json(EventSettingDto {
@@ -449,9 +455,10 @@ async fn get_preferences(
     State(state): State<AppState>,
     auth: Authenticated,
 ) -> Result<Json<Vec<UserPrefDto>>> {
+    let db = state.get_db().await?;
     let prefs = user_notification_pref::Entity::find()
         .filter(user_notification_pref::Column::UserId.eq(auth.user_id()))
-        .all(&state.db)
+        .all(&db)
         .await?;
 
     let mut result: Vec<UserPrefDto> = Vec::new();
@@ -493,6 +500,7 @@ async fn update_preference(
     Path(channel_type): Path<String>,
     Json(req): Json<UpdatePrefRequest>,
 ) -> Result<Json<UserPrefDto>> {
+    let db = state.get_db().await?;
     if ChannelType::from_str(&channel_type).is_none() {
         return Err(AppError::BadRequest(format!(
             "Invalid channel type: {}",
@@ -505,7 +513,7 @@ async fn update_preference(
     let existing = user_notification_pref::Entity::find()
         .filter(user_notification_pref::Column::UserId.eq(auth.user_id()))
         .filter(user_notification_pref::Column::ChannelType.eq(&channel_type))
-        .one(&state.db)
+        .one(&db)
         .await?;
 
     let pref = if let Some(existing) = existing {
@@ -523,7 +531,7 @@ async fn update_preference(
         }
         active.updated_at = Set(now);
 
-        active.update(&state.db).await?
+        active.update(&db).await?
     } else {
         let new_pref = user_notification_pref::ActiveModel {
             user_id: Set(auth.user_id()),
@@ -535,7 +543,7 @@ async fn update_preference(
             updated_at: Set(now),
             ..Default::default()
         };
-        new_pref.insert(&state.db).await?
+        new_pref.insert(&db).await?
     };
 
     Ok(Json(UserPrefDto {
@@ -581,6 +589,7 @@ async fn list_logs(
     _auth: Authorized<AuditView>,
     Query(query): Query<LogsQuery>,
 ) -> Result<Json<LogsResponse>> {
+    let db = state.get_db().await?;
     let limit = query.limit.unwrap_or(50).min(100);
     let offset = query.offset.unwrap_or(0);
 
@@ -593,13 +602,13 @@ async fn list_logs(
         q = q.filter(notification_log::Column::Status.eq(status));
     }
 
-    let total = q.clone().count(&state.db).await?;
+    let total = q.clone().count(&db).await?;
 
     let logs = q
         .order_by_desc(notification_log::Column::CreatedAt)
         .offset(offset)
         .limit(limit)
-        .all(&state.db)
+        .all(&db)
         .await?;
 
     let dtos: Vec<LogDto> = logs

@@ -183,8 +183,9 @@ pub struct InviteResponse {
 // ============================================================================
 
 async fn get_user_with_roles(state: &AppState, user_id: i64) -> Result<UserResponse> {
+    let db = state.get_db().await?;
     let found_user = User::find_by_id(user_id)
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
@@ -192,19 +193,19 @@ async fn get_user_with_roles(state: &AppState, user_id: i64) -> Result<UserRespo
     let roles: Vec<role::Model> = Role::find()
         .inner_join(UserRole)
         .filter(user_role::Column::UserId.eq(user_id))
-        .all(&state.db)
+        .all(&db)
         .await?;
 
     // Fetch user preferences (or use defaults)
-    let preferences = UserPreferences::find_by_id(user_id).one(&state.db).await?;
+    let preferences = UserPreferences::find_by_id(user_id).one(&db).await?;
 
     let theme = preferences
         .map(|p| p.theme)
         .unwrap_or_else(|| "system".to_string());
 
     // Get user's permissions and allowed apps
-    let permissions = get_user_permissions(&state.db, user_id).await;
-    let allowed_apps = get_user_app_access(&state.db, user_id).await;
+    let permissions = get_user_permissions(&db, user_id).await;
+    let allowed_apps = get_user_app_access(&db, user_id).await;
 
     Ok(UserResponse {
         id: found_user.id,
@@ -239,13 +240,14 @@ async fn list_users(
     Query(params): Query<ListParams>,
     _auth: Authorized<UsersView>,
 ) -> Result<Json<Vec<UserResponse>>> {
+    let db = state.get_db().await?;
     let skip = params.skip.unwrap_or(0);
     let limit = params.limit.unwrap_or(100);
 
     let users = User::find()
         .offset(skip)
         .limit(limit)
-        .all(&state.db)
+        .all(&db)
         .await?;
 
     let mut responses = Vec::new();
@@ -271,11 +273,12 @@ async fn update_own_profile(
     auth: Authenticated,
     Json(data): Json<UpdateOwnProfileRequest>,
 ) -> Result<Json<UserResponse>> {
+    let db = state.get_db().await?;
     let user_id = auth.user_id();
 
     // Get existing user
     let existing_user = User::find_by_id(user_id)
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
@@ -294,7 +297,7 @@ async fn update_own_profile(
         let existing = User::find()
             .filter(user::Column::Username.eq(username))
             .filter(user::Column::Id.ne(user_id))
-            .one(&state.db)
+            .one(&db)
             .await?;
         if existing.is_some() {
             return Err(AppError::BadRequest(
@@ -316,7 +319,7 @@ async fn update_own_profile(
         let existing = User::find()
             .filter(user::Column::Email.eq(email))
             .filter(user::Column::Id.ne(user_id))
-            .one(&state.db)
+            .one(&db)
             .await?;
         if existing.is_some() {
             return Err(AppError::BadRequest("Email is already taken".to_string()));
@@ -335,7 +338,7 @@ async fn update_own_profile(
     }
     user_model.updated_at = Set(now);
 
-    user_model.update(&state.db).await?;
+    user_model.update(&db).await?;
 
     let response = get_user_with_roles(&state, user_id).await?;
     Ok(Json(response))
@@ -347,11 +350,12 @@ async fn delete_own_account(
     auth: Authenticated,
     Json(data): Json<DeleteOwnAccountRequest>,
 ) -> Result<Json<serde_json::Value>> {
+    let db = state.get_db().await?;
     let user_id = auth.user_id();
 
     // Get fresh user data to verify password
     let user_record = User::find_by_id(user_id)
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
@@ -363,7 +367,7 @@ async fn delete_own_account(
     // Check if user is the only admin
     let admin_role = Role::find()
         .filter(role::Column::Name.eq("admin"))
-        .one(&state.db)
+        .one(&db)
         .await?;
 
     if let Some(admin_role) = admin_role {
@@ -371,7 +375,7 @@ async fn delete_own_account(
         let user_has_admin = UserRole::find()
             .filter(user_role::Column::UserId.eq(user_id))
             .filter(user_role::Column::RoleId.eq(admin_role.id))
-            .one(&state.db)
+            .one(&db)
             .await?
             .is_some();
 
@@ -379,7 +383,7 @@ async fn delete_own_account(
             // Count total admins
             let admin_count = UserRole::find()
                 .filter(user_role::Column::RoleId.eq(admin_role.id))
-                .count(&state.db)
+                .count(&db)
                 .await?;
 
             if admin_count == 1 {
@@ -391,7 +395,7 @@ async fn delete_own_account(
     }
 
     // Delete the user (cascade will handle related records)
-    user_record.delete(&state.db).await?;
+    user_record.delete(&db).await?;
 
     Ok(Json(
         serde_json::json!({"message": "Account deleted successfully"}),
@@ -403,8 +407,9 @@ async fn get_my_preferences(
     State(state): State<AppState>,
     auth: Authenticated,
 ) -> Result<Json<PreferencesResponse>> {
+    let db = state.get_db().await?;
     let preferences = UserPreferences::find_by_id(auth.user_id())
-        .one(&state.db)
+        .one(&db)
         .await?;
 
     let theme = preferences
@@ -420,6 +425,7 @@ async fn update_my_preferences(
     auth: Authenticated,
     Json(data): Json<UpdatePreferences>,
 ) -> Result<Json<PreferencesResponse>> {
+    let db = state.get_db().await?;
     // Validate theme value
     if let Some(ref theme) = data.theme {
         if !["system", "light", "dark"].contains(&theme.as_str()) {
@@ -433,7 +439,7 @@ async fn update_my_preferences(
     let user_id = auth.user_id();
 
     // Check if preferences exist
-    let existing = UserPreferences::find_by_id(user_id).one(&state.db).await?;
+    let existing = UserPreferences::find_by_id(user_id).one(&db).await?;
 
     if let Some(existing_prefs) = existing {
         // Update existing preferences
@@ -441,7 +447,7 @@ async fn update_my_preferences(
             let mut active_model: user_preferences::ActiveModel = existing_prefs.into();
             active_model.theme = Set(theme.clone());
             active_model.updated_at = Set(now);
-            active_model.update(&state.db).await?;
+            active_model.update(&db).await?;
         }
     } else {
         // Insert new preferences
@@ -451,11 +457,11 @@ async fn update_my_preferences(
             theme: Set(theme.to_string()),
             updated_at: Set(now),
         };
-        new_prefs.insert(&state.db).await?;
+        new_prefs.insert(&db).await?;
     }
 
     // Return updated preferences
-    let preferences = UserPreferences::find_by_id(user_id).one(&state.db).await?;
+    let preferences = UserPreferences::find_by_id(user_id).one(&db).await?;
 
     let theme = preferences
         .map(|p| p.theme)
@@ -470,9 +476,10 @@ async fn list_pending_users(
     State(state): State<AppState>,
     _auth: Authorized<UsersView>,
 ) -> Result<Json<Vec<UserResponse>>> {
+    let db = state.get_db().await?;
     let users = User::find()
         .filter(user::Column::IsApproved.eq(false))
-        .all(&state.db)
+        .all(&db)
         .await?;
 
     let mut responses = Vec::new();
@@ -490,10 +497,11 @@ async fn create_user(
     _auth: Authorized<UsersManage>,
     Json(data): Json<CreateUserRequest>,
 ) -> Result<Json<UserResponse>> {
+    let db = state.get_db().await?;
     // Check if username exists
     let existing = User::find()
         .filter(user::Column::Username.eq(&data.username))
-        .one(&state.db)
+        .one(&db)
         .await?;
 
     if existing.is_some() {
@@ -503,7 +511,7 @@ async fn create_user(
     // Check if email exists
     let existing = User::find()
         .filter(user::Column::Email.eq(&data.email))
-        .one(&state.db)
+        .one(&db)
         .await?;
 
     if existing.is_some() {
@@ -525,7 +533,7 @@ async fn create_user(
         ..Default::default()
     };
 
-    let created_user = new_user.insert(&state.db).await?;
+    let created_user = new_user.insert(&db).await?;
 
     // Assign roles
     for role_id in &data.role_ids {
@@ -533,7 +541,7 @@ async fn create_user(
             user_id: Set(created_user.id),
             role_id: Set(*role_id),
         };
-        user_role_model.insert(&state.db).await?;
+        user_role_model.insert(&db).await?;
     }
 
     let response = get_user_with_roles(&state, created_user.id).await?;
@@ -559,9 +567,10 @@ async fn update_user(
     _auth: Authorized<UsersManage>,
     Json(data): Json<UpdateUserRequest>,
 ) -> Result<Json<UserResponse>> {
+    let db = state.get_db().await?;
     // Check user exists
     let existing_user = User::find_by_id(user_id)
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
@@ -580,14 +589,14 @@ async fn update_user(
     }
     user_model.updated_at = Set(now);
 
-    user_model.update(&state.db).await?;
+    user_model.update(&db).await?;
 
     // Update roles if provided
     if let Some(role_ids) = &data.role_ids {
         // Delete existing roles
         UserRole::delete_many()
             .filter(user_role::Column::UserId.eq(user_id))
-            .exec(&state.db)
+            .exec(&db)
             .await?;
 
         // Add new roles
@@ -596,7 +605,7 @@ async fn update_user(
                 user_id: Set(user_id),
                 role_id: Set(*role_id),
             };
-            user_role_model.insert(&state.db).await?;
+            user_role_model.insert(&db).await?;
         }
     }
 
@@ -611,8 +620,9 @@ async fn approve_user(
     Path(user_id): Path<i64>,
     _auth: Authorized<UsersManage>,
 ) -> Result<Json<UserResponse>> {
+    let db = state.get_db().await?;
     let existing_user = User::find_by_id(user_id)
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
@@ -622,7 +632,7 @@ async fn approve_user(
     user_model.is_active = Set(true);
     user_model.updated_at = Set(now);
 
-    user_model.update(&state.db).await?;
+    user_model.update(&db).await?;
 
     let response = get_user_with_roles(&state, user_id).await?;
     Ok(Json(response))
@@ -635,12 +645,13 @@ async fn reject_user(
     Path(user_id): Path<i64>,
     _auth: Authorized<UsersManage>,
 ) -> Result<Json<serde_json::Value>> {
+    let db = state.get_db().await?;
     let existing_user = User::find_by_id(user_id)
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
-    existing_user.delete(&state.db).await?;
+    existing_user.delete(&db).await?;
 
     Ok(Json(
         serde_json::json!({"message": "User rejected and deleted"}),
@@ -654,16 +665,17 @@ async fn delete_user(
     Path(user_id): Path<i64>,
     auth: Authorized<UsersManage>,
 ) -> Result<Json<serde_json::Value>> {
+    let db = state.get_db().await?;
     if user_id == auth.user_id() {
         return Err(AppError::BadRequest("Cannot delete yourself".to_string()));
     }
 
     let existing_user = User::find_by_id(user_id)
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
-    existing_user.delete(&state.db).await?;
+    existing_user.delete(&db).await?;
 
     Ok(Json(serde_json::json!({"message": "User deleted"})))
 }
@@ -674,17 +686,18 @@ async fn list_invites(
     State(state): State<AppState>,
     _auth: Authorized<UsersManage>,
 ) -> Result<Json<Vec<InviteResponse>>> {
+    let db = state.get_db().await?;
     let invites = Invite::find()
         .order_by_desc(invite::Column::CreatedAt)
-        .all(&state.db)
+        .all(&db)
         .await?;
 
     let mut responses = Vec::new();
     for inv in invites {
-        let created_by = User::find_by_id(inv.created_by_id).one(&state.db).await?;
+        let created_by = User::find_by_id(inv.created_by_id).one(&db).await?;
 
         let used_by = if let Some(used_by_id) = inv.used_by_id {
-            User::find_by_id(used_by_id).one(&state.db).await?
+            User::find_by_id(used_by_id).one(&db).await?
         } else {
             None
         };
@@ -713,6 +726,7 @@ async fn create_invite(
     auth: Authorized<UsersManage>,
     Json(data): Json<CreateInviteRequest>,
 ) -> Result<Json<InviteResponse>> {
+    let db = state.get_db().await?;
     use crate::services::generate_random_string;
 
     let code = generate_random_string(32);
@@ -732,7 +746,7 @@ async fn create_invite(
         ..Default::default()
     };
 
-    let created_invite = new_invite.insert(&state.db).await?;
+    let created_invite = new_invite.insert(&db).await?;
 
     Ok(Json(InviteResponse {
         id: created_invite.id,
@@ -753,12 +767,13 @@ async fn delete_invite(
     Path(invite_id): Path<i64>,
     _auth: Authorized<UsersManage>,
 ) -> Result<Json<serde_json::Value>> {
+    let db = state.get_db().await?;
     let existing_invite = Invite::find_by_id(invite_id)
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound("Invite not found".to_string()))?;
 
-    existing_invite.delete(&state.db).await?;
+    existing_invite.delete(&db).await?;
 
     Ok(Json(serde_json::json!({"message": "Invite deleted"})))
 }
@@ -773,6 +788,7 @@ async fn change_own_password(
     auth: Authenticated,
     Json(data): Json<ChangeOwnPasswordRequest>,
 ) -> Result<Json<serde_json::Value>> {
+    let db = state.get_db().await?;
     // Validate new password
     if data.new_password.len() < 8 {
         return Err(AppError::BadRequest(
@@ -782,7 +798,7 @@ async fn change_own_password(
 
     // Get fresh user data to verify current password
     let user_record = User::find_by_id(auth.user_id())
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
@@ -800,7 +816,7 @@ async fn change_own_password(
     let mut user_model: user::ActiveModel = user_record.into();
     user_model.hashed_password = Set(hashed);
     user_model.updated_at = Set(now);
-    user_model.update(&state.db).await?;
+    user_model.update(&db).await?;
 
     Ok(Json(
         serde_json::json!({"message": "Password changed successfully"}),
@@ -815,6 +831,7 @@ async fn admin_reset_password(
     auth: Authorized<UsersResetPassword>,
     Json(data): Json<AdminResetPasswordRequest>,
 ) -> Result<Json<serde_json::Value>> {
+    let db = state.get_db().await?;
     // Prevent admin from resetting their own password via this endpoint
     if user_id == auth.user_id() {
         return Err(AppError::BadRequest(
@@ -831,7 +848,7 @@ async fn admin_reset_password(
 
     // Get target user
     let user_record = User::find_by_id(user_id)
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
@@ -842,7 +859,7 @@ async fn admin_reset_password(
     let mut user_model: user::ActiveModel = user_record.into();
     user_model.hashed_password = Set(hashed);
     user_model.updated_at = Set(now);
-    user_model.update(&state.db).await?;
+    user_model.update(&db).await?;
 
     Ok(Json(
         serde_json::json!({"message": "Password reset successfully"}),
@@ -871,9 +888,10 @@ async fn setup_2fa(
     State(state): State<AppState>,
     auth: Authenticated,
 ) -> Result<Json<TwoFactorSetupResponse>> {
+    let db = state.get_db().await?;
     // Get fresh user data
     let user_record = User::find_by_id(auth.user_id())
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
@@ -896,7 +914,7 @@ async fn setup_2fa(
     let mut user_model: user::ActiveModel = user_record.into();
     user_model.totp_secret = Set(Some(secret.clone()));
     user_model.updated_at = Set(now);
-    user_model.update(&state.db).await?;
+    user_model.update(&db).await?;
 
     Ok(Json(TwoFactorSetupResponse {
         secret,
@@ -910,9 +928,10 @@ async fn enable_2fa(
     auth: Authenticated,
     Json(data): Json<Enable2FARequest>,
 ) -> Result<Json<serde_json::Value>> {
+    let db = state.get_db().await?;
     // Get fresh user data
     let user_record = User::find_by_id(auth.user_id())
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
@@ -941,7 +960,7 @@ async fn enable_2fa(
     user_model.totp_enabled = Set(true);
     user_model.totp_verified_at = Set(Some(now));
     user_model.updated_at = Set(now);
-    user_model.update(&state.db).await?;
+    user_model.update(&db).await?;
 
     Ok(Json(serde_json::json!({
         "message": "Two-factor authentication enabled successfully"
@@ -954,11 +973,12 @@ async fn disable_2fa(
     auth: Authenticated,
     Json(data): Json<Disable2FARequest>,
 ) -> Result<Json<serde_json::Value>> {
+    let db = state.get_db().await?;
     let user_id = auth.user_id();
 
     // Get fresh user data
     let user_record = User::find_by_id(user_id)
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
@@ -973,7 +993,7 @@ async fn disable_2fa(
     }
 
     // Check if user's role requires 2FA
-    if user_requires_2fa(&state.db, user_id).await {
+    if user_requires_2fa(&db, user_id).await {
         return Err(AppError::BadRequest(
             "Cannot disable 2FA - your role requires two-factor authentication".to_string(),
         ));
@@ -986,7 +1006,7 @@ async fn disable_2fa(
     user_model.totp_secret = Set(None);
     user_model.totp_verified_at = Set(None);
     user_model.updated_at = Set(now);
-    user_model.update(&state.db).await?;
+    user_model.update(&db).await?;
 
     Ok(Json(serde_json::json!({
         "message": "Two-factor authentication disabled"
@@ -998,16 +1018,17 @@ async fn get_2fa_status(
     State(state): State<AppState>,
     auth: Authenticated,
 ) -> Result<Json<TwoFactorStatusResponse>> {
+    let db = state.get_db().await?;
     let user_id = auth.user_id();
 
     // Get fresh user data
     let user_record = User::find_by_id(user_id)
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
     // Check if role requires 2FA
-    let required_by_role = user_requires_2fa(&state.db, user_id).await;
+    let required_by_role = user_requires_2fa(&db, user_id).await;
 
     Ok(Json(TwoFactorStatusResponse {
         enabled: user_record.totp_enabled,

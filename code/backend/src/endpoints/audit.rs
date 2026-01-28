@@ -26,7 +26,8 @@ async fn list_audit_logs(
     _auth: Authorized<AuditView>,
     Query(query): Query<AuditLogQuery>,
 ) -> Result<Json<AuditLogResponse>> {
-    let logs = get_audit_logs(&state.db, query).await?;
+    let db = state.get_db().await?;
+    let logs = get_audit_logs(&db, query).await?;
     Ok(Json(logs))
 }
 
@@ -35,7 +36,8 @@ async fn audit_stats(
     State(state): State<AppState>,
     _auth: Authorized<AuditView>,
 ) -> Result<Json<AuditStats>> {
-    let stats = get_audit_stats(&state.db).await?;
+    let db = state.get_db().await?;
+    let stats = get_audit_stats(&db).await?;
     Ok(Json(stats))
 }
 
@@ -56,8 +58,9 @@ async fn clear_audit_logs(
     _auth: Authorized<AuditManage>,
     Json(request): Json<ClearLogsRequest>,
 ) -> Result<Json<ClearLogsResponse>> {
+    let db = state.get_db().await?;
     let days = request.days.unwrap_or(90); // Default to 90 days retention
-    let deleted = clear_old_logs(&state.db, days).await?;
+    let deleted = clear_old_logs(&db, days).await?;
 
     Ok(Json(ClearLogsResponse {
         deleted,
