@@ -132,6 +132,7 @@ async fn install_app(
     _auth: Authorized<AppsInstall>,
     Json(request): Json<DeploymentRequest>,
 ) -> Result<Json<DeploymentStatus>> {
+    let db = state.get_db().await?;
     let k8s = state.k8s_client.read().await;
     let catalog = state.catalog.read().await;
 
@@ -141,12 +142,12 @@ async fn install_app(
 
     // Get storage path from settings
     let storage_setting = SystemSetting::find_by_id("storage_path")
-        .one(&state.db)
+        .one(&db)
         .await?;
     let storage_path = storage_setting.map(|s| s.value);
 
     // Use with_db to enable VPN support
-    let manager = DeploymentManager::with_db(client, &catalog, &state.db);
+    let manager = DeploymentManager::with_db(client, &catalog, &db);
     let status = manager
         .deploy_app(&request, storage_path.as_deref())
         .await?;

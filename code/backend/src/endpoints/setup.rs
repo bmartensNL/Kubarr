@@ -72,12 +72,18 @@ struct GeneratedCredentialsResponse {
     admin_password: String,
 }
 
-/// Check if any user with admin role exists
+/// Check if any user with admin role exists (requires database)
 async fn admin_user_exists(state: &AppState) -> Result<bool> {
+    let db_guard = state.db.read().await;
+    let db = match db_guard.as_ref() {
+        Some(db) => db,
+        None => return Ok(false), // No database = no admin
+    };
+
     let admin_exists = UserRole::find()
         .join(JoinType::InnerJoin, user_role::Relation::Role.def())
         .filter(role::Column::Name.eq("admin"))
-        .one(&state.db)
+        .one(db)
         .await?;
 
     Ok(admin_exists.is_some())
@@ -115,16 +121,29 @@ async fn get_setup_status(State(state): State<AppState>) -> Result<Json<SetupSta
     );
     let bootstrap_complete = bootstrap_service.is_complete().await;
 
-    // Check for server configuration
-    let server_config = bootstrap::get_server_config(&state.db).await?;
-    let server_configured = server_config.is_some();
+    // Check for server configuration (requires database)
+    let server_configured = {
+        let db_guard = state.db.read().await;
+        if let Some(ref db) = *db_guard {
+            bootstrap::get_server_config(db).await?.is_some()
+        } else {
+            false
+        }
+    };
 
     // Check for storage configuration (legacy - now in server_config)
-    let storage_configured = server_configured
-        || SystemSetting::find_by_id("storage_path")
-            .one(&state.db)
-            .await?
-            .is_some();
+    let storage_configured = {
+        let db_guard = state.db.read().await;
+        if let Some(ref db) = *db_guard {
+            server_configured
+                || SystemSetting::find_by_id("storage_path")
+                    .one(db)
+                    .await?
+                    .is_some()
+        } else {
+            false
+        }
+    };
 
     Ok(Json(SetupStatusResponse {
         setup_required: !admin_exists,
@@ -140,6 +159,9 @@ async fn initialize_setup(
     State(state): State<AppState>,
     Json(request): Json<SetupRequest>,
 ) -> Result<Json<serde_json::Value>> {
+    // Get database connection (required for this step)
+    let db = state.get_db().await?;
+
     // Check if setup is required (user with admin role exists)
     let admin_exists = admin_user_exists(&state).await?;
 
@@ -150,7 +172,7 @@ async fn initialize_setup(
     }
 
     // Get server config for storage path
-    let server_config = bootstrap::get_server_config(&state.db)
+    let server_config = bootstrap::get_server_config(&db)
         .await?
         .ok_or_else(|| {
             AppError::BadRequest("Server must be configured before creating admin user".to_string())
@@ -173,14 +195,14 @@ async fn initialize_setup(
     };
 
     let created_user = new_user
-        .insert(&state.db)
+        .insert(&db)
         .await
         .map_err(|e| AppError::Internal(format!("Failed to create admin user: {}", e)))?;
 
     // Check if admin role exists
     let admin_role = Role::find()
         .filter(role::Column::Name.eq("admin"))
-        .one(&state.db)
+        .one(&db)
         .await?;
 
     let admin_role = match admin_role {
@@ -195,7 +217,7 @@ async fn initialize_setup(
                 ..Default::default()
             };
             new_role
-                .insert(&state.db)
+                .insert(&db)
                 .await
                 .map_err(|e| AppError::Internal(format!("Failed to create admin role: {}", e)))?
         }
@@ -207,7 +229,7 @@ async fn initialize_setup(
         role_id: Set(admin_role.id),
     };
     user_role_model
-        .insert(&state.db)
+        .insert(&db)
         .await
         .map_err(|e| AppError::Internal(format!("Failed to assign admin role: {}", e)))?;
 
@@ -219,7 +241,7 @@ async fn initialize_setup(
         updated_at: Set(now),
     };
     // Try to insert, ignore if already exists
-    let _ = storage_setting.insert(&state.db).await;
+    let _ = storage_setting.insert(&db).await;
 
     Ok(Json(serde_json::json!({
         "success": true,
@@ -345,9 +367,6 @@ async fn get_bootstrap_status(
         state.bootstrap_tx.clone(),
     );
 
-    // Initialize status records if needed
-    bootstrap_service.initialize_status().await?;
-
     let components = bootstrap_service.get_status().await?;
     let complete = bootstrap_service.is_complete().await;
     let started = bootstrap_service.has_started().await;
@@ -367,14 +386,6 @@ struct BootstrapStartResponse {
 
 /// Start the bootstrap process
 async fn start_bootstrap(State(state): State<AppState>) -> Result<Json<BootstrapStartResponse>> {
-    // Check if setup is required
-    let admin_exists = admin_user_exists(&state).await?;
-    if admin_exists {
-        return Err(AppError::Forbidden(
-            "Setup has already been completed".to_string(),
-        ));
-    }
-
     let bootstrap_service = Arc::new(RwLock::new(BootstrapService::new(
         state.db.clone(),
         state.k8s_client.clone(),
@@ -413,14 +424,6 @@ async fn retry_bootstrap_component(
     State(state): State<AppState>,
     axum::extract::Path(component): axum::extract::Path<String>,
 ) -> Result<Json<BootstrapStartResponse>> {
-    // Check if setup is required
-    let admin_exists = admin_user_exists(&state).await?;
-    if admin_exists {
-        return Err(AppError::Forbidden(
-            "Setup has already been completed".to_string(),
-        ));
-    }
-
     let bootstrap_service = Arc::new(RwLock::new(BootstrapService::new(
         state.db.clone(),
         state.k8s_client.clone(),
@@ -542,7 +545,12 @@ struct ServerConfigResponse {
 async fn get_server_config(
     State(state): State<AppState>,
 ) -> Result<Json<Option<ServerConfigResponse>>> {
-    let config = bootstrap::get_server_config(&state.db).await?;
+    let db_guard = state.db.read().await;
+    let config = if let Some(ref db) = *db_guard {
+        bootstrap::get_server_config(db).await?
+    } else {
+        None
+    };
 
     Ok(Json(config.map(|c| ServerConfigResponse {
         name: c.name,
@@ -555,6 +563,9 @@ async fn configure_server(
     State(state): State<AppState>,
     Json(request): Json<ServerConfigRequest>,
 ) -> Result<Json<ServerConfigResponse>> {
+    // Get database connection (required for this step)
+    let db = state.get_db().await?;
+
     // Check if setup is required
     let admin_exists = admin_user_exists(&state).await?;
     if admin_exists {
@@ -584,7 +595,7 @@ async fn configure_server(
 
     // Save server config
     let config =
-        bootstrap::save_server_config(&state.db, &request.name, &request.storage_path).await?;
+        bootstrap::save_server_config(&db, &request.name, &request.storage_path).await?;
 
     Ok(Json(ServerConfigResponse {
         name: config.name,

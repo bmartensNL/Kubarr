@@ -85,19 +85,20 @@ pub struct PermissionInfo {
 // ============================================================================
 
 async fn get_role_with_apps(state: &AppState, role_id: i64) -> Result<RoleWithAppsResponse> {
+    let db = state.get_db().await?;
     let found_role = Role::find_by_id(role_id)
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound("Role not found".to_string()))?;
 
     let app_permissions = RoleAppPermission::find()
         .filter(role_app_permission::Column::RoleId.eq(role_id))
-        .all(&state.db)
+        .all(&db)
         .await?;
 
     let role_perms = RolePermission::find()
         .filter(role_permission::Column::RoleId.eq(role_id))
-        .all(&state.db)
+        .all(&db)
         .await?;
 
     // Convert app permissions to app.* format and merge with regular permissions
@@ -130,7 +131,8 @@ async fn list_roles(
     State(state): State<AppState>,
     _auth: Authorized<RolesView>,
 ) -> Result<Json<Vec<RoleWithAppsResponse>>> {
-    let roles = Role::find().all(&state.db).await?;
+    let db = state.get_db().await?;
+    let roles = Role::find().all(&db).await?;
 
     let mut responses = Vec::new();
     for r in roles {
@@ -156,10 +158,11 @@ async fn create_role(
     _auth: Authorized<RolesManage>,
     Json(data): Json<CreateRoleRequest>,
 ) -> Result<Json<RoleWithAppsResponse>> {
+    let db = state.get_db().await?;
     // Check if role name exists
     let existing = Role::find()
         .filter(role::Column::Name.eq(&data.name))
-        .one(&state.db)
+        .one(&db)
         .await?;
 
     if existing.is_some() {
@@ -178,7 +181,7 @@ async fn create_role(
         ..Default::default()
     };
 
-    let created_role = new_role.insert(&state.db).await?;
+    let created_role = new_role.insert(&db).await?;
 
     // Add app permissions
     for app_name in &data.app_names {
@@ -187,7 +190,7 @@ async fn create_role(
             app_name: Set(app_name.clone()),
             ..Default::default()
         };
-        permission.insert(&state.db).await?;
+        permission.insert(&db).await?;
     }
 
     let response = get_role_with_apps(&state, created_role.id).await?;
@@ -201,8 +204,9 @@ async fn update_role(
     _auth: Authorized<RolesManage>,
     Json(data): Json<UpdateRoleRequest>,
 ) -> Result<Json<RoleWithAppsResponse>> {
+    let db = state.get_db().await?;
     let existing_role = Role::find_by_id(role_id)
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound("Role not found".to_string()))?;
 
@@ -221,7 +225,7 @@ async fn update_role(
         if new_name != &existing_role.name {
             let existing = Role::find()
                 .filter(role::Column::Name.eq(new_name))
-                .one(&state.db)
+                .one(&db)
                 .await?;
 
             if existing.is_some() {
@@ -243,7 +247,7 @@ async fn update_role(
         role_model.requires_2fa = Set(requires_2fa);
     }
 
-    role_model.update(&state.db).await?;
+    role_model.update(&db).await?;
 
     let response = get_role_with_apps(&state, role_id).await?;
     Ok(Json(response))
@@ -255,8 +259,9 @@ async fn delete_role(
     Path(role_id): Path<i64>,
     _auth: Authorized<RolesManage>,
 ) -> Result<Json<serde_json::Value>> {
+    let db = state.get_db().await?;
     let existing_role = Role::find_by_id(role_id)
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound("Role not found".to_string()))?;
 
@@ -266,7 +271,7 @@ async fn delete_role(
         ));
     }
 
-    existing_role.delete(&state.db).await?;
+    existing_role.delete(&db).await?;
 
     Ok(Json(serde_json::json!({"message": "Role deleted"})))
 }
@@ -278,16 +283,17 @@ async fn set_role_apps(
     _auth: Authorized<RolesManage>,
     Json(data): Json<SetRoleApps>,
 ) -> Result<Json<RoleWithAppsResponse>> {
+    let db = state.get_db().await?;
     // Verify role exists
     let _ = Role::find_by_id(role_id)
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound("Role not found".to_string()))?;
 
     // Delete existing permissions
     RoleAppPermission::delete_many()
         .filter(role_app_permission::Column::RoleId.eq(role_id))
-        .exec(&state.db)
+        .exec(&db)
         .await?;
 
     // Add new permissions
@@ -297,7 +303,7 @@ async fn set_role_apps(
             app_name: Set(app_name.clone()),
             ..Default::default()
         };
-        permission.insert(&state.db).await?;
+        permission.insert(&db).await?;
     }
 
     let response = get_role_with_apps(&state, role_id).await?;
@@ -433,15 +439,16 @@ async fn get_role_permissions(
     Path(role_id): Path<i64>,
     _auth: Authorized<RolesView>,
 ) -> Result<Json<Vec<String>>> {
+    let db = state.get_db().await?;
     // Verify role exists
     let _ = Role::find_by_id(role_id)
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound("Role not found".to_string()))?;
 
     let role_perms = RolePermission::find()
         .filter(role_permission::Column::RoleId.eq(role_id))
-        .all(&state.db)
+        .all(&db)
         .await?;
 
     let permissions: Vec<String> = role_perms.into_iter().map(|p| p.permission).collect();
@@ -457,9 +464,10 @@ async fn set_role_permissions(
     _auth: Authorized<RolesManage>,
     Json(data): Json<SetRolePermissions>,
 ) -> Result<Json<RoleWithAppsResponse>> {
+    let db = state.get_db().await?;
     // Verify role exists
     let _ = Role::find_by_id(role_id)
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound("Role not found".to_string()))?;
 
@@ -478,7 +486,7 @@ async fn set_role_permissions(
     // Delete existing regular permissions
     RolePermission::delete_many()
         .filter(role_permission::Column::RoleId.eq(role_id))
-        .exec(&state.db)
+        .exec(&db)
         .await?;
 
     // Add new regular permissions
@@ -488,13 +496,13 @@ async fn set_role_permissions(
             permission: Set(permission.clone()),
             ..Default::default()
         };
-        perm.insert(&state.db).await?;
+        perm.insert(&db).await?;
     }
 
     // Delete existing app permissions
     RoleAppPermission::delete_many()
         .filter(role_app_permission::Column::RoleId.eq(role_id))
-        .exec(&state.db)
+        .exec(&db)
         .await?;
 
     // Add new app permissions
@@ -504,7 +512,7 @@ async fn set_role_permissions(
             app_name: Set(app_name.clone()),
             ..Default::default()
         };
-        app_perm.insert(&state.db).await?;
+        app_perm.insert(&db).await?;
     }
 
     let response = get_role_with_apps(&state, role_id).await?;

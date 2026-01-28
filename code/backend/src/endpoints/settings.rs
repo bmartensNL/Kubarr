@@ -72,8 +72,9 @@ async fn list_settings(
     State(state): State<AppState>,
     _auth: Authorized<SettingsView>,
 ) -> Result<Json<SettingsResponse>> {
+    let db = state.get_db().await?;
     // Get all settings from database
-    let db_settings = SystemSetting::find().all(&state.db).await?;
+    let db_settings = SystemSetting::find().all(&db).await?;
 
     let db_map: HashMap<String, system_setting::Model> = db_settings
         .into_iter()
@@ -111,7 +112,8 @@ async fn get_setting(
     Path(key): Path<String>,
     _auth: Authorized<SettingsView>,
 ) -> Result<Json<SettingResponse>> {
-    let db_setting = SystemSetting::find_by_id(&key).one(&state.db).await?;
+    let db = state.get_db().await?;
+    let db_setting = SystemSetting::find_by_id(&key).one(&db).await?;
 
     if let Some(setting) = db_setting {
         return Ok(Json(SettingResponse {
@@ -140,6 +142,7 @@ async fn update_setting(
     _auth: Authorized<SettingsManage>,
     Json(data): Json<SettingUpdate>,
 ) -> Result<Json<SettingResponse>> {
+    let db = state.get_db().await?;
     // Validate key exists in defaults
     let (_, description) = DEFAULT_SETTINGS
         .get(key.as_str())
@@ -148,14 +151,14 @@ async fn update_setting(
     let now = Utc::now();
 
     // Check if setting exists
-    let existing = SystemSetting::find_by_id(&key).one(&state.db).await?;
+    let existing = SystemSetting::find_by_id(&key).one(&db).await?;
 
     let setting = if let Some(existing_setting) = existing {
         // Update existing
         let mut setting_model: system_setting::ActiveModel = existing_setting.into();
         setting_model.value = Set(data.value.clone());
         setting_model.updated_at = Set(now);
-        setting_model.update(&state.db).await?
+        setting_model.update(&db).await?
     } else {
         // Insert new
         let new_setting = system_setting::ActiveModel {
@@ -164,7 +167,7 @@ async fn update_setting(
             description: Set(Some(description.to_string())),
             updated_at: Set(now),
         };
-        new_setting.insert(&state.db).await?
+        new_setting.insert(&db).await?
     };
 
     Ok(Json(SettingResponse {

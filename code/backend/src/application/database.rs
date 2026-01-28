@@ -8,11 +8,16 @@ use crate::migrations::Migrator;
 
 pub type DbConn = DatabaseConnection;
 
-/// Create a new database connection and run migrations
+/// Create a new database connection and run migrations using config
 pub async fn connect() -> Result<DbConn> {
+    connect_with_url(&CONFIG.database_url).await
+}
+
+/// Create a new database connection with a specific URL and run migrations
+pub async fn connect_with_url(database_url: &str) -> Result<DbConn> {
     tracing::info!("Connecting to database...");
 
-    let mut opts = ConnectOptions::new(&CONFIG.database_url);
+    let mut opts = ConnectOptions::new(database_url);
     opts.max_connections(10)
         .min_connections(1)
         .connect_timeout(Duration::from_secs(30))
@@ -30,4 +35,15 @@ pub async fn connect() -> Result<DbConn> {
     tracing::info!("Database migrations completed");
 
     Ok(db)
+}
+
+/// Try to connect to database, returns None if connection fails
+pub async fn try_connect() -> Option<DbConn> {
+    match connect().await {
+        Ok(db) => Some(db),
+        Err(e) => {
+            tracing::info!("Database not available yet: {}", e);
+            None
+        }
+    }
 }

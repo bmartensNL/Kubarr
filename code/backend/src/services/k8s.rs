@@ -309,6 +309,32 @@ impl K8sClient {
         let logs = pods.logs(pod_name, &log_params).await?;
         Ok(logs)
     }
+
+    /// Get a secret from a namespace
+    pub async fn get_secret(&self, namespace: &str, secret_name: &str) -> Result<Secret> {
+        let secrets: Api<Secret> = Api::namespaced(self.client.clone(), namespace);
+        let secret = secrets.get(secret_name).await?;
+        Ok(secret)
+    }
+
+    /// Get database URL from CloudNativePG secret
+    pub async fn get_database_url(&self, namespace: &str) -> Result<String> {
+        let secret = self.get_secret(namespace, "kubarr-db-app").await?;
+
+        let data = secret.data.ok_or_else(|| {
+            crate::error::AppError::NotFound("Secret data not found".to_string())
+        })?;
+
+        let uri_bytes = data.get("uri").ok_or_else(|| {
+            crate::error::AppError::NotFound("uri key not found in secret".to_string())
+        })?;
+
+        let uri = String::from_utf8(uri_bytes.0.clone()).map_err(|e| {
+            crate::error::AppError::Internal(format!("Failed to decode URI: {}", e))
+        })?;
+
+        Ok(uri)
+    }
 }
 
 // ============================================================================

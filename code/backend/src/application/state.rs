@@ -259,10 +259,13 @@ pub type NetworkMetricsBroadcast = broadcast::Sender<String>;
 /// Broadcast channel for bootstrap progress to WebSocket clients
 pub type BootstrapBroadcast = broadcast::Sender<String>;
 
+/// Shared database connection (optional until PostgreSQL is installed)
+pub type SharedDbConn = Arc<RwLock<Option<DbConn>>>;
+
 /// Application state containing all shared resources
 #[derive(Clone)]
 pub struct AppState {
-    pub db: DbConn,
+    pub db: SharedDbConn,
     pub k8s_client: SharedK8sClient,
     pub catalog: SharedCatalog,
     pub audit: AuditService,
@@ -276,7 +279,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(
-        db: DbConn,
+        db: Option<DbConn>,
         k8s_client: SharedK8sClient,
         catalog: SharedCatalog,
         audit: AuditService,
@@ -288,7 +291,7 @@ impl AppState {
         let (bootstrap_tx, _) = broadcast::channel(32);
 
         Self {
-            db,
+            db: Arc::new(RwLock::new(db)),
             k8s_client,
             catalog,
             audit,
@@ -299,5 +302,25 @@ impl AppState {
             network_metrics_tx,
             bootstrap_tx,
         }
+    }
+
+    /// Set the database connection after PostgreSQL is installed
+    pub async fn set_db(&self, db: DbConn) {
+        let mut db_guard = self.db.write().await;
+        *db_guard = Some(db);
+    }
+
+    /// Get the database connection (returns error if not connected)
+    pub async fn get_db(&self) -> crate::error::Result<DbConn> {
+        let db_guard = self.db.read().await;
+        db_guard.clone().ok_or_else(|| {
+            crate::error::AppError::ServiceUnavailable("Database not connected. Please complete setup.".to_string())
+        })
+    }
+
+    /// Check if database is connected
+    pub async fn is_db_connected(&self) -> bool {
+        let db_guard = self.db.read().await;
+        db_guard.is_some()
     }
 }

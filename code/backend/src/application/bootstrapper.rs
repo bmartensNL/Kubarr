@@ -52,18 +52,35 @@ fn init_tracing() {
 
 /// Initialize all application services
 async fn init_services() -> anyhow::Result<AppState> {
-    let conn = init_database().await?;
     let k8s_client = init_kubernetes().await;
     let catalog = init_catalog();
-    let audit = init_audit(&conn).await;
-    let notification = init_notifications(&conn).await;
 
-    // Initialize JWT keys from database
-    init_jwt_keys(&conn).await?;
-    tracing::info!("JWT signing keys initialized");
+    // Try to connect to database (may not be available during initial setup)
+    let conn = init_database().await;
 
-    // Start periodic task scheduler
-    scheduler::start_scheduler(Arc::new(conn.clone()));
+    let audit = AuditService::new();
+    let notification = NotificationService::new();
+
+    // If database is available, initialize services that need it
+    if let Some(ref db) = conn {
+        audit.set_db(db.clone()).await;
+        notification.set_db(db.clone()).await;
+        if let Err(e) = notification.init_providers().await {
+            tracing::warn!("Failed to initialize notification providers: {}", e);
+        }
+
+        // Initialize JWT keys from database
+        if let Err(e) = init_jwt_keys(db).await {
+            tracing::warn!("Failed to initialize JWT keys: {}", e);
+        } else {
+            tracing::info!("JWT signing keys initialized");
+        }
+
+        // Start periodic task scheduler
+        scheduler::start_scheduler(Arc::new(db.clone()));
+    } else {
+        tracing::info!("Database not available - running in setup mode");
+    }
 
     Ok(AppState::new(
         conn,
@@ -75,10 +92,18 @@ async fn init_services() -> anyhow::Result<AppState> {
 }
 
 /// Initialize the database connection (runs migrations automatically)
-async fn init_database() -> anyhow::Result<sea_orm::DatabaseConnection> {
-    let conn = db::connect().await?;
-    tracing::info!("Database connection established");
-    Ok(conn)
+/// Returns None if database is not available (e.g., PostgreSQL not yet installed)
+async fn init_database() -> Option<sea_orm::DatabaseConnection> {
+    match db::try_connect().await {
+        Some(conn) => {
+            tracing::info!("Database connection established");
+            Some(conn)
+        }
+        None => {
+            tracing::info!("Database not available - will connect after PostgreSQL is installed");
+            None
+        }
+    }
 }
 
 /// Initialize the Kubernetes client
@@ -103,25 +128,6 @@ fn init_catalog() -> Arc<RwLock<AppCatalog>> {
     let catalog = Arc::new(RwLock::new(AppCatalog::new()));
     tracing::info!("App catalog loaded");
     catalog
-}
-
-/// Initialize the audit service
-async fn init_audit(pool: &sea_orm::DatabaseConnection) -> AuditService {
-    let audit = AuditService::new();
-    audit.set_db(pool.clone()).await;
-    tracing::info!("Audit service initialized");
-    audit
-}
-
-/// Initialize the notification service
-async fn init_notifications(pool: &sea_orm::DatabaseConnection) -> NotificationService {
-    let notification = NotificationService::new();
-    notification.set_db(pool.clone()).await;
-    if let Err(e) = notification.init_providers().await {
-        tracing::warn!("Failed to initialize notification providers: {}", e);
-    }
-    tracing::info!("Notification service initialized");
-    notification
 }
 
 /// Create the main application router

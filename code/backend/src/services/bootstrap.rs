@@ -5,12 +5,14 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, Qu
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, RwLock};
 
+use crate::db;
 use crate::error::{AppError, Result};
 use crate::models::prelude::*;
 use crate::models::{bootstrap_status, server_config};
 use crate::services::catalog::AppCatalog;
 use crate::services::deployment::DeploymentManager;
 use crate::services::k8s::K8sClient;
+use crate::state::{AppState, SharedDbConn};
 
 /// Component status for bootstrap
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,12 +44,13 @@ pub enum BootstrapEvent {
         message: String,
         error: String,
     },
+    #[serde(rename = "database_connected")]
+    DatabaseConnected { message: String },
     #[serde(rename = "bootstrap_complete")]
     BootstrapComplete { message: String },
 }
 
 /// Bootstrap components to install in order
-/// PostgreSQL is first because it's the database - already deployed by Helm chart
 pub const BOOTSTRAP_COMPONENTS: &[(&str, &str)] = &[
     ("postgresql", "PostgreSQL"),
     ("victoriametrics", "VictoriaMetrics"),
@@ -55,94 +58,106 @@ pub const BOOTSTRAP_COMPONENTS: &[(&str, &str)] = &[
     ("fluent-bit", "Fluent Bit"),
 ];
 
-/// Components that are pre-deployed by Helm chart (just need health check, not install)
-const PREDEPLOYED_COMPONENTS: &[&str] = &["postgresql"];
+/// In-memory status for components (used before database is available)
+#[derive(Debug, Clone, Default)]
+pub struct InMemoryStatus {
+    pub statuses: Vec<ComponentStatus>,
+    pub started: bool,
+}
 
 /// Bootstrap service for installing system components
 pub struct BootstrapService {
-    db: DatabaseConnection,
+    db: SharedDbConn,
     k8s: Arc<RwLock<Option<K8sClient>>>,
     catalog: Arc<RwLock<AppCatalog>>,
     pub broadcast_tx: broadcast::Sender<String>,
+    /// In-memory status (used before PostgreSQL is installed)
+    in_memory_status: Arc<RwLock<InMemoryStatus>>,
 }
 
 impl BootstrapService {
     pub fn new(
-        db: DatabaseConnection,
+        db: SharedDbConn,
         k8s: Arc<RwLock<Option<K8sClient>>>,
         catalog: Arc<RwLock<AppCatalog>>,
         broadcast_tx: broadcast::Sender<String>,
     ) -> Self {
+        // Initialize in-memory status with all components
+        let statuses = BOOTSTRAP_COMPONENTS
+            .iter()
+            .map(|(component, display_name)| ComponentStatus {
+                component: component.to_string(),
+                display_name: display_name.to_string(),
+                status: "pending".to_string(),
+                message: Some("Waiting to install".to_string()),
+                error: None,
+            })
+            .collect();
+
         Self {
             db,
             k8s,
             catalog,
             broadcast_tx,
+            in_memory_status: Arc::new(RwLock::new(InMemoryStatus {
+                statuses,
+                started: false,
+            })),
         }
-    }
-
-    /// Initialize bootstrap status records if they don't exist
-    pub async fn initialize_status(&self) -> Result<()> {
-        for (component, display_name) in BOOTSTRAP_COMPONENTS {
-            let existing = BootstrapStatus::find()
-                .filter(bootstrap_status::Column::Component.eq(*component))
-                .one(&self.db)
-                .await?;
-
-            if existing.is_none() {
-                let status = bootstrap_status::ActiveModel {
-                    component: Set(component.to_string()),
-                    display_name: Set(display_name.to_string()),
-                    status: Set("pending".to_string()),
-                    message: Set(Some("Waiting to install".to_string())),
-                    ..Default::default()
-                };
-                status.insert(&self.db).await?;
-            }
-        }
-        Ok(())
     }
 
     /// Get status of all bootstrap components
     pub async fn get_status(&self) -> Result<Vec<ComponentStatus>> {
-        let components = BootstrapStatus::find().all(&self.db).await?;
+        // Try database first
+        let db_guard = self.db.read().await;
+        if let Some(ref db) = *db_guard {
+            let components = BootstrapStatus::find().all(db).await?;
+            if !components.is_empty() {
+                return Ok(components
+                    .into_iter()
+                    .map(|c| ComponentStatus {
+                        component: c.component,
+                        display_name: c.display_name,
+                        status: c.status,
+                        message: c.message,
+                        error: c.error,
+                    })
+                    .collect());
+            }
+        }
+        drop(db_guard);
 
-        Ok(components
-            .into_iter()
-            .map(|c| ComponentStatus {
-                component: c.component,
-                display_name: c.display_name,
-                status: c.status,
-                message: c.message,
-                error: c.error,
-            })
-            .collect())
+        // Fall back to in-memory status
+        let status = self.in_memory_status.read().await;
+        Ok(status.statuses.clone())
     }
 
     /// Check if bootstrap is complete (all components healthy)
     pub async fn is_complete(&self) -> bool {
-        let components = match BootstrapStatus::find().all(&self.db).await {
-            Ok(c) => c,
-            Err(_) => return false,
-        };
-
-        if components.is_empty() {
-            return false;
+        match self.get_status().await {
+            Ok(components) => {
+                !components.is_empty() && components.iter().all(|c| c.status == "healthy")
+            }
+            Err(_) => false,
         }
-
-        components.iter().all(|c| c.status == "healthy")
     }
 
     /// Check if bootstrap has been started
     pub async fn has_started(&self) -> bool {
-        let components = match BootstrapStatus::find().all(&self.db).await {
-            Ok(c) => c,
-            Err(_) => return false,
-        };
+        // Check database first
+        let db_guard = self.db.read().await;
+        if let Some(ref db) = *db_guard {
+            if let Ok(components) = BootstrapStatus::find().all(db).await {
+                if components.iter().any(|c| c.status != "pending") {
+                    return true;
+                }
+            }
+        }
+        drop(db_guard);
 
-        components
-            .iter()
-            .any(|c| c.status != "pending" || c.started_at.is_some())
+        // Check in-memory status
+        let status = self.in_memory_status.read().await;
+        status.started
     }
 
     /// Broadcast an event to all connected WebSocket clients
@@ -152,9 +167,30 @@ impl BootstrapService {
         }
     }
 
-    /// Update component status in database
-    async fn update_status(
+    /// Update in-memory status for a component
+    async fn update_in_memory_status(
         &self,
+        component: &str,
+        status: &str,
+        message: Option<&str>,
+        error: Option<&str>,
+    ) {
+        let mut mem_status = self.in_memory_status.write().await;
+        if let Some(comp) = mem_status.statuses.iter_mut().find(|c| c.component == component) {
+            comp.status = status.to_string();
+            if let Some(msg) = message {
+                comp.message = Some(msg.to_string());
+            }
+            if let Some(err) = error {
+                comp.error = Some(err.to_string());
+            }
+        }
+    }
+
+    /// Update component status in database (if available)
+    async fn update_db_status(
+        &self,
+        db: &DatabaseConnection,
         component: &str,
         status: &str,
         message: Option<&str>,
@@ -162,33 +198,66 @@ impl BootstrapService {
     ) -> Result<()> {
         let existing = BootstrapStatus::find()
             .filter(bootstrap_status::Column::Component.eq(component))
-            .one(&self.db)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Component {} not found", component)))?;
+            .one(db)
+            .await?;
 
-        let mut active: bootstrap_status::ActiveModel = existing.into();
-        active.status = Set(status.to_string());
+        if let Some(existing) = existing {
+            let mut active: bootstrap_status::ActiveModel = existing.into();
+            active.status = Set(status.to_string());
 
-        if let Some(msg) = message {
-            active.message = Set(Some(msg.to_string()));
+            if let Some(msg) = message {
+                active.message = Set(Some(msg.to_string()));
+            }
+
+            if let Some(err) = error {
+                active.error = Set(Some(err.to_string()));
+            }
+
+            if status == "installing" {
+                if let sea_orm::ActiveValue::Unchanged(None) = active.started_at {
+                    active.started_at = Set(Some(Utc::now()));
+                }
+            }
+
+            if status == "healthy" || status == "failed" {
+                active.completed_at = Set(Some(Utc::now()));
+            }
+
+            active.update(db).await?;
         }
+        Ok(())
+    }
 
-        if let Some(err) = error {
-            active.error = Set(Some(err.to_string()));
-        }
+    /// Initialize bootstrap status records in database
+    async fn initialize_db_status(&self, db: &DatabaseConnection) -> Result<()> {
+        for (component, display_name) in BOOTSTRAP_COMPONENTS {
+            let existing = BootstrapStatus::find()
+                .filter(bootstrap_status::Column::Component.eq(*component))
+                .one(db)
+                .await?;
 
-        if status == "installing" {
-            // Only set started_at if it hasn't been set yet
-            if let sea_orm::ActiveValue::Unchanged(None) = active.started_at {
-                active.started_at = Set(Some(Utc::now()));
+            if existing.is_none() {
+                // Get current in-memory status
+                let mem_status = self.in_memory_status.read().await;
+                let current = mem_status.statuses.iter().find(|c| c.component == *component);
+
+                let (status, message, error) = if let Some(c) = current {
+                    (c.status.clone(), c.message.clone(), c.error.clone())
+                } else {
+                    ("pending".to_string(), Some("Waiting to install".to_string()), None)
+                };
+
+                let record = bootstrap_status::ActiveModel {
+                    component: Set(component.to_string()),
+                    display_name: Set(display_name.to_string()),
+                    status: Set(status),
+                    message: Set(message),
+                    error: Set(error),
+                    ..Default::default()
+                };
+                record.insert(db).await?;
             }
         }
-
-        if status == "healthy" || status == "failed" {
-            active.completed_at = Set(Some(Utc::now()));
-        }
-
-        active.update(&self.db).await?;
         Ok(())
     }
 
@@ -205,7 +274,6 @@ impl BootstrapService {
                 if let Some(status) = pod.status {
                     if let Some(phase) = status.phase {
                         if phase == "Running" {
-                            // Check container ready status
                             if let Some(conditions) = status.conditions {
                                 for condition in conditions {
                                     if condition.type_ == "Ready" && condition.status == "True" {
@@ -222,36 +290,90 @@ impl BootstrapService {
         }
     }
 
-    /// Check health for a pre-deployed component
-    async fn check_predeployed_component(&self, component: &str, display_name: &str) -> Result<()> {
-        tracing::info!("Checking pre-deployed component: {}", component);
+    /// Install PostgreSQL using Helm chart
+    async fn install_postgresql(&self) -> Result<()> {
+        tracing::info!("Installing PostgreSQL via Helm chart");
 
-        // Update status to installing (checking)
-        self.update_status(
-            component,
+        self.update_in_memory_status(
+            "postgresql",
             "installing",
-            Some(&format!("Checking {} status...", display_name)),
+            Some("Deploying PostgreSQL cluster..."),
             None,
         )
-        .await?;
+        .await;
         self.broadcast(BootstrapEvent::ComponentStarted {
-            component: component.to_string(),
-            message: format!("Checking {} status...", display_name),
+            component: "postgresql".to_string(),
+            message: "Deploying PostgreSQL cluster...".to_string(),
         });
 
-        // Wait for component to become healthy (with timeout)
-        let max_attempts = 60; // 5 minutes with 5-second intervals
+        // Deploy PostgreSQL using helm
+        let result = tokio::process::Command::new("helm")
+            .args([
+                "upgrade",
+                "--install",
+                "postgresql",
+                "/app/charts/postgresql",
+                "-n",
+                "kubarr",
+                "--wait",
+                "--timeout",
+                "5m",
+            ])
+            .output()
+            .await;
+
+        match result {
+            Ok(output) => {
+                if !output.status.success() {
+                    let error_msg = String::from_utf8_lossy(&output.stderr).to_string();
+                    tracing::error!("PostgreSQL installation failed: {}", error_msg);
+                    self.update_in_memory_status(
+                        "postgresql",
+                        "failed",
+                        Some("Installation failed"),
+                        Some(&error_msg),
+                    )
+                    .await;
+                    self.broadcast(BootstrapEvent::ComponentFailed {
+                        component: "postgresql".to_string(),
+                        message: "PostgreSQL installation failed".to_string(),
+                        error: error_msg.clone(),
+                    });
+                    return Err(AppError::Internal(error_msg));
+                }
+            }
+            Err(e) => {
+                let error_msg = format!("Failed to run helm: {}", e);
+                tracing::error!("{}", error_msg);
+                self.update_in_memory_status(
+                    "postgresql",
+                    "failed",
+                    Some("Installation failed"),
+                    Some(&error_msg),
+                )
+                .await;
+                self.broadcast(BootstrapEvent::ComponentFailed {
+                    component: "postgresql".to_string(),
+                    message: "PostgreSQL installation failed".to_string(),
+                    error: error_msg.clone(),
+                });
+                return Err(AppError::Internal(error_msg));
+            }
+        }
+
+        self.broadcast(BootstrapEvent::ComponentProgress {
+            component: "postgresql".to_string(),
+            message: "Waiting for PostgreSQL to become healthy...".to_string(),
+            progress: 50,
+        });
+
+        // Wait for PostgreSQL to become healthy
+        let max_attempts = 60;
         let mut attempts = 0;
         let mut healthy = false;
 
         while attempts < max_attempts {
-            // Check health based on component type
-            let is_healthy = match component {
-                "postgresql" => self.check_postgresql_health().await.unwrap_or(false),
-                _ => false,
-            };
-
-            if is_healthy {
+            if self.check_postgresql_health().await.unwrap_or(false) {
                 healthy = true;
                 break;
             }
@@ -259,68 +381,106 @@ impl BootstrapService {
             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
             attempts += 1;
 
-            // Broadcast progress
-            let progress = (attempts * 100 / max_attempts) as u8;
+            let progress = 50 + (attempts * 50 / max_attempts) as u8;
             self.broadcast(BootstrapEvent::ComponentProgress {
-                component: component.to_string(),
+                component: "postgresql".to_string(),
                 message: format!(
-                    "Waiting for {} to become ready... ({}/{})",
-                    display_name, attempts, max_attempts
+                    "Waiting for PostgreSQL to become healthy... ({}/{})",
+                    attempts, max_attempts
                 ),
                 progress: progress.min(99),
             });
         }
 
-        if healthy {
-            self.update_status(
-                component,
-                "healthy",
-                Some(&format!("{} is running", display_name)),
-                None,
-            )
-            .await?;
-            self.broadcast(BootstrapEvent::ComponentCompleted {
-                component: component.to_string(),
-                message: format!("{} is ready", display_name),
-            });
-            Ok(())
-        } else {
-            let error_msg = format!("{} did not become healthy within timeout", display_name);
-            self.update_status(
-                component,
+        if !healthy {
+            let error_msg = "PostgreSQL did not become healthy within timeout".to_string();
+            self.update_in_memory_status(
+                "postgresql",
                 "failed",
                 Some("Health check timeout"),
                 Some(&error_msg),
             )
-            .await?;
+            .await;
             self.broadcast(BootstrapEvent::ComponentFailed {
-                component: component.to_string(),
-                message: format!("{} health check failed", display_name),
+                component: "postgresql".to_string(),
+                message: "PostgreSQL health check failed".to_string(),
                 error: error_msg.clone(),
             });
-            Err(AppError::Internal(error_msg))
+            return Err(AppError::Internal(error_msg));
         }
+
+        self.update_in_memory_status(
+            "postgresql",
+            "healthy",
+            Some("PostgreSQL is running"),
+            None,
+        )
+        .await;
+        self.broadcast(BootstrapEvent::ComponentCompleted {
+            component: "postgresql".to_string(),
+            message: "PostgreSQL installed successfully".to_string(),
+        });
+
+        Ok(())
+    }
+
+    /// Connect to database after PostgreSQL is installed
+    async fn connect_to_database(&self) -> Result<()> {
+        tracing::info!("Connecting to PostgreSQL database...");
+
+        // Get database URL from K8s secret
+        let k8s_guard = self.k8s.read().await;
+        let k8s = k8s_guard.as_ref().ok_or_else(|| {
+            AppError::ServiceUnavailable("Kubernetes client not available".to_string())
+        })?;
+
+        let database_url = k8s.get_database_url("kubarr").await?;
+        drop(k8s_guard);
+
+        tracing::info!("Got database URL from K8s secret");
+
+        // Connect to database
+        let db = db::connect_with_url(&database_url).await?;
+        tracing::info!("Database connection established");
+
+        // Store connection in shared state
+        {
+            let mut db_guard = self.db.write().await;
+            *db_guard = Some(db.clone());
+        }
+
+        // Initialize bootstrap status in database
+        self.initialize_db_status(&db).await?;
+
+        self.broadcast(BootstrapEvent::DatabaseConnected {
+            message: "Database connection established".to_string(),
+        });
+
+        Ok(())
     }
 
     /// Install a single component using Helm
     async fn install_component(&self, component: &str, display_name: &str) -> Result<()> {
-        // Check if this is a pre-deployed component (just need health check)
-        if PREDEPLOYED_COMPONENTS.contains(&component) {
-            return self
-                .check_predeployed_component(component, display_name)
-                .await;
+        // PostgreSQL is handled specially
+        if component == "postgresql" {
+            self.install_postgresql().await?;
+            self.connect_to_database().await?;
+            return Ok(());
         }
 
         tracing::info!("Installing bootstrap component: {}", component);
 
-        // Update status to installing
-        self.update_status(
-            component,
-            "installing",
-            Some(&format!("Installing {}...", display_name)),
-            None,
-        )
-        .await?;
+        // Get database connection (should be available after PostgreSQL is installed)
+        let db_guard = self.db.read().await;
+        let db = db_guard.as_ref().ok_or_else(|| {
+            AppError::ServiceUnavailable("Database not connected".to_string())
+        })?;
+
+        // Update status
+        self.update_db_status(db, component, "installing", Some(&format!("Installing {}...", display_name)), None)
+            .await?;
+        self.update_in_memory_status(component, "installing", Some(&format!("Installing {}...", display_name)), None)
+            .await;
         self.broadcast(BootstrapEvent::ComponentStarted {
             component: component.to_string(),
             message: format!("Installing {}...", display_name),
@@ -354,13 +514,10 @@ impl BootstrapService {
             Err(e) => {
                 let error_msg = format!("Failed to deploy {}: {}", display_name, e);
                 tracing::error!("{}", error_msg);
-                self.update_status(
-                    component,
-                    "failed",
-                    Some("Installation failed"),
-                    Some(&error_msg),
-                )
-                .await?;
+                self.update_db_status(db, component, "failed", Some("Installation failed"), Some(&error_msg))
+                    .await?;
+                self.update_in_memory_status(component, "failed", Some("Installation failed"), Some(&error_msg))
+                    .await;
                 self.broadcast(BootstrapEvent::ComponentFailed {
                     component: component.to_string(),
                     message: format!("{} installation failed", display_name),
@@ -373,9 +530,10 @@ impl BootstrapService {
         // Drop the guards before the health check loop
         drop(catalog_guard);
         drop(k8s_guard);
+        drop(db_guard);
 
-        // Wait for deployment to become healthy (with timeout)
-        let max_attempts = 60; // 5 minutes with 5-second intervals
+        // Wait for deployment to become healthy
+        let max_attempts = 60;
         let mut attempts = 0;
         let mut healthy = false;
 
@@ -389,18 +547,13 @@ impl BootstrapService {
                 let dm = DeploymentManager::new(k8s, &catalog_guard);
 
                 if let Ok(health) = dm.check_namespace_health(component).await {
-                    if health
-                        .get("healthy")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false)
-                    {
+                    if health.get("healthy").and_then(|v| v.as_bool()).unwrap_or(false) {
                         healthy = true;
                         break;
                     }
                 }
             }
 
-            // Broadcast progress
             let progress = 50 + (attempts * 50 / max_attempts) as u8;
             self.broadcast(BootstrapEvent::ComponentProgress {
                 component: component.to_string(),
@@ -412,14 +565,17 @@ impl BootstrapService {
             });
         }
 
+        // Get database again for final update
+        let db_guard = self.db.read().await;
+        let db = db_guard.as_ref().ok_or_else(|| {
+            AppError::ServiceUnavailable("Database not connected".to_string())
+        })?;
+
         if healthy {
-            self.update_status(
-                component,
-                "healthy",
-                Some(&format!("{} is running", display_name)),
-                None,
-            )
-            .await?;
+            self.update_db_status(db, component, "healthy", Some(&format!("{} is running", display_name)), None)
+                .await?;
+            self.update_in_memory_status(component, "healthy", Some(&format!("{} is running", display_name)), None)
+                .await;
             self.broadcast(BootstrapEvent::ComponentCompleted {
                 component: component.to_string(),
                 message: format!("{} installed successfully", display_name),
@@ -427,13 +583,10 @@ impl BootstrapService {
             Ok(())
         } else {
             let error_msg = format!("{} did not become healthy within timeout", display_name);
-            self.update_status(
-                component,
-                "failed",
-                Some("Health check timeout"),
-                Some(&error_msg),
-            )
-            .await?;
+            self.update_db_status(db, component, "failed", Some("Health check timeout"), Some(&error_msg))
+                .await?;
+            self.update_in_memory_status(component, "failed", Some("Health check timeout"), Some(&error_msg))
+                .await;
             self.broadcast(BootstrapEvent::ComponentFailed {
                 component: component.to_string(),
                 message: format!("{} health check failed", display_name),
@@ -443,39 +596,35 @@ impl BootstrapService {
         }
     }
 
-    /// Start the bootstrap process (installs all components in parallel)
+    /// Start the bootstrap process
     pub async fn start_bootstrap(&self) -> Result<()> {
-        // Initialize status records
-        self.initialize_status().await?;
-
-        // Collect components that need to be installed
-        let mut components_to_install = Vec::new();
-        for (component, display_name) in BOOTSTRAP_COMPONENTS {
-            let existing = BootstrapStatus::find()
-                .filter(bootstrap_status::Column::Component.eq(*component))
-                .one(&self.db)
-                .await?;
-
-            if let Some(ref status) = existing {
-                if status.status == "healthy" {
-                    tracing::info!("Component {} already healthy, skipping", component);
-                    continue;
-                }
-            }
-            components_to_install.push((*component, *display_name));
+        // Mark as started
+        {
+            let mut mem_status = self.in_memory_status.write().await;
+            mem_status.started = true;
         }
 
-        // Install all components in parallel
+        // Install PostgreSQL first (sequential, not parallel)
+        self.install_component("postgresql", "PostgreSQL").await?;
+
+        // Now install remaining components in parallel
+        let remaining_components: Vec<_> = BOOTSTRAP_COMPONENTS
+            .iter()
+            .filter(|(c, _)| *c != "postgresql")
+            .collect();
+
         let mut handles = Vec::new();
-        for (component, display_name) in components_to_install {
+        for (component, display_name) in remaining_components {
             let db = self.db.clone();
             let k8s = self.k8s.clone();
             let catalog = self.catalog.clone();
             let broadcast_tx = self.broadcast_tx.clone();
+            let component = component.to_string();
+            let display_name = display_name.to_string();
 
             let handle = tokio::spawn(async move {
                 let service = BootstrapService::new(db, k8s, catalog, broadcast_tx);
-                if let Err(e) = service.install_component(component, display_name).await {
+                if let Err(e) = service.install_component(&component, &display_name).await {
                     tracing::error!("Failed to install {}: {}", component, e);
                 }
             });
@@ -499,22 +648,23 @@ impl BootstrapService {
 
     /// Retry installing a failed component
     pub async fn retry_component(&self, component: &str) -> Result<()> {
-        // Find the component
         let comp = BOOTSTRAP_COMPONENTS
             .iter()
             .find(|(c, _)| *c == component)
             .ok_or_else(|| AppError::NotFound(format!("Unknown component: {}", component)))?;
 
-        // Reset status to pending
-        let msg = if PREDEPLOYED_COMPONENTS.contains(&component) {
-            "Retrying health check..."
-        } else {
-            "Retrying installation..."
-        };
-        self.update_status(component, "pending", Some(msg), None)
-            .await?;
+        // Reset status
+        self.update_in_memory_status(component, "pending", Some("Retrying installation..."), None)
+            .await;
 
-        // Install/check the component
+        // Also reset in database if available
+        let db_guard = self.db.read().await;
+        if let Some(ref db) = *db_guard {
+            let _ = self.update_db_status(db, component, "pending", Some("Retrying installation..."), None).await;
+        }
+        drop(db_guard);
+
+        // Install the component
         self.install_component(comp.0, comp.1).await
     }
 }
@@ -527,17 +677,14 @@ pub async fn save_server_config(
 ) -> Result<server_config::Model> {
     let now = Utc::now();
 
-    // Check if config already exists
     let existing = ServerConfig::find().one(db).await?;
 
     if let Some(existing) = existing {
-        // Update existing config
         let mut active: server_config::ActiveModel = existing.into();
         active.name = Set(name.to_string());
         active.storage_path = Set(storage_path.to_string());
         Ok(active.update(db).await?)
     } else {
-        // Create new config
         let config = server_config::ActiveModel {
             name: Set(name.to_string()),
             storage_path: Set(storage_path.to_string()),

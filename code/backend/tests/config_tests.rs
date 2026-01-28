@@ -11,18 +11,20 @@ fn test_config_defaults() {
     assert_eq!(config.host, "0.0.0.0");
     assert_eq!(config.port, 8000);
     assert_eq!(config.default_namespace, "media");
-    assert_eq!(config.jwt_algorithm, "RS256");
     assert!(!config.oauth2_enabled);
     assert!(!config.in_cluster);
 }
 
 #[test]
-fn test_db_url_format() {
+fn test_database_url_format() {
     let config = Config::from_env();
-    let db_url = config.db_url();
 
-    assert!(db_url.starts_with("sqlite://"));
-    assert!(db_url.contains("?mode=rwc"));
+    // Database URL should be a postgres URL by default
+    assert!(
+        config.database_url.starts_with("postgres://"),
+        "Expected postgres URL, got: {}",
+        config.database_url
+    );
 }
 
 #[test]
@@ -40,7 +42,7 @@ fn test_config_clone() {
 
     assert_eq!(config1.host, config2.host);
     assert_eq!(config1.port, config2.port);
-    assert_eq!(config1.db_path, config2.db_path);
+    assert_eq!(config1.database_url, config2.database_url);
 }
 
 #[test]
@@ -51,17 +53,14 @@ fn test_config_debug() {
     // Debug output should contain field names
     assert!(debug_str.contains("host"));
     assert!(debug_str.contains("port"));
-    assert!(debug_str.contains("db_path"));
+    assert!(debug_str.contains("database_url"));
 }
 
 #[test]
 fn test_path_types() {
     let config = Config::from_env();
 
-    // All path fields should be PathBuf
-    assert!(config.db_path.to_str().is_some());
-    assert!(config.jwt_private_key_path.to_str().is_some());
-    assert!(config.jwt_public_key_path.to_str().is_some());
+    // charts_dir should be PathBuf
     assert!(config.charts_dir.to_str().is_some());
 }
 
