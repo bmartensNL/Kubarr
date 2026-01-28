@@ -202,7 +202,8 @@ async fn browse_directory(
     Query(query): Query<BrowseQuery>,
     _auth: Authorized<StorageView>,
 ) -> Result<Json<DirectoryListing>> {
-    let storage_path = get_storage_path(&state.db).await?;
+    let db = state.get_db().await?;
+    let storage_path = get_storage_path(&db).await?;
     let base_path = storage_path
         .canonicalize()
         .map_err(|e| AppError::Internal(format!("Failed to resolve storage path: {}", e)))?;
@@ -297,7 +298,8 @@ async fn get_storage_stats(
     State(state): State<AppState>,
     _auth: Authorized<StorageView>,
 ) -> Result<Json<StorageStats>> {
-    let storage_path = get_storage_path(&state.db).await?;
+    let db = state.get_db().await?;
+    let storage_path = get_storage_path(&db).await?;
 
     if !storage_path.exists() {
         return Err(AppError::NotFound("Storage path not found".to_string()));
@@ -361,7 +363,8 @@ async fn get_file_info(
     Query(query): Query<PathQuery>,
     _auth: Authorized<StorageView>,
 ) -> Result<Json<FileInfo>> {
-    let storage_path = get_storage_path(&state.db).await?;
+    let db = state.get_db().await?;
+    let storage_path = get_storage_path(&db).await?;
     let base_path = storage_path
         .canonicalize()
         .map_err(|e| AppError::Internal(format!("Failed to resolve storage path: {}", e)))?;
@@ -385,7 +388,8 @@ async fn create_directory(
     _auth: Authorized<StorageWrite>,
     Json(request): Json<CreateDirectoryRequest>,
 ) -> Result<Json<serde_json::Value>> {
-    let storage_path = get_storage_path(&state.db).await?;
+    let db = state.get_db().await?;
+    let storage_path = get_storage_path(&db).await?;
     let base_path = storage_path
         .canonicalize()
         .map_err(|e| AppError::Internal(format!("Failed to resolve storage path: {}", e)))?;
@@ -430,7 +434,8 @@ async fn delete_path(
     Query(query): Query<PathQuery>,
     _auth: Authorized<StorageDelete>,
 ) -> Result<Json<serde_json::Value>> {
-    let storage_path = get_storage_path(&state.db).await?;
+    let db = state.get_db().await?;
+    let storage_path = get_storage_path(&db).await?;
     let base_path = storage_path
         .canonicalize()
         .map_err(|e| AppError::Internal(format!("Failed to resolve storage path: {}", e)))?;
@@ -500,7 +505,8 @@ async fn download_file(
     Query(query): Query<PathQuery>,
     _auth: Authorized<StorageDownload>,
 ) -> Result<Response> {
-    let storage_path = get_storage_path(&state.db).await?;
+    let db = state.get_db().await?;
+    let storage_path = get_storage_path(&db).await?;
     let file_path = validate_path(&query.path, &storage_path)?;
 
     if !file_path.exists() {

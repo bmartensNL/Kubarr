@@ -65,6 +65,7 @@ async fn proxy_app_with_path(
 }
 
 /// Inner proxy implementation
+#[allow(clippy::too_many_arguments)]
 async fn proxy_app_inner(
     state: AppState,
     app_name: String,
@@ -75,7 +76,6 @@ async fn proxy_app_inner(
     ws_upgrade: Option<WebSocketUpgrade>,
     body: Body,
 ) -> Result<Response> {
-    let path = path;
     let user = auth.user();
 
     // Get AuthenticatedUser from request extensions to check permissions

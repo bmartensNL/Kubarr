@@ -211,10 +211,10 @@ fn axum_to_tungstenite(msg: Message) -> Option<tungstenite::Message> {
 /// Convert tungstenite message to axum WebSocket message
 fn tungstenite_to_axum(msg: tungstenite::Message) -> Option<Message> {
     match msg {
-        tungstenite::Message::Text(t) => Some(Message::Text(t.into())),
-        tungstenite::Message::Binary(b) => Some(Message::Binary(b.into())),
-        tungstenite::Message::Ping(p) => Some(Message::Ping(p.into())),
-        tungstenite::Message::Pong(p) => Some(Message::Pong(p.into())),
+        tungstenite::Message::Text(t) => Some(Message::Text(t)),
+        tungstenite::Message::Binary(b) => Some(Message::Binary(b)),
+        tungstenite::Message::Ping(p) => Some(Message::Ping(p)),
+        tungstenite::Message::Pong(p) => Some(Message::Pong(p)),
         tungstenite::Message::Close(_) => Some(Message::Close(None)),
         tungstenite::Message::Frame(_) => None,
     }

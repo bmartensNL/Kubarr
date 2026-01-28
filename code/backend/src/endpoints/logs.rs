@@ -432,9 +432,8 @@ async fn query_vlogs(
             // 1. key_value format: log="actual message"
             // 2. JSON format: {"log": "actual message"}
             // 3. Plain text
-            let log_line = if raw_msg.starts_with("log=") {
+            let log_line = if let Some(content) = raw_msg.strip_prefix("log=") {
                 // key_value format: log="message" or log=message
-                let content = &raw_msg[4..];
                 if content.starts_with('"') && content.ends_with('"') && content.len() > 1 {
                     content[1..content.len() - 1].to_string()
                 } else {

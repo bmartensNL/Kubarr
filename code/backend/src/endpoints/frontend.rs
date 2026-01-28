@@ -89,9 +89,8 @@ fn rewrite_app_response(
         None => return response,
     };
 
-    let rewritten = if location.starts_with(internal_base_url) {
+    let rewritten = if let Some(path) = location.strip_prefix(internal_base_url) {
         // Absolute internal URL: http://app.ns.svc.cluster.local:PORT/path → /app_name/path
-        let path = &location[internal_base_url.len()..];
         let path = path.trim_start_matches('/');
         format!("/{}/{}", app_name, path)
     } else if location.starts_with('/') {
@@ -157,7 +156,15 @@ pub async fn proxy_frontend(
                     Ok(db) => db,
                     Err(_) => {
                         tracing::warn!("Database not available for session lookup");
-                        return proxy_to_frontend(&state, path, query, method, headers, request.into_body()).await;
+                        return proxy_to_frontend(
+                            &state,
+                            path,
+                            query,
+                            method,
+                            headers,
+                            request.into_body(),
+                        )
+                        .await;
                     }
                 };
                 if let Ok(Some(session_record)) = Session::find()

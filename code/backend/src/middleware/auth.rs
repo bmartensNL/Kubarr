@@ -143,9 +143,15 @@ async fn authenticate_session(state: &AppState, token: &str) -> Result<Authentic
     let claims =
         decode_session_token(token).map_err(|_| "Invalid or expired session".to_string())?;
 
+    // Get database connection
+    let db = state
+        .get_db()
+        .await
+        .map_err(|_| "Database not available".to_string())?;
+
     // Look up session in database
     let session = Session::find_by_id(&claims.sid)
-        .one(&state.db)
+        .one(&db)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or_else(|| "Session not found".to_string())?;
@@ -164,21 +170,23 @@ async fn authenticate_session(state: &AppState, token: &str) -> Result<Authentic
     let user = User::find_by_id(session.user_id)
         .filter(user::Column::IsActive.eq(true))
         .filter(user::Column::IsApproved.eq(true))
-        .one(&state.db)
+        .one(&db)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or_else(|| "User not found or inactive".to_string())?;
 
     // Update last_accessed_at (fire and forget - don't block on this)
     let session_id = session.id.clone();
-    let db = state.db.clone();
+    let shared_db = state.db.clone();
     tokio::spawn(async move {
-        let update = session::ActiveModel {
-            id: Set(session_id),
-            last_accessed_at: Set(Utc::now()),
-            ..Default::default()
-        };
-        let _ = update.update(&db).await;
+        if let Some(db) = shared_db.read().await.clone() {
+            let update = session::ActiveModel {
+                id: Set(session_id),
+                last_accessed_at: Set(Utc::now()),
+                ..Default::default()
+            };
+            let _ = update.update(&db).await;
+        }
     });
 
     // Fetch all permissions for this user from their roles
@@ -189,10 +197,16 @@ async fn authenticate_session(state: &AppState, token: &str) -> Result<Authentic
 
 /// Fetch all permissions for a user from their roles
 async fn fetch_user_permissions(state: &AppState, user_id: i64) -> Vec<String> {
+    // Get database connection
+    let db = match state.get_db().await {
+        Ok(db) => db,
+        Err(_) => return Vec::new(),
+    };
+
     // Get all role IDs for this user
     let user_roles = UserRole::find()
         .filter(user_role::Column::UserId.eq(user_id))
-        .all(&state.db)
+        .all(&db)
         .await
         .unwrap_or_default();
 
@@ -205,7 +219,7 @@ async fn fetch_user_permissions(state: &AppState, user_id: i64) -> Vec<String> {
     // Get all permissions from all roles
     let permissions = RolePermission::find()
         .filter(role_permission::Column::RoleId.is_in(role_ids.clone()))
-        .all(&state.db)
+        .all(&db)
         .await
         .unwrap_or_default();
 
@@ -214,7 +228,7 @@ async fn fetch_user_permissions(state: &AppState, user_id: i64) -> Vec<String> {
     // Get app permissions and convert to app.{name} format
     let app_permissions = RoleAppPermission::find()
         .filter(role_app_permission::Column::RoleId.is_in(role_ids))
-        .all(&state.db)
+        .all(&db)
         .await
         .unwrap_or_default();
 

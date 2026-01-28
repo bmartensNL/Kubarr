@@ -22,7 +22,7 @@ async fn test_app_state_new() {
     let audit = AuditService::new();
     let notification = NotificationService::new();
 
-    let state = AppState::new(db, k8s_client, catalog, audit, notification);
+    let state = AppState::new(Some(db), k8s_client, catalog, audit, notification);
 
     // Should be cloneable
     let _cloned = state.clone();
@@ -38,7 +38,7 @@ async fn test_app_state_clone() {
     let notification = NotificationService::new();
 
     let state1 = AppState::new(
-        db.clone(),
+        Some(db.clone()),
         k8s_client.clone(),
         catalog.clone(),
         audit,

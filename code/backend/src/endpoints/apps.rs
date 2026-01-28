@@ -141,9 +141,7 @@ async fn install_app(
         .ok_or_else(|| AppError::Internal("Kubernetes client not available".to_string()))?;
 
     // Get storage path from settings
-    let storage_setting = SystemSetting::find_by_id("storage_path")
-        .one(&db)
-        .await?;
+    let storage_setting = SystemSetting::find_by_id("storage_path").one(&db).await?;
     let storage_path = storage_setting.map(|s| s.value);
 
     // Use with_db to enable VPN support

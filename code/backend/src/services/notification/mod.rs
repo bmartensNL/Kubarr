@@ -43,7 +43,7 @@ impl ChannelType {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "email" => Some(ChannelType::Email),
             "telegram" => Some(ChannelType::Telegram),
@@ -96,7 +96,7 @@ impl NotificationSeverity {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "warning" => NotificationSeverity::Warning,
             "critical" => NotificationSeverity::Critical,
@@ -220,7 +220,7 @@ impl NotificationService {
         let (enabled, severity) = match event_setting {
             Some(setting) => (
                 setting.enabled,
-                NotificationSeverity::from_str(&setting.severity),
+                NotificationSeverity::parse(&setting.severity),
             ),
             None => return Ok(()), // Event not configured, skip
         };

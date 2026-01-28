@@ -244,11 +244,7 @@ async fn list_users(
     let skip = params.skip.unwrap_or(0);
     let limit = params.limit.unwrap_or(100);
 
-    let users = User::find()
-        .offset(skip)
-        .limit(limit)
-        .all(&db)
-        .await?;
+    let users = User::find().offset(skip).limit(limit).all(&db).await?;
 
     let mut responses = Vec::new();
     for u in users {
@@ -408,9 +404,7 @@ async fn get_my_preferences(
     auth: Authenticated,
 ) -> Result<Json<PreferencesResponse>> {
     let db = state.get_db().await?;
-    let preferences = UserPreferences::find_by_id(auth.user_id())
-        .one(&db)
-        .await?;
+    let preferences = UserPreferences::find_by_id(auth.user_id()).one(&db).await?;
 
     let theme = preferences
         .map(|p| p.theme)

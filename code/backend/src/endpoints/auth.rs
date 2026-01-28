@@ -97,6 +97,7 @@ fn create_active_session_cookie(slot: usize, secure: bool) -> HeaderValue {
 }
 
 /// Create a cookie that clears an indexed session
+#[allow(dead_code)]
 fn clear_session_cookie_for_slot(slot: usize) -> HeaderValue {
     let cookie = format!(
         "{}_{}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0",

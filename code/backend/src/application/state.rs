@@ -314,7 +314,9 @@ impl AppState {
     pub async fn get_db(&self) -> crate::error::Result<DbConn> {
         let db_guard = self.db.read().await;
         db_guard.clone().ok_or_else(|| {
-            crate::error::AppError::ServiceUnavailable("Database not connected. Please complete setup.".to_string())
+            crate::error::AppError::ServiceUnavailable(
+                "Database not connected. Please complete setup.".to_string(),
+            )
         })
     }
 

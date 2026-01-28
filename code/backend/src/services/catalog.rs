@@ -114,7 +114,7 @@ impl AppCatalog {
 
         // Skip charts without kubarr category annotation
         let category =
-            match annotations.get(&serde_yaml::Value::String("kubarr.io/category".to_string())) {
+            match annotations.get(serde_yaml::Value::String("kubarr.io/category".to_string())) {
                 Some(c) => c.as_str().unwrap_or("other").to_string(),
                 None => return Ok(None),
             };
@@ -202,7 +202,7 @@ impl AppCatalog {
             for (vol_name, vol_config) in persistence {
                 if let (Some(name), Some(config)) = (vol_name.as_str(), vol_config.as_mapping()) {
                     let enabled = config
-                        .get(&serde_yaml::Value::String("enabled".to_string()))
+                        .get(serde_yaml::Value::String("enabled".to_string()))
                         .and_then(|e| e.as_bool())
                         .unwrap_or(true);
 
@@ -210,12 +210,12 @@ impl AppCatalog {
                         volumes.push(VolumeConfig {
                             name: name.to_string(),
                             mount_path: config
-                                .get(&serde_yaml::Value::String("mountPath".to_string()))
+                                .get(serde_yaml::Value::String("mountPath".to_string()))
                                 .and_then(|m| m.as_str())
                                 .unwrap_or(&format!("/{}", name))
                                 .to_string(),
                             size: config
-                                .get(&serde_yaml::Value::String("size".to_string()))
+                                .get(serde_yaml::Value::String("size".to_string()))
                                 .and_then(|s| s.as_str())
                                 .unwrap_or("1Gi")
                                 .to_string(),
@@ -238,7 +238,7 @@ impl AppCatalog {
 
         // Get display name and other annotations
         let display_name = annotations
-            .get(&serde_yaml::Value::String(
+            .get(serde_yaml::Value::String(
                 "kubarr.io/display-name".to_string(),
             ))
             .and_then(|d| d.as_str())
@@ -246,26 +246,26 @@ impl AppCatalog {
             .to_string();
 
         let icon = annotations
-            .get(&serde_yaml::Value::String("kubarr.io/icon".to_string()))
+            .get(serde_yaml::Value::String("kubarr.io/icon".to_string()))
             .and_then(|i| i.as_str())
             .unwrap_or("📦")
             .to_string();
 
         let is_system = annotations
-            .get(&serde_yaml::Value::String("kubarr.io/system".to_string()))
+            .get(serde_yaml::Value::String("kubarr.io/system".to_string()))
             .and_then(|s| s.as_str())
             .map(|s| s.to_lowercase() == "true")
             .unwrap_or(false);
 
         let is_hidden = annotations
-            .get(&serde_yaml::Value::String("kubarr.io/hidden".to_string()))
+            .get(serde_yaml::Value::String("kubarr.io/hidden".to_string()))
             .and_then(|h| h.as_str())
             .map(|h| h.to_lowercase() == "true")
             .unwrap_or(false);
 
         // Apps are browseable by default unless explicitly set to false
         let is_browseable = annotations
-            .get(&serde_yaml::Value::String(
+            .get(serde_yaml::Value::String(
                 "kubarr.io/browseable".to_string(),
             ))
             .and_then(|b| b.as_str())

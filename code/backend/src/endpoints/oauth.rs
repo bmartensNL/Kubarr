@@ -88,9 +88,10 @@ pub struct AvailableProvider {
 async fn list_available_providers(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<AvailableProvider>>> {
+    let db = state.get_db().await?;
     let providers = OauthProvider::find()
         .filter(oauth_provider::Column::Enabled.eq(true))
-        .all(&state.db)
+        .all(&db)
         .await?;
 
     let available: Vec<AvailableProvider> = providers
@@ -114,7 +115,8 @@ async fn list_providers(
     State(state): State<AppState>,
     _auth: Authorized<SettingsView>,
 ) -> Result<Json<Vec<ProviderResponse>>> {
-    let providers = OauthProvider::find().all(&state.db).await?;
+    let db = state.get_db().await?;
+    let providers = OauthProvider::find().all(&db).await?;
 
     let responses: Vec<ProviderResponse> = providers
         .into_iter()
@@ -136,8 +138,9 @@ async fn get_provider(
     Path(provider): Path<String>,
     _auth: Authorized<SettingsView>,
 ) -> Result<Json<ProviderResponse>> {
+    let db = state.get_db().await?;
     let provider_model = OauthProvider::find_by_id(&provider)
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Provider '{}' not found", provider)))?;
 
@@ -157,8 +160,9 @@ async fn update_provider(
     _auth: Authorized<SettingsManage>,
     Json(data): Json<UpdateProviderRequest>,
 ) -> Result<Json<ProviderResponse>> {
+    let db = state.get_db().await?;
     // Find or create provider
-    let existing = OauthProvider::find_by_id(&provider).one(&state.db).await?;
+    let existing = OauthProvider::find_by_id(&provider).one(&db).await?;
 
     let now = Utc::now();
     let provider_model = if let Some(existing) = existing {
@@ -173,7 +177,7 @@ async fn update_provider(
             model.client_secret = Set(Some(client_secret));
         }
         model.updated_at = Set(now);
-        model.update(&state.db).await?
+        model.update(&db).await?
     } else {
         // Create new provider
         let name = match provider.as_str() {
@@ -190,7 +194,7 @@ async fn update_provider(
             created_at: Set(now),
             updated_at: Set(now),
         };
-        new_provider.insert(&state.db).await?
+        new_provider.insert(&db).await?
     };
 
     Ok(Json(ProviderResponse {
@@ -217,8 +221,9 @@ async fn oauth_login(
     Path(provider): Path<String>,
     Query(query): Query<OAuthLoginQuery>,
 ) -> Result<Response> {
+    let db = state.get_db().await?;
     let provider_config = OauthProvider::find_by_id(&provider)
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Provider '{}' not found", provider)))?;
 
@@ -281,6 +286,7 @@ async fn oauth_callback(
     Path(provider): Path<String>,
     Query(query): Query<OAuthCallbackQuery>,
 ) -> Result<Response> {
+    let db = state.get_db().await?;
     // Check for errors
     if let Some(error) = query.error {
         let msg = query.error_description.unwrap_or(error);
@@ -308,7 +314,7 @@ async fn oauth_callback(
 
     // Get provider config
     let provider_config = OauthProvider::find_by_id(&provider)
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Provider '{}' not found", provider)))?;
 
@@ -415,7 +421,7 @@ async fn oauth_callback(
     let existing_oauth = OauthAccount::find()
         .filter(oauth_account::Column::Provider.eq(&provider))
         .filter(oauth_account::Column::ProviderUserId.eq(&provider_user_id))
-        .one(&state.db)
+        .one(&db)
         .await?;
 
     if is_linking {
@@ -445,7 +451,7 @@ async fn oauth_callback(
             updated_at: Set(now),
             ..Default::default()
         };
-        new_oauth.insert(&state.db).await?;
+        new_oauth.insert(&db).await?;
 
         return Ok(
             Redirect::to("/account?success=Account%20linked%20successfully").into_response(),
@@ -455,13 +461,13 @@ async fn oauth_callback(
     // Login flow
     let found_user = if let Some(oauth) = existing_oauth {
         // User exists with this OAuth link
-        User::find_by_id(oauth.user_id).one(&state.db).await?
+        User::find_by_id(oauth.user_id).one(&db).await?
     } else {
         // No existing link - try to find user by email or create new account
         let found_user = if let Some(ref email) = email {
             User::find()
                 .filter(user::Column::Email.eq(email))
-                .one(&state.db)
+                .one(&db)
                 .await?
         } else {
             None
@@ -483,7 +489,7 @@ async fn oauth_callback(
                 updated_at: Set(now),
                 ..Default::default()
             };
-            new_oauth.insert(&state.db).await?;
+            new_oauth.insert(&db).await?;
             Some(found_user)
         } else {
             // Create new user
@@ -503,7 +509,7 @@ async fn oauth_callback(
             let mut counter = 1;
             while User::find()
                 .filter(user::Column::Username.eq(&final_username))
-                .one(&state.db)
+                .one(&db)
                 .await?
                 .is_some()
             {
@@ -527,7 +533,7 @@ async fn oauth_callback(
                 ..Default::default()
             };
 
-            let created_user = new_user.insert(&state.db).await?;
+            let created_user = new_user.insert(&db).await?;
 
             // Link OAuth account
             let new_oauth = oauth_account::ActiveModel {
@@ -543,7 +549,7 @@ async fn oauth_callback(
                 updated_at: Set(now),
                 ..Default::default()
             };
-            new_oauth.insert(&state.db).await?;
+            new_oauth.insert(&db).await?;
 
             Some(created_user)
         }
@@ -563,8 +569,8 @@ async fn oauth_callback(
     // Create session token
     use crate::endpoints::extractors::{get_user_app_access, get_user_permissions};
 
-    let permissions = get_user_permissions(&state.db, found_user.id).await;
-    let allowed_apps = get_user_app_access(&state.db, found_user.id).await;
+    let permissions = get_user_permissions(&db, found_user.id).await;
+    let allowed_apps = get_user_app_access(&db, found_user.id).await;
 
     let session_token = create_access_token(
         &found_user.id.to_string(),
@@ -597,9 +603,10 @@ async fn list_linked_accounts(
     State(state): State<AppState>,
     auth: Authenticated,
 ) -> Result<Json<Vec<LinkedAccountResponse>>> {
+    let db = state.get_db().await?;
     let accounts = OauthAccount::find()
         .filter(oauth_account::Column::UserId.eq(auth.user_id()))
-        .all(&state.db)
+        .all(&db)
         .await?;
 
     let responses: Vec<LinkedAccountResponse> = accounts
@@ -621,14 +628,15 @@ async fn unlink_account(
     Path(provider): Path<String>,
     auth: Authenticated,
 ) -> Result<Json<serde_json::Value>> {
+    let db = state.get_db().await?;
     let account = OauthAccount::find()
         .filter(oauth_account::Column::UserId.eq(auth.user_id()))
         .filter(oauth_account::Column::Provider.eq(&provider))
-        .one(&state.db)
+        .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("No {} account linked", provider)))?;
 
-    account.delete(&state.db).await?;
+    account.delete(&db).await?;
 
     Ok(Json(serde_json::json!({
         "success": true,
@@ -642,11 +650,12 @@ async fn link_account_start(
     Path(provider): Path<String>,
     auth: Authenticated,
 ) -> Result<Response> {
+    let db = state.get_db().await?;
     // Check if already linked
     let existing = OauthAccount::find()
         .filter(oauth_account::Column::UserId.eq(auth.user_id()))
         .filter(oauth_account::Column::Provider.eq(&provider))
-        .one(&state.db)
+        .one(&db)
         .await?;
 
     if existing.is_some() {

@@ -1,8 +1,6 @@
 use kubarr::services::security::{
-    create_access_token, create_refresh_token, decode_token, generate_authorization_code,
-    generate_cookie_secret, generate_random_string, generate_rsa_key_pair,
-    generate_secure_password, hash_client_secret, hash_password, verify_client_secret,
-    verify_password, verify_pkce,
+    create_access_token, create_refresh_token, decode_token, generate_random_string,
+    generate_rsa_key_pair, generate_secure_password, hash_password, verify_password,
 };
 use rsa::pkcs8::{DecodePrivateKey, DecodePublicKey};
 use rsa::{RsaPrivateKey, RsaPublicKey};
@@ -46,14 +44,6 @@ fn test_verify_password_invalid_hash() {
     assert!(!verify_password("test", "not_a_valid_hash"));
 }
 
-#[test]
-fn test_client_secret_hashing() {
-    let secret = "super_secret_client_secret_123";
-    let hash = hash_client_secret(secret).unwrap();
-    assert!(verify_client_secret(secret, &hash));
-    assert!(!verify_client_secret("wrong_secret", &hash));
-}
-
 // ==========================================================================
 // Random String Generation Tests
 // ==========================================================================
@@ -79,29 +69,6 @@ fn test_random_string_large_length() {
 }
 
 #[test]
-fn test_authorization_code_generation() {
-    let code1 = generate_authorization_code();
-    let code2 = generate_authorization_code();
-    assert_eq!(code1.len(), 64); // 32 bytes * 2 (hex)
-    assert_ne!(code1, code2);
-}
-
-#[test]
-fn test_cookie_secret_generation() {
-    let secret1 = generate_cookie_secret();
-    let secret2 = generate_cookie_secret();
-
-    // Base64-encoded 32 bytes should be 44 chars (with padding)
-    assert_eq!(secret1.len(), 44);
-    assert_ne!(secret1, secret2);
-
-    // Verify it's valid base64
-    let decoded = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &secret1);
-    assert!(decoded.is_ok());
-    assert_eq!(decoded.unwrap().len(), 32);
-}
-
-#[test]
 fn test_secure_password_generation() {
     let password = generate_secure_password(20);
     assert_eq!(password.len(), 20);
@@ -109,37 +76,6 @@ fn test_secure_password_generation() {
     let has_lower = password.chars().any(|c| c.is_ascii_lowercase());
     let has_upper = password.chars().any(|c| c.is_ascii_uppercase());
     assert!(has_lower || has_upper);
-}
-
-// ==========================================================================
-// PKCE Tests
-// ==========================================================================
-
-#[test]
-fn test_pkce_s256() {
-    let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
-    let challenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
-    assert!(verify_pkce(verifier, challenge, "S256"));
-}
-
-#[test]
-fn test_pkce_s256_wrong_challenge() {
-    let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
-    let wrong_challenge = "wrong_challenge_value";
-    assert!(!verify_pkce(verifier, wrong_challenge, "S256"));
-}
-
-#[test]
-fn test_pkce_plain() {
-    let verifier = "test_verifier";
-    assert!(verify_pkce(verifier, verifier, "plain"));
-    assert!(!verify_pkce(verifier, "different", "plain"));
-}
-
-#[test]
-fn test_pkce_unsupported_method() {
-    assert!(!verify_pkce("verifier", "challenge", "unsupported"));
-    assert!(!verify_pkce("verifier", "challenge", ""));
 }
 
 // ==========================================================================

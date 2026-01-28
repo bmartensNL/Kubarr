@@ -56,7 +56,7 @@ async fn init_services() -> anyhow::Result<AppState> {
     let catalog = init_catalog();
 
     // Try to connect to database (may not be available during initial setup)
-    let conn = init_database().await;
+    let conn = init_database(&k8s_client).await;
 
     let audit = AuditService::new();
     let notification = NotificationService::new();
@@ -93,7 +93,39 @@ async fn init_services() -> anyhow::Result<AppState> {
 
 /// Initialize the database connection (runs migrations automatically)
 /// Returns None if database is not available (e.g., PostgreSQL not yet installed)
-async fn init_database() -> Option<sea_orm::DatabaseConnection> {
+async fn init_database(
+    k8s_client: &Arc<RwLock<Option<K8sClient>>>,
+) -> Option<sea_orm::DatabaseConnection> {
+    // First, try to get database URL from K8s secret (PostgreSQL may already be installed)
+    let database_url = {
+        let k8s_guard = k8s_client.read().await;
+        if let Some(ref k8s) = *k8s_guard {
+            match k8s.get_database_url("kubarr").await {
+                Ok(url) => Some(url),
+                Err(_) => {
+                    tracing::info!("No database secret found - PostgreSQL not yet installed");
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    };
+
+    if let Some(url) = database_url {
+        tracing::info!("Found database credentials in K8s secret, connecting...");
+        match db::connect_with_url(&url).await {
+            Ok(conn) => {
+                tracing::info!("Database connection established from K8s secret");
+                return Some(conn);
+            }
+            Err(e) => {
+                tracing::warn!("Failed to connect to database from K8s secret: {}", e);
+            }
+        }
+    }
+
+    // Fall back to environment variable / config
     match db::try_connect().await {
         Some(conn) => {
             tracing::info!("Database connection established");

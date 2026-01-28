@@ -126,7 +126,7 @@ impl<'a> DeploymentManager<'a> {
 
         // Add storage configuration
         if let Some(path) = storage_path {
-            set_args.push(format!("storage.hostPath.enabled=true"));
+            set_args.push("storage.hostPath.enabled=true".to_string());
             set_args.push(format!("storage.hostPath.rootPath={}", path));
         }
 

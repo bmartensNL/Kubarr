@@ -3,6 +3,8 @@
 //! This module provides common utilities for setting up test environments,
 //! creating mock data, and testing database operations.
 
+#![allow(dead_code)]
+
 use sea_orm::{Database, DatabaseConnection};
 use sea_orm_migration::MigratorTrait;
 

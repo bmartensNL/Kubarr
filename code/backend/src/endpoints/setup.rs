@@ -172,11 +172,9 @@ async fn initialize_setup(
     }
 
     // Get server config for storage path
-    let server_config = bootstrap::get_server_config(&db)
-        .await?
-        .ok_or_else(|| {
-            AppError::BadRequest("Server must be configured before creating admin user".to_string())
-        })?;
+    let server_config = bootstrap::get_server_config(&db).await?.ok_or_else(|| {
+        AppError::BadRequest("Server must be configured before creating admin user".to_string())
+    })?;
 
     // Hash the password
     let hashed_password = crate::services::security::hash_password(&request.admin_password)?;
@@ -483,14 +481,14 @@ async fn handle_bootstrap_socket(socket: WebSocket, state: AppState) {
             "complete": bootstrap_service.is_complete().await,
         });
         if let Ok(json) = serde_json::to_string(&initial_status) {
-            let _ = sender.send(Message::Text(json.into())).await;
+            let _ = sender.send(Message::Text(json)).await;
         }
     }
 
     // Spawn task to forward broadcast messages to WebSocket
     let send_task = tokio::spawn(async move {
         while let Ok(msg) = rx.recv().await {
-            if sender.send(Message::Text(msg.into())).await.is_err() {
+            if sender.send(Message::Text(msg)).await.is_err() {
                 break;
             }
         }
@@ -594,8 +592,7 @@ async fn configure_server(
     }
 
     // Save server config
-    let config =
-        bootstrap::save_server_config(&db, &request.name, &request.storage_path).await?;
+    let config = bootstrap::save_server_config(&db, &request.name, &request.storage_path).await?;
 
     Ok(Json(ServerConfigResponse {
         name: config.name,

@@ -321,9 +321,9 @@ impl K8sClient {
     pub async fn get_database_url(&self, namespace: &str) -> Result<String> {
         let secret = self.get_secret(namespace, "kubarr-db-app").await?;
 
-        let data = secret.data.ok_or_else(|| {
-            crate::error::AppError::NotFound("Secret data not found".to_string())
-        })?;
+        let data = secret
+            .data
+            .ok_or_else(|| crate::error::AppError::NotFound("Secret data not found".to_string()))?;
 
         let uri_bytes = data.get("uri").ok_or_else(|| {
             crate::error::AppError::NotFound("uri key not found in secret".to_string())
@@ -427,12 +427,12 @@ fn format_age(duration: chrono::Duration) -> String {
 }
 
 fn parse_cpu(cpu_str: &str) -> i64 {
-    if cpu_str.ends_with('n') {
-        cpu_str[..cpu_str.len() - 1].parse().unwrap_or(0)
-    } else if cpu_str.ends_with('u') {
-        cpu_str[..cpu_str.len() - 1].parse::<i64>().unwrap_or(0) * 1000
-    } else if cpu_str.ends_with('m') {
-        cpu_str[..cpu_str.len() - 1].parse::<i64>().unwrap_or(0) * 1_000_000
+    if let Some(s) = cpu_str.strip_suffix('n') {
+        s.parse().unwrap_or(0)
+    } else if let Some(s) = cpu_str.strip_suffix('u') {
+        s.parse::<i64>().unwrap_or(0) * 1000
+    } else if let Some(s) = cpu_str.strip_suffix('m') {
+        s.parse::<i64>().unwrap_or(0) * 1_000_000
     } else {
         cpu_str.parse::<i64>().unwrap_or(0) * 1_000_000_000
     }
@@ -448,32 +448,14 @@ fn format_cpu(nanocores: i64) -> String {
 }
 
 fn parse_memory(memory_str: &str) -> i64 {
-    if memory_str.ends_with("Ki") {
-        memory_str[..memory_str.len() - 2]
-            .parse::<i64>()
-            .unwrap_or(0)
-            * 1024
-    } else if memory_str.ends_with("Mi") {
-        memory_str[..memory_str.len() - 2]
-            .parse::<i64>()
-            .unwrap_or(0)
-            * 1024
-            * 1024
-    } else if memory_str.ends_with("Gi") {
-        memory_str[..memory_str.len() - 2]
-            .parse::<i64>()
-            .unwrap_or(0)
-            * 1024
-            * 1024
-            * 1024
-    } else if memory_str.ends_with("Ti") {
-        memory_str[..memory_str.len() - 2]
-            .parse::<i64>()
-            .unwrap_or(0)
-            * 1024
-            * 1024
-            * 1024
-            * 1024
+    if let Some(s) = memory_str.strip_suffix("Ki") {
+        s.parse::<i64>().unwrap_or(0) * 1024
+    } else if let Some(s) = memory_str.strip_suffix("Mi") {
+        s.parse::<i64>().unwrap_or(0) * 1024 * 1024
+    } else if let Some(s) = memory_str.strip_suffix("Gi") {
+        s.parse::<i64>().unwrap_or(0) * 1024 * 1024 * 1024
+    } else if let Some(s) = memory_str.strip_suffix("Ti") {
+        s.parse::<i64>().unwrap_or(0) * 1024 * 1024 * 1024 * 1024
     } else {
         memory_str.parse().unwrap_or(0)
     }

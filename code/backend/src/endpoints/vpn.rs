@@ -156,7 +156,8 @@ async fn list_app_configs(
     State(state): State<AppState>,
     _auth: Authorized<SettingsView>,
 ) -> Result<Json<AppConfigsResponse>> {
-    let configs = vpn::list_app_vpn_configs(&state.db).await?;
+    let db = state.get_db().await?;
+    let configs = vpn::list_app_vpn_configs(&db).await?;
     Ok(Json(AppConfigsResponse { configs }))
 }
 
@@ -166,7 +167,8 @@ async fn get_app_config(
     Path(app_name): Path<String>,
     _auth: Authorized<SettingsView>,
 ) -> Result<Json<Option<AppVpnConfigResponse>>> {
-    let config = vpn::get_app_vpn_config(&state.db, &app_name).await?;
+    let db = state.get_db().await?;
+    let config = vpn::get_app_vpn_config(&db, &app_name).await?;
     Ok(Json(config))
 }
 
@@ -177,14 +179,15 @@ async fn assign_vpn(
     _auth: Authorized<SettingsManage>,
     Json(req): Json<AssignVpnRequest>,
 ) -> Result<Json<AppVpnConfigResponse>> {
+    let db = state.get_db().await?;
     // Save VPN config to database
-    let config = vpn::assign_vpn_to_app(&state.db, &app_name, req).await?;
+    let config = vpn::assign_vpn_to_app(&db, &app_name, req).await?;
 
     // Trigger redeploy to apply VPN changes
     let k8s = state.k8s_client.read().await;
     if let Some(k8s_client) = k8s.as_ref() {
         let catalog = state.catalog.read().await;
-        let deployment_manager = DeploymentManager::with_db(k8s_client, &catalog, &state.db);
+        let deployment_manager = DeploymentManager::with_db(k8s_client, &catalog, &db);
         let deploy_request = DeploymentRequest {
             app_name: app_name.clone(),
             custom_config: std::collections::HashMap::new(),
@@ -208,17 +211,18 @@ async fn remove_vpn(
     Path(app_name): Path<String>,
     _auth: Authorized<SettingsManage>,
 ) -> Result<Json<serde_json::Value>> {
+    let db = state.get_db().await?;
     let k8s = state.k8s_client.read().await;
     let client = k8s.as_ref().ok_or_else(|| {
         crate::error::AppError::Internal("Kubernetes client not available".to_string())
     })?;
 
     // Remove VPN config from database
-    vpn::remove_vpn_from_app(&state.db, client, &app_name).await?;
+    vpn::remove_vpn_from_app(&db, client, &app_name).await?;
 
     // Trigger redeploy to remove VPN sidecar
     let catalog = state.catalog.read().await;
-    let deployment_manager = DeploymentManager::with_db(client, &catalog, &state.db);
+    let deployment_manager = DeploymentManager::with_db(client, &catalog, &db);
     let deploy_request = DeploymentRequest {
         app_name: app_name.clone(),
         custom_config: std::collections::HashMap::new(),

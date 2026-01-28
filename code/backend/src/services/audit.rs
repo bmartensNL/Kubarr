@@ -26,6 +26,7 @@ impl AuditService {
     }
 
     /// Log an audit event
+    #[allow(clippy::too_many_arguments)]
     pub async fn log(
         &self,
         action: AuditAction,
@@ -71,6 +72,7 @@ impl AuditService {
     }
 
     /// Log a successful action
+    #[allow(clippy::too_many_arguments)]
     pub async fn log_success(
         &self,
         action: AuditAction,
@@ -98,6 +100,7 @@ impl AuditService {
     }
 
     /// Log a failed action
+    #[allow(clippy::too_many_arguments)]
     pub async fn log_failure(
         &self,
         action: AuditAction,

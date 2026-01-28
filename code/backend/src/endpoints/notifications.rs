@@ -261,7 +261,7 @@ async fn update_channel(
 ) -> Result<Json<ChannelDto>> {
     let db = state.get_db().await?;
     // Validate channel type
-    if ChannelType::from_str(&channel_type).is_none() {
+    if ChannelType::parse(&channel_type).is_none() {
         return Err(AppError::BadRequest(format!(
             "Invalid channel type: {}",
             channel_type
@@ -501,7 +501,7 @@ async fn update_preference(
     Json(req): Json<UpdatePrefRequest>,
 ) -> Result<Json<UserPrefDto>> {
     let db = state.get_db().await?;
-    if ChannelType::from_str(&channel_type).is_none() {
+    if ChannelType::parse(&channel_type).is_none() {
         return Err(AppError::BadRequest(format!(
             "Invalid channel type: {}",
             channel_type

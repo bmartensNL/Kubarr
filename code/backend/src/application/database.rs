@@ -38,11 +38,30 @@ pub async fn connect_with_url(database_url: &str) -> Result<DbConn> {
 }
 
 /// Try to connect to database, returns None if connection fails
+/// Uses a short timeout for the initial probe
 pub async fn try_connect() -> Option<DbConn> {
-    match connect().await {
-        Ok(db) => Some(db),
-        Err(e) => {
+    // First, check if the database URL looks like it could work
+    // If it's the default localhost URL, skip trying since PostgreSQL isn't deployed yet
+    if CONFIG.database_url.contains("localhost") && std::env::var("KUBARR_DATABASE_URL").is_err() {
+        tracing::info!("No DATABASE_URL configured, skipping initial database connection");
+        return None;
+    }
+
+    // Try to connect with a short timeout
+    let result = tokio::time::timeout(
+        Duration::from_secs(5),
+        connect_with_url(&CONFIG.database_url),
+    )
+    .await;
+
+    match result {
+        Ok(Ok(db)) => Some(db),
+        Ok(Err(e)) => {
             tracing::info!("Database not available yet: {}", e);
+            None
+        }
+        Err(_) => {
+            tracing::info!("Database connection timed out");
             None
         }
     }
