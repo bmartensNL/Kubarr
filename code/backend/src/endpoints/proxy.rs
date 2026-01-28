@@ -19,23 +19,50 @@ use crate::state::AppState;
 /// Create proxy routes
 pub fn proxy_routes(state: AppState) -> Router {
     Router::new()
-        .route("/{app_name}", any(proxy_app))
-        .route("/{app_name}/", any(proxy_app))
-        .route("/{app_name}/*path", any(proxy_app))
+        .route("/:app_name", any(proxy_app_root))
+        .route("/:app_name/", any(proxy_app_root))
+        .route("/:app_name/*path", any(proxy_app_with_path))
         .with_state(state)
 }
 
-/// Proxy requests to an installed app
-async fn proxy_app(
+/// Proxy requests to an installed app (root path)
+async fn proxy_app_root(
     State(state): State<AppState>,
-    Path((app_name, path)): Path<(String, Option<String>)>,
+    Path(app_name): Path<String>,
     auth: Authenticated,
     method: Method,
     headers: HeaderMap,
     ws_upgrade: Option<WebSocketUpgrade>,
     body: Body,
 ) -> Result<Response> {
-    let path = path.unwrap_or_default();
+    proxy_app_inner(state, app_name, String::new(), auth, method, headers, ws_upgrade, body).await
+}
+
+/// Proxy requests to an installed app (with path)
+async fn proxy_app_with_path(
+    State(state): State<AppState>,
+    Path((app_name, path)): Path<(String, String)>,
+    auth: Authenticated,
+    method: Method,
+    headers: HeaderMap,
+    ws_upgrade: Option<WebSocketUpgrade>,
+    body: Body,
+) -> Result<Response> {
+    proxy_app_inner(state, app_name, path, auth, method, headers, ws_upgrade, body).await
+}
+
+/// Inner proxy implementation
+async fn proxy_app_inner(
+    state: AppState,
+    app_name: String,
+    path: String,
+    auth: Authenticated,
+    method: Method,
+    headers: HeaderMap,
+    ws_upgrade: Option<WebSocketUpgrade>,
+    body: Body,
+) -> Result<Response> {
+    let path = path;
     let user = auth.user();
 
     // Get AuthenticatedUser from request extensions to check permissions

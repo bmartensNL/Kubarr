@@ -10,10 +10,14 @@ use axum::{
     http::{header, Method, Response, StatusCode},
 };
 
+use chrono::Utc;
 use crate::config::CONFIG;
 use crate::error::{AppError, Result};
-use crate::services::security::decode_token;
+use crate::services::security::decode_session_token;
 use crate::state::AppState;
+use crate::models::prelude::*;
+use sea_orm::{EntityTrait, ColumnTrait, QueryFilter};
+use crate::models::session;
 
 /// Check if a path looks like a static asset (has a file extension)
 fn is_static_asset(path: &str) -> bool {
@@ -26,7 +30,7 @@ fn is_static_asset(path: &str) -> bool {
 }
 
 /// Reserved paths that should never be treated as app names
-const RESERVED_PATHS: &[&str] = &["api", "auth", "proxy", "assets", "favicon.svg", "login", "setup"];
+const RESERVED_PATHS: &[&str] = &["api", "auth", "proxy", "assets", "favicon.svg", "login", "setup", "app-error"];
 
 /// Extract app name from path if it looks like an app path
 fn extract_app_name(path: &str) -> Option<&str> {
@@ -57,6 +61,18 @@ fn extract_session_token(headers: &axum::http::HeaderMap) -> Option<String> {
     None
 }
 
+/// Create a redirect response to the app error page
+fn redirect_to_app_error(app_name: &str, reason: &str, details: &str) -> Response<Body> {
+    let encoded_details = urlencoding::encode(details);
+    let redirect_url = format!("/app-error?app={}&reason={}&details={}", app_name, reason, encoded_details);
+
+    Response::builder()
+        .status(StatusCode::FOUND)
+        .header(header::LOCATION, redirect_url)
+        .body(Body::empty())
+        .unwrap()
+}
+
 /// Proxy requests to the frontend service with SPA routing support
 /// Also handles app proxying for authenticated users at /{app_name}/* paths
 pub async fn proxy_frontend(
@@ -75,21 +91,54 @@ pub async fn proxy_frontend(
 
     // Check if this looks like an app path and user is authenticated
     if let Some(app_name) = extract_app_name(&path) {
+        tracing::info!("Detected potential app path: {}", app_name);
         if let Some(token) = extract_session_token(&headers) {
-            if let Ok(claims) = decode_token(&token) {
-                if let Ok(user_id) = claims.sub.parse::<i64>() {
+            tracing::info!("Found session token for app {}", app_name);
+            // Decode session token (contains session ID, not user ID)
+            if let Ok(claims) = decode_session_token(&token) {
+                tracing::info!("Session token decoded for app {}, sid={}", app_name, claims.sid);
+                // Look up session in database to get user_id
+                if let Ok(Some(session_record)) = Session::find()
+                    .filter(session::Column::Id.eq(&claims.sid))
+                    .filter(session::Column::IsRevoked.eq(false))
+                    .filter(session::Column::ExpiresAt.gt(Utc::now()))
+                    .one(&state.db)
+                    .await
+                {
+                    let user_id = session_record.user_id;
+                    tracing::info!("Session valid for user {} accessing app {}", user_id, app_name);
                     // Check if user has access to this app
-                    if check_app_permission(&state, user_id, app_name).await {
+                    let has_permission = check_app_permission(&state, user_id, app_name).await;
+                    tracing::info!("User {} permission for app {}: {}", user_id, app_name, has_permission);
+                    if has_permission {
                         // Try to proxy to the app
-                        if let Ok(target_url) = get_app_target_url(&state, app_name, &path, &query).await {
-                            tracing::debug!("Proxying to app {}: {}", app_name, target_url);
-                            let body = request.into_body();
-                            let proxy = &state.proxy;
-                            return proxy.proxy_http(&target_url, method, headers, body).await;
+                        match get_app_target_url(&state, app_name, &path, &query).await {
+                            Ok(target_url) => {
+                                tracing::info!("Proxying to app {}: {}", app_name, target_url);
+                                let body = request.into_body();
+                                let proxy = &state.proxy;
+                                match proxy.proxy_http(&target_url, method, headers, body).await {
+                                    Ok(response) => return Ok(response),
+                                    Err(e) => {
+                                        tracing::warn!("Failed to connect to app {}: {}", app_name, e);
+                                        return Ok(redirect_to_app_error(app_name, "connection_failed", &e.to_string()));
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                tracing::info!("App {} not found or error: {}", app_name, e);
+                                return Ok(redirect_to_app_error(app_name, "not_found", &e.to_string()));
+                            }
                         }
                     }
+                } else {
+                    tracing::info!("Session not found or invalid for app {}", app_name);
                 }
+            } else {
+                tracing::info!("Failed to decode session token for app {}", app_name);
             }
+        } else {
+            tracing::info!("No session token for app path {}", app_name);
         }
     }
 

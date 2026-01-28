@@ -11,8 +11,9 @@ const setupClient = axios.create({
 
 export interface SetupStatusResponse {
   setup_required: boolean;
+  bootstrap_complete: boolean;
+  server_configured: boolean;
   admin_user_exists: boolean;
-  oauth2_client_exists: boolean;
   storage_configured: boolean;
 }
 
@@ -20,9 +21,6 @@ export interface SetupRequest {
   admin_username: string;
   admin_email: string;
   admin_password: string;
-  storage_path: string;
-  base_url?: string;
-  oauth2_client_secret?: string;
 }
 
 export interface SetupResult {
@@ -34,14 +32,9 @@ export interface SetupResult {
       username: string;
       email: string;
     };
-    storage: {
-      path: string;
-      folders_created: string[];
-    };
-    oauth2_client?: {
-      client_id: string;
-      client_secret: string;
-      redirect_uris: string[];
+    server: {
+      name: string;
+      storage_path: string;
     };
   };
 }
@@ -50,13 +43,44 @@ export interface GeneratedCredentials {
   admin_username: string;
   admin_email: string;
   admin_password: string;
-  client_secret: string;
 }
 
 export interface PathValidationResult {
   valid: boolean;
-  error: string | null;
-  path: string;
+  exists: boolean;
+  writable: boolean;
+  message: string;
+}
+
+// Bootstrap types
+export interface ComponentStatus {
+  component: string;
+  display_name: string;
+  status: 'pending' | 'installing' | 'healthy' | 'failed';
+  message?: string;
+  error?: string;
+}
+
+export interface BootstrapStatusResponse {
+  components: ComponentStatus[];
+  complete: boolean;
+  started: boolean;
+}
+
+export interface BootstrapStartResponse {
+  message: string;
+  started: boolean;
+}
+
+// Server config types
+export interface ServerConfigRequest {
+  name: string;
+  storage_path: string;
+}
+
+export interface ServerConfigResponse {
+  name: string;
+  storage_path: string;
 }
 
 export const setupApi = {
@@ -72,7 +96,7 @@ export const setupApi = {
     return response.data;
   },
 
-  // Initialize the setup
+  // Initialize the setup (create admin user)
   initialize: async (data: SetupRequest): Promise<SetupResult> => {
     const response = await setupClient.post<SetupResult>('/setup/initialize', data);
     return response.data;
@@ -89,6 +113,33 @@ export const setupApi = {
     const response = await setupClient.post<PathValidationResult>('/setup/validate-path', null, {
       params: { path },
     });
+    return response.data;
+  },
+
+  // Bootstrap endpoints
+  getBootstrapStatus: async (): Promise<BootstrapStatusResponse> => {
+    const response = await setupClient.get<BootstrapStatusResponse>('/setup/bootstrap/status');
+    return response.data;
+  },
+
+  startBootstrap: async (): Promise<BootstrapStartResponse> => {
+    const response = await setupClient.post<BootstrapStartResponse>('/setup/bootstrap/start');
+    return response.data;
+  },
+
+  retryBootstrapComponent: async (component: string): Promise<BootstrapStartResponse> => {
+    const response = await setupClient.post<BootstrapStartResponse>(`/setup/bootstrap/retry/${component}`);
+    return response.data;
+  },
+
+  // Server config endpoints
+  getServerConfig: async (): Promise<ServerConfigResponse | null> => {
+    const response = await setupClient.get<ServerConfigResponse | null>('/setup/server');
+    return response.data;
+  },
+
+  configureServer: async (config: ServerConfigRequest): Promise<ServerConfigResponse> => {
+    const response = await setupClient.post<ServerConfigResponse>('/setup/server', config);
     return response.data;
   },
 };

@@ -54,8 +54,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   useEffect(() => {
-    // Skip auth check on login page to prevent redirect loop
-    if (window.location.pathname === '/login') {
+    // Skip auth check on login and setup pages to prevent redirect loop
+    // These pages don't require authentication
+    if (window.location.pathname === '/login' || window.location.pathname === '/setup') {
       setLoading(false);
       return;
     }

@@ -1,4 +1,5 @@
 pub mod audit;
+pub mod bootstrap;
 pub mod cadvisor;
 pub mod catalog;
 pub mod deployment;
@@ -10,6 +11,7 @@ pub mod scheduler;
 pub mod security;
 
 pub use audit::*;
+pub use bootstrap::BootstrapService;
 pub use cadvisor::*;
 pub use catalog::*;
 pub use deployment::*;

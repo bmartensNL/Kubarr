@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::process::Command;
 
 use chrono::{DateTime, Utc};
-use k8s_openapi::api::apps::v1::Deployment;
+use k8s_openapi::api::apps::v1::{DaemonSet, Deployment};
 use k8s_openapi::api::core::v1::Namespace;
 use kube::api::{Api, DeleteParams, ListParams};
 use serde::{Deserialize, Serialize};
@@ -210,17 +210,22 @@ impl<'a> DeploymentManager<'a> {
         let deployments: Api<Deployment> = Api::namespaced(self.k8s.client().clone(), namespace);
         let deploy_list = deployments.list(&ListParams::default()).await?;
 
-        if deploy_list.items.is_empty() {
+        // Get daemonsets
+        let daemonsets: Api<DaemonSet> = Api::namespaced(self.k8s.client().clone(), namespace);
+        let ds_list = daemonsets.list(&ListParams::default()).await?;
+
+        if deploy_list.items.is_empty() && ds_list.items.is_empty() {
             return Ok(serde_json::json!({
-                "status": "no_deployments",
+                "status": "no_workloads",
                 "healthy": false,
-                "message": "No deployments found in namespace"
+                "message": "No deployments or daemonsets found in namespace"
             }));
         }
 
         let mut all_healthy = true;
-        let mut deployment_statuses = Vec::new();
+        let mut workload_statuses = Vec::new();
 
+        // Check deployments
         for deploy in &deploy_list.items {
             let name = deploy.metadata.name.clone().unwrap_or_default();
             let spec = deploy.spec.as_ref();
@@ -232,8 +237,9 @@ impl<'a> DeploymentManager<'a> {
 
             let is_healthy = ready_replicas >= replicas && available_replicas >= replicas;
 
-            deployment_statuses.push(serde_json::json!({
+            workload_statuses.push(serde_json::json!({
                 "name": name,
+                "kind": "Deployment",
                 "replicas": replicas,
                 "ready_replicas": ready_replicas,
                 "available_replicas": available_replicas,
@@ -245,11 +251,36 @@ impl<'a> DeploymentManager<'a> {
             }
         }
 
+        // Check daemonsets
+        for ds in &ds_list.items {
+            let name = ds.metadata.name.clone().unwrap_or_default();
+            let status = ds.status.as_ref();
+
+            let desired = status.map(|s| s.desired_number_scheduled).unwrap_or(1);
+            let ready = status.map(|s| s.number_ready).unwrap_or(0);
+            let available = status.and_then(|s| s.number_available).unwrap_or(0);
+
+            let is_healthy = ready >= desired && available >= desired && desired > 0;
+
+            workload_statuses.push(serde_json::json!({
+                "name": name,
+                "kind": "DaemonSet",
+                "desired": desired,
+                "ready": ready,
+                "available": available,
+                "healthy": is_healthy
+            }));
+
+            if !is_healthy {
+                all_healthy = false;
+            }
+        }
+
         Ok(serde_json::json!({
             "status": if all_healthy { "healthy" } else { "unhealthy" },
             "healthy": all_healthy,
-            "deployments": deployment_statuses,
-            "message": if all_healthy { "All deployments healthy" } else { "Some deployments are not healthy" }
+            "deployments": workload_statuses,
+            "message": if all_healthy { "All workloads healthy" } else { "Some workloads are not healthy" }
         }))
     }
 }

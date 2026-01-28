@@ -12,6 +12,7 @@ import AccountPage from './pages/AccountPage'
 import SetupPage from './pages/SetupPage'
 import LoginPage from './pages/LoginPage'
 import NotFoundPage from './pages/NotFoundPage'
+import AppErrorPage from './pages/AppErrorPage'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ThemeProvider, useTheme } from './contexts/ThemeContext'
 import { MonitoringProvider } from './contexts/MonitoringContext'
@@ -795,6 +796,7 @@ function AppContent() {
                   <Route path="/resources" element={<MonitoringPage />} />
                   <Route path="/networking" element={<NetworkingPage />} />
                   <Route path="/security" element={<SecurityPage />} />
+                  <Route path="/app-error" element={<AppErrorPage />} />
                   <Route path="*" element={<NotFoundPage />} />
                 </Routes>
               </div>

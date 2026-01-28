@@ -1,71 +1,59 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { setupApi, SetupRequest } from '../api/setup';
+import BootstrapStep from '../components/setup/BootstrapStep';
+import ServerStep from '../components/setup/ServerStep';
 
-type SetupStep = 'storage' | 'admin' | 'summary';
+type SetupStep = 'bootstrap' | 'server' | 'admin' | 'summary';
 
 const SetupPage: React.FC = () => {
   const navigate = useNavigate();
-  const [currentStep, setCurrentStep] = useState<SetupStep>('storage');
+  const [currentStep, setCurrentStep] = useState<SetupStep>('bootstrap');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [validatingPath, setValidatingPath] = useState(false);
-  const [pathValid, setPathValid] = useState<boolean | null>(null);
-  const [pathError, setPathError] = useState<string | null>(null);
+  const [initialLoading, setInitialLoading] = useState(true);
 
   // Form data
-  const [storagePath, setStoragePath] = useState('/mnt/data/kubarr');
+  const [serverConfig, setServerConfig] = useState<{ name: string; storagePath: string } | null>(null);
   const [adminUsername, setAdminUsername] = useState('admin');
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
-  // Check if setup is already complete
+  // Check setup status and determine starting step
   useEffect(() => {
     const checkSetup = async () => {
       try {
         const { setup_required } = await setupApi.checkRequired();
         if (!setup_required) {
           navigate('/');
+          return;
+        }
+
+        // Get detailed status to determine which step to show
+        const status = await setupApi.getStatus();
+
+        if (status.bootstrap_complete && status.server_configured) {
+          setCurrentStep('admin');
+          // Load server config
+          const config = await setupApi.getServerConfig();
+          if (config) {
+            setServerConfig({ name: config.name, storagePath: config.storage_path });
+          }
+        } else if (status.bootstrap_complete) {
+          setCurrentStep('server');
+        } else {
+          setCurrentStep('bootstrap');
         }
       } catch (err) {
-        // If we can't check, let the user try setup
+        // If we can't check, start from beginning
+        setCurrentStep('bootstrap');
+      } finally {
+        setInitialLoading(false);
       }
     };
     checkSetup();
   }, [navigate]);
-
-  const validateStoragePath = async () => {
-    if (!storagePath.trim()) {
-      setPathValid(false);
-      setPathError('Storage path is required');
-      return false;
-    }
-
-    setValidatingPath(true);
-    setPathError(null);
-    setPathValid(null);
-
-    try {
-      const result = await setupApi.validatePath(storagePath);
-      setPathValid(result.valid);
-      setPathError(result.error);
-      return result.valid;
-    } catch (err) {
-      setPathValid(false);
-      setPathError('Failed to validate path');
-      return false;
-    } finally {
-      setValidatingPath(false);
-    }
-  };
-
-  const handleStorageNext = async () => {
-    const valid = await validateStoragePath();
-    if (valid) {
-      setCurrentStep('admin');
-    }
-  };
 
   const validateAdminForm = (): boolean => {
     if (!adminUsername.trim()) {
@@ -103,14 +91,12 @@ const SetupPage: React.FC = () => {
         admin_username: adminUsername,
         admin_email: adminEmail,
         admin_password: adminPassword,
-        storage_path: storagePath,
-        base_url: window.location.origin,
       };
 
       const result = await setupApi.initialize(setupData);
 
       if (result.success) {
-        // Force full page reload to trigger oauth2-proxy auth flow
+        // Force full page reload to trigger auth flow
         window.location.href = '/';
       } else {
         setError(result.message || 'Setup failed');
@@ -123,12 +109,21 @@ const SetupPage: React.FC = () => {
   };
 
   const steps = [
-    { id: 'storage', label: 'Storage', number: 1 },
-    { id: 'admin', label: 'Admin User', number: 2 },
-    { id: 'summary', label: 'Summary', number: 3 },
+    { id: 'bootstrap', label: 'System Setup', number: 1 },
+    { id: 'server', label: 'Server', number: 2 },
+    { id: 'admin', label: 'Admin User', number: 3 },
+    { id: 'summary', label: 'Summary', number: 4 },
   ];
 
-  const currentStepIndex = steps.findIndex(s => s.id === currentStep);
+  const currentStepIndex = steps.findIndex((s) => s.id === currentStep);
+
+  if (initialLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+        <div className="text-gray-500 dark:text-gray-400">Loading...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center px-4 py-12">
@@ -158,7 +153,7 @@ const SetupPage: React.FC = () => {
                   {step.number}
                 </div>
                 <span
-                  className={`ml-2 text-sm ${
+                  className={`ml-2 text-sm hidden sm:inline ${
                     index <= currentStepIndex ? 'text-white' : 'text-gray-500'
                   }`}
                 >
@@ -167,7 +162,7 @@ const SetupPage: React.FC = () => {
               </div>
               {index < steps.length - 1 && (
                 <div
-                  className={`w-16 h-0.5 ${
+                  className={`w-8 sm:w-16 h-0.5 ${
                     index < currentStepIndex ? 'bg-blue-600' : 'bg-gray-700'
                   }`}
                 />
@@ -184,92 +179,24 @@ const SetupPage: React.FC = () => {
             </div>
           )}
 
-          {/* Step 1: Storage Configuration */}
-          {currentStep === 'storage' && (
-            <div className="space-y-6">
-              <div>
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                  Storage Configuration
-                </h2>
-                <p className="text-gray-500 dark:text-gray-400 text-sm">
-                  Specify the root path where all media files and downloads will be stored.
-                  This path must exist on the host machine and be writable.
-                </p>
-              </div>
-
-              <div>
-                <label htmlFor="storagePath" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Storage Path
-                </label>
-                <div className="mt-1 flex rounded-md shadow-sm">
-                  <input
-                    type="text"
-                    id="storagePath"
-                    value={storagePath}
-                    onChange={(e) => {
-                      setStoragePath(e.target.value);
-                      setPathValid(null);
-                      setPathError(null);
-                    }}
-                    className="flex-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-l-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                    placeholder="/mnt/data/kubarr"
-                  />
-                  <button
-                    type="button"
-                    onClick={validateStoragePath}
-                    disabled={validatingPath}
-                    className="inline-flex items-center px-4 py-2 border border-l-0 border-gray-300 dark:border-gray-700 bg-gray-200 dark:bg-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-r-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-                  >
-                    {validatingPath ? 'Checking...' : 'Validate'}
-                  </button>
-                </div>
-                {pathValid === true && (
-                  <p className="mt-2 text-sm text-green-400">
-                    Path is valid and writable
-                  </p>
-                )}
-                {pathValid === false && pathError && (
-                  <p className="mt-2 text-sm text-red-400">{pathError}</p>
-                )}
-              </div>
-
-              <div className="bg-gray-100 dark:bg-gray-900 rounded-md p-4">
-                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Folder Structure
-                </h3>
-                <p className="text-xs text-gray-500 mb-2">
-                  The following folders will be created automatically:
-                </p>
-                <pre className="text-xs text-gray-500 dark:text-gray-400 font-mono">
-{`${storagePath}/
-├── downloads/
-│   ├── qbittorrent/
-│   ├── transmission/
-│   ├── deluge/
-│   ├── rutorrent/
-│   ├── sabnzbd/
-│   └── nzbget/
-└── media/
-    ├── movies/
-    ├── tv/
-    └── music/`}
-                </pre>
-              </div>
-
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={handleStorageNext}
-                  disabled={validatingPath}
-                  className="px-6 py-2 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
+          {/* Step 1: Bootstrap */}
+          {currentStep === 'bootstrap' && (
+            <BootstrapStep onComplete={() => setCurrentStep('server')} />
           )}
 
-          {/* Step 2: Admin User */}
+          {/* Step 2: Server Configuration */}
+          {currentStep === 'server' && (
+            <ServerStep
+              onComplete={(config) => {
+                setServerConfig(config);
+                setCurrentStep('admin');
+              }}
+              onBack={() => setCurrentStep('bootstrap')}
+              initialConfig={serverConfig ? { name: serverConfig.name, storage_path: serverConfig.storagePath } : null}
+            />
+          )}
+
+          {/* Step 3: Admin User */}
           {currentStep === 'admin' && (
             <div className="space-y-6">
               <div>
@@ -283,7 +210,10 @@ const SetupPage: React.FC = () => {
 
               <div className="space-y-4">
                 <div>
-                  <label htmlFor="adminUsername" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  <label
+                    htmlFor="adminUsername"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
                     Username
                   </label>
                   <input
@@ -296,7 +226,10 @@ const SetupPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label htmlFor="adminEmail" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  <label
+                    htmlFor="adminEmail"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
                     Email
                   </label>
                   <input
@@ -310,7 +243,10 @@ const SetupPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label htmlFor="adminPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  <label
+                    htmlFor="adminPassword"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
                     Password
                   </label>
                   <input
@@ -324,7 +260,10 @@ const SetupPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  <label
+                    htmlFor="confirmPassword"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
                     Confirm Password
                   </label>
                   <input
@@ -340,7 +279,7 @@ const SetupPage: React.FC = () => {
               <div className="flex justify-between">
                 <button
                   type="button"
-                  onClick={() => setCurrentStep('storage')}
+                  onClick={() => setCurrentStep('server')}
                   className="px-6 py-2 border border-gray-600 text-gray-300 font-medium rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500"
                 >
                   Back
@@ -356,7 +295,7 @@ const SetupPage: React.FC = () => {
             </div>
           )}
 
-          {/* Step 3: Summary */}
+          {/* Step 4: Summary */}
           {currentStep === 'summary' && (
             <div className="space-y-6">
               <div>
@@ -369,18 +308,45 @@ const SetupPage: React.FC = () => {
               </div>
 
               <div className="space-y-4">
+                {/* System Components */}
                 <div className="bg-gray-100 dark:bg-gray-900 rounded-md p-4">
                   <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                    Storage Configuration
+                    System Components
+                  </h3>
+                  <div className="flex items-center space-x-2 text-sm text-green-400">
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                      <path
+                        fillRule="evenodd"
+                        d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                    <span>All system components installed</span>
+                  </div>
+                </div>
+
+                {/* Server Configuration */}
+                <div className="bg-gray-100 dark:bg-gray-900 rounded-md p-4">
+                  <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                    Server Configuration
                   </h3>
                   <dl className="space-y-2">
                     <div className="flex justify-between">
-                      <dt className="text-sm text-gray-500">Root Path:</dt>
-                      <dd className="text-sm text-gray-900 dark:text-white font-mono">{storagePath}</dd>
+                      <dt className="text-sm text-gray-500">Server Name:</dt>
+                      <dd className="text-sm text-gray-900 dark:text-white">
+                        {serverConfig?.name || 'Kubarr'}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-sm text-gray-500">Storage Path:</dt>
+                      <dd className="text-sm text-gray-900 dark:text-white font-mono">
+                        {serverConfig?.storagePath || '/mnt/data/kubarr'}
+                      </dd>
                     </div>
                   </dl>
                 </div>
 
+                {/* Admin User */}
                 <div className="bg-gray-100 dark:bg-gray-900 rounded-md p-4">
                   <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
                     Admin User

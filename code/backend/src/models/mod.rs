@@ -1,4 +1,5 @@
 pub mod audit_log;
+pub mod bootstrap_status;
 pub mod invite;
 pub mod notification_channel;
 pub mod notification_event;
@@ -8,6 +9,7 @@ pub mod oauth_provider;
 pub mod pending_2fa_challenge;
 pub mod role;
 pub mod role_app_permission;
+pub mod server_config;
 pub mod session;
 pub mod role_permission;
 pub mod system_setting;
@@ -20,6 +22,7 @@ pub mod user_role;
 #[allow(unused_imports)]
 pub mod prelude {
     pub use super::audit_log::{self, Entity as AuditLog};
+    pub use super::bootstrap_status::{self, Entity as BootstrapStatus};
     pub use super::invite::{self, Entity as Invite};
     pub use super::notification_channel::{self, Entity as NotificationChannel};
     pub use super::notification_event::{self, Entity as NotificationEvent};
@@ -30,6 +33,7 @@ pub mod prelude {
     pub use super::role::{self, Entity as Role};
     pub use super::role_app_permission::{self, Entity as RoleAppPermission};
     pub use super::role_permission::{self, Entity as RolePermission};
+    pub use super::server_config::{self, Entity as ServerConfig};
     pub use super::session::{self, Entity as Session};
     pub use super::system_setting::{self, Entity as SystemSetting};
     pub use super::user::{self, Entity as User};
