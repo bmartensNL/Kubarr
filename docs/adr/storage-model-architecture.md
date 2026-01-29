@@ -198,3 +198,298 @@ Used for dynamic configuration (storage path, OAuth2 settings, JWT keys) without
 2. **Backup configuration** - CNPG backups require separate configuration (S3-compatible storage, scheduled backups, retention policies). Without this, there is no automated backup - a risk for homelab users who may not configure it.
 3. **Resource footprint** - CNPG operator pod + PostgreSQL pod(s) consume memory (~256MB+ for PostgreSQL, ~128MB for the operator) and CPU beyond what the application itself needs. On constrained homelab hardware (e.g., Raspberry Pi, mini PC), this overhead is significant.
 4. **Port forwarding fragility** - Development workflow requires manual port-forward restart after every deployment, adding friction to the development cycle.
+
+---
+
+## Option A: Optimized PostgreSQL
+
+**Summary:** Keep the current PostgreSQL/CloudNativePG stack but address all identified performance issues, tune CNPG configuration, and improve operational reliability. This is the lowest-risk path that delivers meaningful improvements without architectural changes.
+
+### Quick Wins (Application-Level)
+
+These improvements can be implemented independently with minimal risk and no schema changes.
+
+#### 1. Environment-Configurable Connection Pool
+
+The current hardcoded pool in `database.rs` prevents tuning without a code change and rebuild:
+
+```rust
+// Current: hardcoded values
+opts.max_connections(10)
+    .min_connections(1)
+
+// Proposed: env-configurable with sensible defaults
+let max_conns = std::env::var("KUBARR_DB_MAX_CONNECTIONS")
+    .ok()
+    .and_then(|v| v.parse().ok())
+    .unwrap_or(5); // Reduced default: 5 is sufficient for 1-5 users
+
+let min_conns = std::env::var("KUBARR_DB_MIN_CONNECTIONS")
+    .ok()
+    .and_then(|v| v.parse().ok())
+    .unwrap_or(1);
+
+opts.max_connections(max_conns)
+    .min_connections(min_conns)
+```
+
+**Impact:** Reduces default PostgreSQL memory usage by ~50MB (5 connections × ~10MB each vs 10) and allows operators to tune without rebuilding. Environment variables can be set via `values.yaml` or ConfigMap.
+
+#### 2. Audit Stats GROUP BY Query
+
+Replace the unbounded in-memory aggregation with a SQL-level `GROUP BY`:
+
+```rust
+// Current: loads ALL audit logs into memory
+let all_logs = audit_log::Entity::find().all(db).await?;
+let mut action_counts: HashMap<String, u64> = HashMap::new();
+for log in all_logs {
+    *action_counts.entry(log.action.clone()).or_insert(0) += 1;
+}
+
+// Proposed: SQL GROUP BY - constant memory regardless of log size
+use sea_orm::{FromQueryResult, QuerySelect};
+
+#[derive(Debug, FromQueryResult)]
+struct ActionCount {
+    action: String,
+    count: i64,
+}
+
+let action_counts = audit_log::Entity::find()
+    .select_only()
+    .column(audit_log::Column::Action)
+    .column_as(audit_log::Column::Id.count(), "count")
+    .group_by(audit_log::Column::Action)
+    .into_model::<ActionCount>()
+    .all(db)
+    .await?;
+```
+
+**Impact:** Eliminates the most critical memory issue. With 100K audit logs, the current approach allocates ~50MB+ for deserialized models; the GROUP BY approach returns only the aggregated counts (a few KB regardless of table size). This prevents OOM risks as the audit log grows.
+
+#### 3. Background Cache Cleanup
+
+Add a `tokio::spawn` interval task to evict expired entries from both caches:
+
+```rust
+// In application startup, after AppState is created:
+let cache_clone = app_state.endpoint_cache.clone();
+let metrics_clone = app_state.network_metrics_cache.clone();
+
+tokio::spawn(async move {
+    let mut interval = tokio::time::interval(Duration::from_secs(300)); // Every 5 minutes
+    loop {
+        interval.tick().await;
+        cache_clone.evict_expired().await;
+        metrics_clone.evict_stale().await;
+        tracing::debug!("Cache cleanup completed");
+    }
+});
+```
+
+This requires adding `evict_expired()` / `evict_stale()` methods to `EndpointCache` and `NetworkMetricsCache` that iterate the HashMap and remove entries older than the TTL/max_age.
+
+**Impact:** Prevents unbounded memory growth from dead cache entries. For `EndpointCache`, this bounds memory to active endpoints only. For `NetworkMetricsCache`, stale namespace entries from deleted namespaces are cleaned up.
+
+#### 4. Scheduled Audit Log Retention
+
+Automate the existing `clear_old_logs()` function via a background task instead of requiring manual admin API calls:
+
+```rust
+tokio::spawn(async move {
+    let mut interval = tokio::time::interval(Duration::from_secs(86400)); // Daily
+    loop {
+        interval.tick().await;
+        let retention_days = std::env::var("KUBARR_AUDIT_RETENTION_DAYS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(90); // Default: 90 days
+        if let Some(db) = db_conn.read().await.as_ref() {
+            match clear_old_logs(db, retention_days).await {
+                Ok(count) => tracing::info!("Audit cleanup: removed {} old entries", count),
+                Err(e) => tracing::warn!("Audit cleanup failed: {}", e),
+            }
+        }
+    }
+});
+```
+
+**Impact:** Prevents indefinite table growth. With 90-day retention and typical homelab activity (~100-500 events/day), the audit_log table stays under 50K rows (~5MB), keeping the GROUP BY query fast and PostgreSQL VACUUM efficient.
+
+### CNPG Tuning (Infrastructure-Level)
+
+These improvements optimize the CloudNativePG cluster configuration for homelab workloads.
+
+#### 1. Separate WAL Volume
+
+PostgreSQL Write-Ahead Logging (WAL) benefits significantly from dedicated I/O:
+
+```yaml
+# CNPG Cluster spec
+spec:
+  storage:
+    size: 5Gi
+    storageClass: local-path
+  walStorage:
+    size: 2Gi
+    storageClass: local-path
+```
+
+**Impact:** Separating WAL from data storage can improve write IOPS by up to 2x on spinning disks and reduce I/O contention on SSDs. For homelab NVMe/SSD setups, the benefit is moderate but still measurable (~20-30% write throughput improvement) due to reduced fsync contention.
+
+#### 2. Memory and CPU Allocation
+
+Allocate ~75% of available resources to PostgreSQL for optimal buffer pool sizing:
+
+```yaml
+spec:
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+  postgresql:
+    parameters:
+      shared_buffers: "128MB"        # ~25% of memory limit
+      effective_cache_size: "384MB"  # ~75% of memory limit
+      work_mem: "4MB"               # Per-operation sort memory
+      maintenance_work_mem: "64MB"  # For VACUUM, CREATE INDEX
+      wal_buffers: "4MB"
+      max_connections: "20"         # Match app pool + headroom
+```
+
+**Impact:** Proper `shared_buffers` and `effective_cache_size` settings allow PostgreSQL to cache hot data (user sessions, roles, permissions) in memory, reducing disk reads for the auth-layer's 4+ queries per request. For Kubarr's 22-table schema with typical homelab data sizes (<100MB total), most of the working set fits in shared buffers.
+
+#### 3. Dynamic PVC Provisioning
+
+Use StorageClass with `allowVolumeExpansion: true` to enable online volume resizing:
+
+```yaml
+spec:
+  storage:
+    size: 5Gi
+    storageClass: local-path  # Or longhorn, openebs-lvm for expansion support
+    pvcTemplate:
+      accessModes:
+        - ReadWriteOnce
+```
+
+**Impact:** Eliminates the need to recreate PVCs when storage grows. Operators can resize with `kubectl patch` rather than performing backup/restore cycles. Note: `local-path` provisioner does not support expansion; production homelab setups should consider Longhorn or OpenEBS for this capability.
+
+#### 4. Volume Snapshots for Backups
+
+Leverage Kubernetes VolumeSnapshot API for consistent point-in-time backups:
+
+```yaml
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata:
+  name: kubarr-db-snapshot
+spec:
+  volumeSnapshotClassName: csi-snapshotter
+  source:
+    persistentVolumeClaimName: kubarr-db-pvc
+```
+
+Alternatively, CNPG's built-in backup to S3-compatible storage (MinIO, Backblaze B2):
+
+```yaml
+spec:
+  backup:
+    barmanObjectStore:
+      destinationPath: "s3://kubarr-backups/"
+      endpointURL: "https://s3.us-west-000.backblazeb2.com"
+      s3Credentials:
+        accessKeyId:
+          name: backup-creds
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: backup-creds
+          key: SECRET_ACCESS_KEY
+    retentionPolicy: "30d"
+```
+
+**Impact:** Provides automated, consistent backups without manual intervention. CNPG's Barman integration handles WAL archiving and point-in-time recovery (PITR). Backblaze B2 free tier (10GB) is sufficient for typical homelab database sizes.
+
+### High Availability Considerations
+
+CNPG supports primary + replica configurations with automatic failover:
+
+```yaml
+spec:
+  instances: 2  # Primary + 1 streaming replica
+  enableSuperuserAccess: false
+  primaryUpdateStrategy: unsupervised
+```
+
+**Assessment for homelab:** HA is generally **overkill** for a single-user homelab deployment. The added resource cost (2x PostgreSQL memory/CPU, WAL streaming overhead) outweighs the benefit when:
+- Acceptable downtime is minutes, not seconds
+- There is one operator who can manually intervene
+- Pod restarts typically complete in 10-30 seconds
+
+**When HA makes sense:**
+- Multi-user homelab serving a household (3-5 concurrent users)
+- Running on a multi-node cluster where node failure is a realistic scenario
+- Kubarr manages critical infrastructure where downtime causes cascading issues
+
+### Pros and Cons
+
+| Aspect | Assessment |
+|--------|------------|
+| **Pros** | |
+| Minimal migration effort | No schema changes, no data migration, no deployment model changes |
+| Low risk | Each quick win can be deployed independently and rolled back |
+| Preserves CNPG features | Automated failover, backup, WAL archiving remain available |
+| Full SQL capabilities | All PostgreSQL features (LISTEN/NOTIFY, advanced indexing, JSON operators, full-text search) remain available |
+| SeaORM compatibility | No ORM changes needed; existing migrations continue to work |
+| Incremental improvement | Quick wins can be shipped immediately while CNPG tuning follows |
+| **Cons** | |
+| CNPG operator overhead remains | Operator pod (~128MB RAM) continues running for a single database instance |
+| Operational complexity persists | Homelab users still need to install and manage the CNPG operator |
+| Resource floor unchanged | PostgreSQL pod + operator pod baseline remains ~384MB+ RAM |
+| Does not simplify deployment | Still requires CNPG CRDs, operator deployment, and cluster resource creation |
+| Limited portability | CNPG is Kubernetes-specific; no path to running Kubarr outside K8s |
+
+### Migration Effort
+
+**Effort: Minimal (1-2 days of development)**
+
+| Change | Effort | Risk |
+|--------|--------|------|
+| Configurable connection pool | ~1 hour | Very low - additive change, defaults preserved |
+| Audit stats GROUP BY | ~2 hours | Low - query change with same output format |
+| Background cache cleanup | ~2 hours | Low - additive background task |
+| Scheduled audit retention | ~1 hour | Low - wraps existing `clear_old_logs()` |
+| CNPG tuning (values.yaml) | ~2 hours | Low - configuration changes, rollback via Helm |
+| HA setup (if desired) | ~4 hours | Medium - requires testing failover scenarios |
+
+No data migration is required. No schema changes are needed. All changes are backward-compatible.
+
+### Resource Impact
+
+| Resource | Current | After Quick Wins | After CNPG Tuning |
+|----------|---------|------------------|-------------------|
+| PostgreSQL memory | ~256MB (default) | ~256MB (unchanged) | ~512MB (tuned buffers) |
+| CNPG operator | ~128MB | ~128MB (unchanged) | ~128MB (unchanged) |
+| DB connections | 10 max (hardcoded) | 5 max (configurable) | 5 max (configurable) |
+| Connection memory | ~100MB (10 × 10MB) | ~50MB (5 × 10MB) | ~50MB (5 × 10MB) |
+| Audit log table | Unbounded growth | Bounded by retention policy | Bounded by retention policy |
+| Cache memory | Unbounded (lazy eviction) | Bounded (active eviction) | Bounded (active eviction) |
+| **Total DB footprint** | **~484MB** | **~434MB** | **~690MB (with tuning)** |
+
+Note: CNPG tuning increases PostgreSQL memory allocation intentionally to improve cache hit rates, which reduces disk I/O and improves query latency. The trade-off is worthwhile if the host has sufficient RAM (4GB+).
+
+### Risk Assessment
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| GROUP BY query returns different format | Low | Low | Unit test comparing old vs new output |
+| Background task panics | Very low | Low | `tokio::spawn` isolates panics; add error logging |
+| CNPG tuning causes instability | Low | Medium | Test in dev cluster first; Helm rollback available |
+| Connection pool too small | Low | Low | Configurable via env var; adjust without rebuild |
+| Audit retention deletes needed logs | Low | Medium | Default 90 days is conservative; env-configurable |
+
+**Overall risk: Low.** All changes are incremental, independently deployable, and reversible. The quick wins address real issues with proven patterns. CNPG tuning follows well-documented PostgreSQL best practices.
