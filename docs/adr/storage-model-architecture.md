@@ -1569,3 +1569,249 @@ impl EndpointCache {
 6. **The cold-start penalty is acceptable.** After a pod restart, `EndpointCache` repopulates on the first request to each app (~1 K8s API call, <100ms). `NetworkMetricsCache` needs 2-3 polling intervals (~20-30 seconds) to produce accurate rate averages. For a homelab dashboard, this brief warm-up period is entirely acceptable.
 
 **Implementation priority:** The improved in-memory caching changes (background eviction + max-size bounds) should be implemented as part of the "Quick Wins" regardless of which primary database option (A, B, or C) is chosen. They are orthogonal to the database decision and address real (if minor) issues in the current architecture.
+
+---
+
+## Recommendation
+
+### Decision: Option B — SQLite + Litestream
+
+**Kubarr should migrate from PostgreSQL/CloudNativePG to embedded SQLite with Litestream continuous replication.** This is the recommended storage architecture for the following reasons:
+
+#### Rationale
+
+1. **Operational simplicity is the primary driver.** Kubarr targets homelab operators who manage their own infrastructure. The current architecture requires installing the CloudNativePG operator, creating a CNPG Cluster custom resource, understanding CNPG backup configuration, and managing PostgreSQL pod lifecycle — all for a single-user application with <100MB of relational data. SQLite eliminates this entire layer. The database becomes a file inside the backend pod, managed by SeaORM the same way it manages PostgreSQL today.
+
+2. **Resource savings are significant for constrained hardware.** Eliminating the CNPG operator pod (~128MB RAM) and PostgreSQL pod (~256MB RAM) saves ~325MB of RAM after accounting for the Litestream sidecar (~64MB). On a Raspberry Pi 4 (4GB RAM) or mini PC (8GB RAM), this is a meaningful reduction — roughly 8-10% of total system memory returned to other workloads.
+
+3. **Fewer failure modes improve reliability.** The current architecture has three distinct failure points for database operations: the backend pod, the PostgreSQL pod, and the network path between them (including connection pool management, TCP timeouts, and CNPG failover logic). SQLite reduces this to one: the backend pod and its local file. There are no network partitions, no connection pool exhaustion, no CNPG operator bugs, and no PostgreSQL process crashes to handle.
+
+4. **The migration is feasible and low-risk.** All 22 entity models use SeaORM-portable types (`i64` primary keys, `String`, `DateTimeUtc`, `bool`, `Option<T>`). No PostgreSQL-specific column types (arrays, enums, JSONB operators) are used in queries. Both `sqlx-postgres` and `sqlx-sqlite` feature flags are already compiled in `Cargo.toml`. SeaORM's `Database::connect()` selects the correct driver based on the URL scheme, meaning the same binary can run against either backend.
+
+5. **Backup is simpler and more reliable.** CNPG backups require configuring Barman, S3 credentials, retention policies, and scheduled backups — all of which most homelab users never set up, leaving them with no backup at all. Litestream replicates every WAL frame to S3 within seconds, automatically, with a single ConfigMap and Secret. The free tier of Backblaze B2 (10GB) is more than sufficient for Kubarr's database size (<50MB).
+
+6. **Single-pod constraint is a non-issue.** Kubarr is already designed for `replicas: 1`. The single-writer limitation of SQLite perfectly matches the single-pod deployment model. There is no current or planned need for horizontal scaling. If that requirement ever emerges, the dual feature flags allow switching back to PostgreSQL by changing `DATABASE_URL`.
+
+### Comparison Matrix
+
+| Criterion | Option A: Optimized PostgreSQL | Option B: SQLite + Litestream | Option C: Hybrid (SQLite + Cache) |
+|-----------|-------------------------------|-------------------------------|-----------------------------------|
+| **Operational complexity** | ⚠️ High — CNPG operator, CRDs, PG pod, backup config | ✅ Low — embedded DB, Litestream sidecar | ❌ Medium-High — SQLite + Valkey/redb |
+| **Resource footprint** | ❌ ~484-690MB RAM (PG + operator + tuning) | ✅ ~82-114MB RAM (backend + Litestream) | ⚠️ ~114-210MB RAM (+ cache layer) |
+| **Migration effort** | ✅ Minimal (1-2 days, no schema changes) | ⚠️ Moderate (3-4 days, deployment model change) | ❌ Significant (5-6 days, deployment + cache) |
+| **Data durability** | ✅ CNPG WAL archiving, PITR, optional HA | ✅ Litestream S3 replication, <1s RPO | ✅ Same as Option B |
+| **Resilience (pod restart)** | ⚠️ Depends on PG pod + CNPG failover | ✅ PVC data intact; Litestream restore if needed | ✅ Same as Option B + warm cache |
+| **Scalability** | ✅ Can add read replicas via CNPG | ⚠️ Single-pod only (sufficient for homelab) | ⚠️ Single-pod + shared cache possible |
+| **Query performance** | ✅ Full PostgreSQL optimizer | ✅ In-process, no network latency (~10x faster for simple queries) | ✅ In-process + cached hot paths |
+| **Advanced SQL features** | ✅ Full PostgreSQL (LISTEN/NOTIFY, GIN, JSONB) | ⚠️ Standard SQL only (sufficient — no PG features used) | ⚠️ Same as Option B |
+| **Backup simplicity** | ⚠️ Requires Barman/S3 config (often skipped) | ✅ Automatic via Litestream sidecar | ✅ Same as Option B |
+| **Development complexity** | ✅ No changes to existing code patterns | ⚠️ SQLite PRAGMAs, StatefulSet, migration tooling | ❌ All Option B + cache invalidation logic |
+| **Pod count** | ❌ 3 pods (backend + PG + operator) | ✅ 1 pod (backend + sidecar) | ⚠️ 1-2 pods (+ Valkey if external) |
+| **SeaORM 2.0 compatibility** | ✅ Full | ✅ Full (Entity First Workflow supports SQLite) | ✅ Full |
+| **Rollback path** | ✅ Already running | ✅ Change `DATABASE_URL` back to postgres:// | ✅ Same as Option B |
+
+### Quick Wins — Implement Regardless of Chosen Option
+
+These improvements address real issues in the current codebase and should be implemented immediately, independent of the database architecture decision. They are low-risk, independently deployable, and provide value whether Kubarr stays on PostgreSQL or migrates to SQLite.
+
+#### Quick Win 1: Environment-Configurable Connection Pool
+
+**Issue:** Connection pool size is hardcoded at 10 max / 1 min in `database.rs`, wasting ~50MB of PostgreSQL memory and requiring a code change to tune.
+
+**Fix:** Read pool configuration from environment variables with sensible defaults.
+
+```rust
+let max_conns = std::env::var("KUBARR_DB_MAX_CONNECTIONS")
+    .ok().and_then(|v| v.parse().ok()).unwrap_or(5);
+let min_conns = std::env::var("KUBARR_DB_MIN_CONNECTIONS")
+    .ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+```
+
+**Effort:** ~1 hour | **Risk:** Very low | **Impact:** Configurable without rebuild; reduced default memory usage
+
+#### Quick Win 2: Audit Stats GROUP BY Query
+
+**Issue:** `get_audit_stats()` loads every audit log row into memory to count actions. This is an unbounded memory allocation that will eventually cause OOM as the audit log grows.
+
+**Fix:** Replace with a SQL `GROUP BY` aggregation that returns only the counted results.
+
+```rust
+let action_counts = audit_log::Entity::find()
+    .select_only()
+    .column(audit_log::Column::Action)
+    .column_as(audit_log::Column::Id.count(), "count")
+    .group_by(audit_log::Column::Action)
+    .into_model::<ActionCount>()
+    .all(db).await?;
+```
+
+**Effort:** ~2 hours | **Risk:** Low | **Impact:** Eliminates critical OOM risk; constant memory regardless of log size
+
+#### Quick Win 3: Background Cache Eviction
+
+**Issue:** Both `EndpointCache` and `NetworkMetricsCache` use lazy expiration only. Expired entries are never removed from the HashMap, causing unbounded memory growth from dead entries.
+
+**Fix:** Add a `tokio::spawn` interval task that periodically iterates both caches and removes expired/stale entries.
+
+```rust
+tokio::spawn(async move {
+    let mut interval = tokio::time::interval(Duration::from_secs(300));
+    loop {
+        interval.tick().await;
+        endpoint_cache.evict_expired().await;
+        metrics_cache.evict_stale().await;
+    }
+});
+```
+
+**Effort:** ~2 hours | **Risk:** Low | **Impact:** Prevents unbounded cache memory growth
+
+#### Quick Win 4: Cache Size Limits
+
+**Issue:** Neither cache has a maximum size limit. `EndpointCache` has no natural bound on entry count.
+
+**Fix:** Add a `MAX_ENTRIES` constant and enforce it in `set()` by evicting expired entries first, then the oldest entry if still over the limit.
+
+**Effort:** ~1 hour | **Risk:** Very low | **Impact:** Hard upper bound on cache memory consumption
+
+#### Quick Win 5: Scheduled Audit Log Retention
+
+**Issue:** No automatic retention policy. The `clear_old_logs()` function exists but requires manual admin API calls. Without scheduled cleanup, the audit_log table grows indefinitely.
+
+**Fix:** Wrap `clear_old_logs()` in a `tokio::spawn` daily task with a configurable retention period (default: 90 days via `KUBARR_AUDIT_RETENTION_DAYS`).
+
+**Effort:** ~1 hour | **Risk:** Low | **Impact:** Bounded audit log table size (~50K rows with 90-day retention)
+
+#### Quick Wins Summary
+
+| Quick Win | Effort | Risk | Blocks on DB Decision? |
+|-----------|--------|------|----------------------|
+| Configurable connection pool | ~1 hour | Very low | No |
+| Audit stats GROUP BY | ~2 hours | Low | No |
+| Background cache eviction | ~2 hours | Low | No |
+| Cache size limits | ~1 hour | Very low | No |
+| Scheduled audit log retention | ~1 hour | Low | No |
+| **Total** | **~7 hours** | **Low** | **No — implement now** |
+
+### Migration Roadmap
+
+The migration from PostgreSQL to SQLite is organized into four phases. Each phase is independently deployable and includes a rollback path.
+
+#### Phase 0: Quick Wins (Week 1)
+
+Implement all five quick wins listed above. These improvements benefit the current PostgreSQL setup and are prerequisites for a healthy migration baseline.
+
+**Deliverables:**
+- Environment-configurable connection pool in `database.rs`
+- SQL GROUP BY for audit stats in `audit.rs`
+- Background eviction task for both caches in application startup
+- Max-entries bounds on `EndpointCache`
+- Scheduled audit log retention task
+
+**Rollback:** Each change is independently revertible. No schema changes.
+
+#### Phase 1: SQLite Compatibility (Week 2)
+
+Verify and fix all 23 SeaORM migrations for SQLite compatibility. Add SQLite PRAGMA configuration to `database.rs`. Run integration tests against SQLite.
+
+**Deliverables:**
+- SQLite PRAGMA configuration (`journal_mode=WAL`, `busy_timeout=5000`, `synchronous=NORMAL`, `foreign_keys=ON`)
+- All 23 migrations verified on SQLite (fix any PostgreSQL-specific DDL)
+- Integration test suite passing against both PostgreSQL and SQLite
+- `DATABASE_URL` scheme detection for automatic backend selection
+
+**Rollback:** No production changes yet. All work is in CI/development.
+
+#### Phase 2: Kubernetes Deployment Change (Week 3)
+
+Convert the backend Deployment to a StatefulSet with Litestream sidecar. Create ConfigMap for Litestream configuration and Secret for S3 credentials.
+
+**Deliverables:**
+- StatefulSet Helm template (replaces Deployment) with `replicas: 1` and `updateStrategy: Recreate`
+- Litestream init container (restore) and sidecar container (replicate)
+- Litestream ConfigMap and Secret for Backblaze B2
+- VolumeClaimTemplate for SQLite data PVC
+- Updated `values.yaml` with SQLite-specific configuration
+- Health check endpoints verified with SQLite backend
+
+**Rollback:** Keep the old Deployment template. Switch back by changing `DATABASE_URL` to postgres:// and deploying the Deployment instead of StatefulSet.
+
+#### Phase 3: Data Migration and Cutover (Week 4)
+
+Export data from PostgreSQL, import into SQLite, verify row counts, and cut over to the SQLite deployment.
+
+**Deliverables:**
+- Data export script (`pg_dump --data-only --inserts`)
+- Data import script with PostgreSQL→SQLite type conversions
+- Row count verification across all 22 tables
+- Litestream initial backup to S3 confirmed
+- CNPG operator and PostgreSQL resources removed from cluster
+- CNPG RBAC rules removed from `values.yaml`
+
+**Rollback:** PostgreSQL data remains intact during migration. If issues are found, switch `DATABASE_URL` back and redeploy with the Deployment template. CNPG resources can be recreated from Helm.
+
+#### Migration Timeline Summary
+
+```
+Week 1: Quick Wins (no deployment model change)
+  ├── Configurable pool, GROUP BY, cache eviction, size limits, audit retention
+  └── All changes benefit current PostgreSQL setup
+
+Week 2: SQLite Compatibility (development/CI only)
+  ├── Migration compatibility testing
+  ├── PRAGMA configuration
+  └── Dual-backend integration tests
+
+Week 3: Kubernetes Deployment (staging/dev cluster)
+  ├── StatefulSet + Litestream sidecar
+  ├── S3 backup configuration
+  └── Health check verification
+
+Week 4: Data Migration and Cutover (production)
+  ├── Export PostgreSQL → Import SQLite
+  ├── Verify data integrity
+  ├── Cut over to SQLite deployment
+  └── Remove CNPG resources
+```
+
+**Total estimated effort:** ~35 hours (Quick Wins: ~7h + SQLite migration: ~28h)
+
+### SeaORM 2.0 Compatibility Note
+
+SeaORM 2.0 (currently in release candidate) introduces the **Entity First Workflow**, which allows defining entities in Rust and automatically generating or synchronizing the database schema — reversing the traditional migration-first approach.
+
+**Impact on this recommendation:**
+
+- **Option B (SQLite) is fully compatible with SeaORM 2.0.** The Entity First Workflow supports SQLite as a backend. Entity definitions using `DeriveEntityModel` will work identically on both PostgreSQL and SQLite.
+- **Existing migrations continue to work.** SeaORM 2.0 does not deprecate the migration-first workflow. The 23 existing migrations will continue to function. The Entity First Workflow is an *additional* option, not a replacement.
+- **Dual feature flags remain valid.** Keeping both `sqlx-postgres` and `sqlx-sqlite` compiled ensures compatibility with SeaORM 2.0's auto-schema-sync feature, which can target either backend.
+- **No blocking conflicts.** The SQLite migration recommended here does not introduce any patterns or dependencies that conflict with a future SeaORM 2.0 upgrade. If anything, the simplified deployment (no external database to coordinate schema changes with) makes schema sync easier.
+
+**Recommendation:** Proceed with the SQLite migration on SeaORM 1.1. Upgrade to SeaORM 2.0 as a separate effort after the storage model migration is complete and stable. Do not combine both changes — they are independent and combining them doubles the risk surface.
+
+### Decision Timeline and Next Steps
+
+| Step | Action | Owner | Timeline |
+|------|--------|-------|----------|
+| 1 | **Accept or reject this ADR** | Kubarr maintainers | Within 1 week |
+| 2 | **Implement Quick Wins (Phase 0)** | Backend developer | Week 1 (regardless of ADR decision) |
+| 3 | **If accepted:** Begin SQLite compatibility work (Phase 1) | Backend developer | Week 2 |
+| 4 | **If accepted:** Kubernetes deployment changes (Phase 2) | Backend + infra developer | Week 3 |
+| 5 | **If accepted:** Data migration and cutover (Phase 3) | Backend developer | Week 4 |
+| 6 | **If rejected:** Continue with Option A (Optimized PostgreSQL) | Backend developer | Ongoing |
+| 7 | **Post-migration:** Monitor for 2 weeks, then remove PostgreSQL/CNPG | Backend developer | Week 6 |
+| 8 | **Future:** Evaluate SeaORM 2.0 upgrade | Backend developer | After migration stabilizes |
+
+**Key decision point:** If the maintainers prefer to avoid the migration effort (~28 hours) and accept the CNPG operational overhead, Option A (Optimized PostgreSQL) is a valid alternative. The Quick Wins from Phase 0 deliver the most impactful improvements with the least effort and should be implemented regardless.
+
+**This ADR recommends Option B (SQLite + Litestream) as the best fit for Kubarr's homelab context**, balancing operational simplicity, resource efficiency, and data durability against a manageable one-time migration effort.
+
+---
+
+## Decision
+
+**Status:** Proposed — awaiting maintainer review.
+
+**Proposed:** Option B — SQLite + Litestream, with all Quick Wins implemented in Phase 0.
+
+**Alternatives considered:** Option A (Optimized PostgreSQL), Option C (Hybrid SQLite + Cache). See sections above for full analysis.
