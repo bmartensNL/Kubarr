@@ -69,32 +69,63 @@ jobs:
             --set podSecurityContext.runAsNonRoot=false \
             --set podSecurityContext.runAsUser=0 \
             --set podSecurityContext.fsGroup=0 \
-            --wait --timeout=5m
+            --set securityContext.runAsNonRoot=false \
+            --set securityContext.runAsUser=0 \
+            --set backend.livenessProbe.initialDelaySeconds=30 \
+            --set backend.readinessProbe.initialDelaySeconds=5 \
+            --set backend.readinessProbe.periodSeconds=5 \
+            --set backend.readinessProbe.failureThreshold=30 \
+            --timeout=5m
 
       - name: Wait for pods
         run: |
-          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kubarr-backend -n kubarr --timeout=180s
+          echo "Waiting for backend pod..."
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kubarr-backend -n kubarr --timeout=300s
+          echo "Waiting for frontend pod..."
           kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kubarr-frontend -n kubarr --timeout=120s
+          echo "All pods ready"
+          kubectl get pods -n kubarr
 
-      - name: Port-forward and seed
+      - name: Port-forward
         run: |
           kubectl port-forward svc/kubarr-backend 8000:8000 -n kubarr &
           echo $! > "/tmp/pf-${KIND_CLUSTER}.pid"
 
-          for i in $(seq 1 30); do
-            curl -s http://localhost:8000/api/system/health 2>/dev/null | grep -q "ok" && break
+          echo "Waiting for backend to respond..."
+          for i in $(seq 1 60); do
+            if curl -s http://localhost:8000/api/system/health 2>/dev/null | grep -q "ok"; then
+              echo "Backend is healthy"
+              exit 0
+            fi
             sleep 2
           done
+          echo "ERROR: Backend did not become healthy after 120s"
+          curl -sv http://localhost:8000/api/system/health 2>&1 || true
+          kubectl logs -l app.kubernetes.io/name=kubarr-backend -n kubarr --tail=30 2>/dev/null || true
+          exit 1
 
-          curl -sf -X POST http://localhost:8000/api/setup/initialize \
-            -H "Content-Type: application/json" \
-            -d '{
-              "admin_username": "admin",
-              "admin_email": "admin@test.local",
-              "admin_password": "admin",
-              "storage_path": "/data",
-              "base_url": "http://localhost:8000"
-            }'
+      - name: Seed
+        run: |
+          for i in $(seq 1 5); do
+            response=$(curl -s -w "\n%{http_code}" -X POST http://localhost:8000/api/setup/initialize \
+              -H "Content-Type: application/json" \
+              -d '{
+                "admin_username": "admin",
+                "admin_email": "admin@test.local",
+                "admin_password": "admin",
+                "storage_path": "/data",
+                "base_url": "http://localhost:8000"
+              }')
+            http_code=$(echo "$response" | tail -1)
+            body=$(echo "$response" | head -n -1)
+            echo "Attempt $i: HTTP $http_code - $body"
+            if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "ERROR: Failed to seed after 5 attempts"
+          exit 1
 
       - name: Playwright
         working-directory: code/frontend
@@ -114,9 +145,16 @@ jobs:
       - name: Debug logs
         if: failure()
         run: |
-          kubectl logs -l app.kubernetes.io/name=kubarr-backend -n kubarr --tail=50 2>/dev/null || true
+          echo "=== Pod status ==="
+          kubectl get pods -n kubarr -o wide 2>/dev/null || true
+          echo "=== Backend logs ==="
+          kubectl logs -l app.kubernetes.io/name=kubarr-backend -n kubarr --tail=100 2>/dev/null || true
+          echo "=== Frontend logs ==="
           kubectl logs -l app.kubernetes.io/name=kubarr-frontend -n kubarr --tail=50 2>/dev/null || true
-          kubectl describe pods -n kubarr 2>/dev/null | tail -100 || true
+          echo "=== Pod events ==="
+          kubectl get events -n kubarr --sort-by='.lastTimestamp' 2>/dev/null | tail -30 || true
+          echo "=== Pod describe ==="
+          kubectl describe pods -n kubarr 2>/dev/null || true
 
       - name: Cleanup
         if: always()
