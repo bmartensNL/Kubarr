@@ -60,7 +60,12 @@ pub async fn seed_test_data(db: &DatabaseConnection) {
 
     for (key, value, description) in default_settings {
         // Check if setting already exists
-        if SystemSetting::find_by_id(key).one(db).await.unwrap().is_none() {
+        if SystemSetting::find_by_id(key)
+            .one(db)
+            .await
+            .unwrap()
+            .is_none()
+        {
             let setting = system_setting::ActiveModel {
                 key: Set(key.to_string()),
                 value: Set(value.to_string()),
