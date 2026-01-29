@@ -18,7 +18,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use http_body_util::BodyExt;
-use tower::ServiceExt; // for `call`, `oneshot`, and `ready`
+use tower::util::ServiceExt; // for `oneshot`
 
 mod common;
 use common::{create_test_db_with_seed, create_test_user_with_role};
@@ -47,9 +47,9 @@ async fn create_test_state_with_admin() -> (AppState, String) {
     let state = create_test_state().await;
 
     // Create an admin user to simulate completed setup
-    let db = state.db_conn.as_ref().unwrap();
+    let db = state.get_db().await.unwrap();
     let admin_user = create_test_user_with_role(
-        db,
+        &db,
         "admin",
         "admin@example.com",
         "admin_password",
@@ -117,7 +117,7 @@ async fn test_protected_endpoints_require_auth() {
     // Test a representative sample of protected endpoints from each module
     // These should all return 401 Unauthorized when accessed without authentication
 
-    let protected_endpoints = vec[
+    let protected_endpoints = vec![
         // Apps
         "/api/apps",
         "/api/apps/jellyfin",
