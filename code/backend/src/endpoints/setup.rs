@@ -89,6 +89,21 @@ async fn admin_user_exists(state: &AppState) -> Result<bool> {
     Ok(admin_exists.is_some())
 }
 
+/// Require setup to be incomplete (no admin user exists)
+///
+/// Returns 403 Forbidden if setup is already complete (admin user exists).
+/// This is the self-disabling mechanism for setup endpoints - they should only
+/// be accessible during initial setup before the first admin user is created.
+async fn require_setup(state: &AppState) -> Result<()> {
+    let admin_exists = admin_user_exists(state).await?;
+    if admin_exists {
+        return Err(AppError::Forbidden(
+            "Setup already complete".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Check if setup is required (no admin user exists)
 async fn check_setup_required(
     State(state): State<AppState>,
@@ -355,9 +370,16 @@ struct BootstrapStatusResponse {
 }
 
 /// Get bootstrap status
+///
+/// Returns the current status of bootstrap components during initial setup.
+/// Protected by require_setup() to prevent information disclosure after
+/// admin user creation.
 async fn get_bootstrap_status(
     State(state): State<AppState>,
 ) -> Result<Json<BootstrapStatusResponse>> {
+    // Return 403 if setup is already complete
+    require_setup(&state).await?;
+
     let bootstrap_service = BootstrapService::new(
         state.db.clone(),
         state.k8s_client.clone(),
@@ -418,10 +440,17 @@ async fn start_bootstrap(State(state): State<AppState>) -> Result<Json<Bootstrap
 }
 
 /// Retry a failed bootstrap component
+///
+/// This endpoint allows retrying individual bootstrap steps if they fail during
+/// the initial setup process. Protected by require_setup() to ensure it's only
+/// accessible before admin user creation.
 async fn retry_bootstrap_component(
     State(state): State<AppState>,
     axum::extract::Path(component): axum::extract::Path<String>,
 ) -> Result<Json<BootstrapStartResponse>> {
+    // Return 403 if setup is already complete
+    require_setup(&state).await?;
+
     let bootstrap_service = Arc::new(RwLock::new(BootstrapService::new(
         state.db.clone(),
         state.k8s_client.clone(),
