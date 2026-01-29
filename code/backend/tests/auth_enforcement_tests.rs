@@ -426,7 +426,7 @@ async fn test_auth_endpoints_accessible_without_auth() {
     let state = create_test_state().await;
 
     // Login endpoint should be accessible (POST would require valid credentials)
-    let (status, _) = make_unauthenticated_request(state.clone(), "/auth/login").await;
+    let (_status, _) = make_unauthenticated_request(state.clone(), "/auth/login").await;
     // GET /auth/login is not implemented, so we test POST
     let app = create_router(state.clone());
     let request = Request::builder()
