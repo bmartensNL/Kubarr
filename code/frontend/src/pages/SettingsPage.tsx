@@ -28,14 +28,15 @@ import {
 } from '../api/roles';
 import { getCatalog, App } from '../api/apps';
 import { getSettings, updateSetting, Setting } from '../api/settings';
-import { Users, Link, UserPlus, Settings, Sliders, Lock, Menu, X, FileText, CheckCircle, XCircle, AlertTriangle, Trash2, LayoutDashboard, Activity, Shield, Clock, TrendingUp, Bell, Mail, Send, MessageSquare } from 'lucide-react';
+import { Users, Link, UserPlus, Settings, Sliders, Lock, Menu, X, FileText, CheckCircle, XCircle, AlertTriangle, Trash2, LayoutDashboard, Activity, Shield, Clock, TrendingUp, Bell, Mail, Send, MessageSquare, Network } from 'lucide-react';
 import PermissionMatrix from '../components/permissions/PermissionMatrix';
 import { auditApi, AuditLog, AuditStats, AuditLogQuery } from '../api/audit';
 import { notificationsApi, NotificationChannel, NotificationEvent, NotificationLog } from '../api/notifications';
 import { oauthApi, OAuthProvider } from '../api/oauth';
+import { VpnTab } from '../components/vpn';
 
 type ViewMode = 'list' | 'create' | 'edit';
-type SettingsSection = 'dashboard' | 'general' | 'users' | 'pending' | 'invites' | 'permissions' | 'audit' | 'notifications';
+type SettingsSection = 'dashboard' | 'general' | 'users' | 'pending' | 'invites' | 'permissions' | 'audit' | 'notifications' | 'vpn' | 'ddns' | 'letsencrypt';
 
 const SettingsPage: React.FC = () => {
   const { isAdmin, hasPermission } = useAuth();
@@ -638,6 +639,12 @@ const SettingsPage: React.FC = () => {
     { id: 'audit' as SettingsSection, label: 'Audit Logs', icon: FileText },
   ];
 
+  const networkingItems = [
+    { id: 'vpn' as SettingsSection, label: 'VPN', icon: Shield },
+    { id: 'ddns' as SettingsSection, label: 'Dynamic DNS', icon: Network },
+    { id: 'letsencrypt' as SettingsSection, label: "Let's Encrypt", icon: Lock },
+  ];
+
   const accessManagementItems = [
     { id: 'general' as SettingsSection, label: 'General', icon: Sliders },
     { id: 'users' as SettingsSection, label: 'All Users', icon: Users, count: users.length },
@@ -696,6 +703,32 @@ const SettingsPage: React.FC = () => {
               System
             </div>
             {systemItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveSection(item.id)}
+                  className={`w-full flex items-center justify-between px-3 py-3 md:py-2 rounded-md mb-1 transition-colors ${
+                    activeSection === item.id
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
+                  }`}
+                >
+                  <div className="flex items-center space-x-3">
+                    <Icon size={18} />
+                    <span>{item.label}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Networking Section */}
+          <div className="mb-4">
+            <div className="px-3 py-2 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+              Networking
+            </div>
+            {networkingItems.map((item) => {
               const Icon = item.icon;
               return (
                 <button
@@ -1795,6 +1828,45 @@ const SettingsPage: React.FC = () => {
                     </div>
                   </>
                 )}
+              </div>
+            )}
+
+            {/* VPN Section */}
+            {activeSection === 'vpn' && <VpnTab />}
+
+            {/* Dynamic DNS Section */}
+            {activeSection === 'ddns' && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Dynamic DNS</h3>
+                  <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
+                    Keep your domain pointed to your dynamic IP address.
+                  </p>
+                </div>
+
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                  <div className="text-gray-500 dark:text-gray-400 text-sm py-8 text-center">
+                    DDNS configuration coming soon.
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Let's Encrypt Section */}
+            {activeSection === 'letsencrypt' && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Let's Encrypt</h3>
+                  <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
+                    Automatically provision and renew SSL certificates for your domains.
+                  </p>
+                </div>
+
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                  <div className="text-gray-500 dark:text-gray-400 text-sm py-8 text-center">
+                    Let's Encrypt configuration coming soon.
+                  </div>
+                </div>
               </div>
             )}
 

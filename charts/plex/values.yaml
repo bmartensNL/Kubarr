@@ -41,8 +41,9 @@ plex:
   # Get from https://plex.tv/claim
   claimToken: ""
 
-  # Base path for reverse proxy (e.g., /plex)
-  basePath: "/plex"
+  # Base path for reverse proxy (leave empty for root)
+  # Plex serves its web UI at /web/ from root, not from a subpath
+  basePath: ""
 
   # Probes configuration
   livenessProbe:
@@ -118,6 +119,25 @@ storage:
     rootPath: ""  # e.g., /mnt/data/kubarr - set by Kubarr
   mountPath: /data
   readOnly: true  # Plex only reads media
+
+# VPN Configuration
+# When enabled, a Gluetun sidecar container is added to route all traffic through VPN
+vpn:
+  enabled: false
+  secretName: ""
+  image:
+    repository: qmcgaw/gluetun
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  killSwitch: true
+  firewallOutboundSubnets: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 
 # Network policy configuration
 networkPolicy:

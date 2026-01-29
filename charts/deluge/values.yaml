@@ -16,7 +16,8 @@ deluge:
     tag: "latest"
 
   # Base path for URL routing (leave empty for root)
-  basePath: "/deluge"
+  # Deluge does not support serving from a subpath
+  basePath: ""
 
   # Service configuration
   service:
@@ -117,6 +118,25 @@ storage:
     enabled: false
     rootPath: ""  # e.g., /mnt/data/kubarr - set by Kubarr
   mountPath: /data
+
+# VPN Configuration
+# When enabled, a Gluetun sidecar container is added to route all traffic through VPN
+vpn:
+  enabled: false
+  secretName: ""
+  image:
+    repository: qmcgaw/gluetun
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  killSwitch: true
+  firewallOutboundSubnets: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 
 # Network policy configuration
 networkPolicy:

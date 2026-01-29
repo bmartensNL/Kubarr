@@ -113,6 +113,9 @@ rbac:
     - apiGroups: ["rbac.authorization.k8s.io"]
       resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
       verbs: ["get", "list", "watch", "create", "update", "delete", "patch", "bind", "escalate"]
+    - apiGroups: ["postgresql.cnpg.io"]
+      resources: ["clusters", "backups", "scheduledbackups", "poolers"]
+      verbs: ["get", "list", "watch", "create", "update", "delete", "patch"]
     - nonResourceURLs: ["/metrics", "/metrics/cadvisor"]
       verbs: ["get"]
 
@@ -176,11 +179,6 @@ oauth2:
     # Base URL for the OAuth2 provider (this dashboard)
     # Used by the backend to generate correct issuer URLs
     issuerUrl: "http://localhost:8080"
-
-# Database configuration
-database:
-  storage: "1Gi"
-  storageClassName: ""  # Use default storage class
 
 # Authentication settings
 auth:

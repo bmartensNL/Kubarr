@@ -1,40 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Check, X, Loader2, RefreshCw, Play, Server, FileText, Layers } from 'lucide-react';
+import { Check, X, Loader2, RefreshCw, Play } from 'lucide-react';
 import { setupApi } from '../../api/setup';
 import { useBootstrapWs } from '../../hooks/useBootstrapWs';
+import { getBootstrapIcon } from './BootstrapIcons';
 
 interface BootstrapStepProps {
   onComplete: () => void;
   onBack?: () => void;
 }
-
-const getComponentIcon = (component: string) => {
-  switch (component) {
-    case 'victoriametrics':
-      return <Server className="w-5 h-5" />;
-    case 'victorialogs':
-      return <FileText className="w-5 h-5" />;
-    case 'fluent-bit':
-      return <Layers className="w-5 h-5" />;
-    default:
-      return <Server className="w-5 h-5" />;
-  }
-};
-
-const getStatusColor = (status: string) => {
-  switch (status) {
-    case 'pending':
-      return 'text-gray-400 dark:text-gray-500';
-    case 'installing':
-      return 'text-blue-500';
-    case 'healthy':
-      return 'text-green-500';
-    case 'failed':
-      return 'text-red-500';
-    default:
-      return 'text-gray-400';
-  }
-};
 
 const getStatusBgColor = (status: string) => {
   switch (status) {
@@ -136,7 +109,7 @@ const BootstrapStep: React.FC<BootstrapStepProps> = ({ onComplete }) => {
           System Setup
         </h2>
         <p className="text-gray-500 dark:text-gray-400 text-sm">
-          Installing required system components for monitoring and logging.
+          Installing required system components for database, monitoring, and logging.
         </p>
       </div>
 
@@ -173,37 +146,40 @@ const BootstrapStep: React.FC<BootstrapStepProps> = ({ onComplete }) => {
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
-                <ComponentStatusIcon status={component.status} />
-                <div className="flex items-center space-x-3">
-                  <span className={getStatusColor(component.status)}>
-                    {getComponentIcon(component.component)}
-                  </span>
-                  <div>
-                    <h3 className="font-medium text-gray-900 dark:text-white">
-                      {component.display_name}
-                    </h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      {component.message || getComponentDescription(component.component)}
-                    </p>
-                  </div>
+                {/* App Icon */}
+                <div className="flex-shrink-0">
+                  {getBootstrapIcon(component.component, 'w-10 h-10')}
+                </div>
+                {/* Component Info */}
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-medium text-gray-900 dark:text-white">
+                    {component.display_name}
+                  </h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
+                    {component.message || getComponentDescription(component.component)}
+                  </p>
                 </div>
               </div>
 
-              {component.status === 'failed' && (
-                <button
-                  type="button"
-                  onClick={() => handleRetry(component.component)}
-                  disabled={retrying === component.component}
-                  className="flex items-center space-x-2 px-3 py-1.5 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
-                >
-                  {retrying === component.component ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="w-4 h-4" />
-                  )}
-                  <span>Retry</span>
-                </button>
-              )}
+              {/* Right side: Status icon and retry button */}
+              <div className="flex items-center space-x-3 ml-4">
+                {component.status === 'failed' && (
+                  <button
+                    type="button"
+                    onClick={() => handleRetry(component.component)}
+                    disabled={retrying === component.component}
+                    className="flex items-center space-x-2 px-3 py-1.5 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {retrying === component.component ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-4 h-4" />
+                    )}
+                    <span>Retry</span>
+                  </button>
+                )}
+                <ComponentStatusIcon status={component.status} />
+              </div>
             </div>
 
             {component.status === 'failed' && component.error && (
@@ -254,13 +230,30 @@ const BootstrapStep: React.FC<BootstrapStepProps> = ({ onComplete }) => {
             <Check className="w-5 h-5" />
             <span>Continue</span>
           </button>
+        ) : isInstalling ? (
+          <button
+            type="button"
+            disabled
+            className="px-6 py-2 bg-gray-600 text-white font-medium rounded-md opacity-50 cursor-not-allowed"
+          >
+            <span className="flex items-center space-x-2">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              <span>Installing...</span>
+            </span>
+          </button>
         ) : (
           <button
             type="button"
-            disabled={isInstalling}
-            className="px-6 py-2 bg-gray-600 text-white font-medium rounded-md opacity-50 cursor-not-allowed"
+            onClick={handleStartBootstrap}
+            disabled={isStarting}
+            className="flex items-center space-x-2 px-6 py-2 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
           >
-            {isInstalling ? 'Installing...' : 'Waiting...'}
+            {isStarting ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <RefreshCw className="w-5 h-5" />
+            )}
+            <span>{isStarting ? 'Resuming...' : 'Resume Setup'}</span>
           </button>
         )}
       </div>
@@ -270,6 +263,8 @@ const BootstrapStep: React.FC<BootstrapStepProps> = ({ onComplete }) => {
 
 function getComponentDescription(component: string): string {
   switch (component) {
+    case 'postgresql':
+      return 'Database for application data';
     case 'victoriametrics':
       return 'Time-series database for metrics storage';
     case 'victorialogs':

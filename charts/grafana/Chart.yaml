@@ -4,6 +4,11 @@ description: Grafana visualization and dashboards (optional - uses ~512Mi memory
 type: application
 version: 0.1.0
 appVersion: "10.2.3"
+# Kubarr annotations - used by the catalog service (services/catalog.rs) for app discovery.
+# display-name: human-readable name for the dashboard UI
+# icon: emoji or identifier for the app catalog and sidebar
+# category: groups apps in catalog (download-client, media-server, media-manager, etc.)
+# optional: "true" = not auto-installed during setup wizard
 annotations:
   kubarr.io/display-name: "Grafana"
   kubarr.io/icon: "📈"

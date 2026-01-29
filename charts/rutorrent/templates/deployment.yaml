@@ -28,6 +28,56 @@ spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
+        {{- if .Values.vpn.enabled }}
+        # Gluetun VPN sidecar - routes all pod traffic through VPN
+        - name: gluetun
+          image: "{{ .Values.vpn.image.repository }}:{{ .Values.vpn.image.tag }}"
+          imagePullPolicy: {{ .Values.vpn.image.pullPolicy }}
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+          envFrom:
+            - secretRef:
+                name: {{ .Values.vpn.secretName }}
+          env:
+            - name: FIREWALL_OUTBOUND_SUBNETS
+              value: "{{ .Values.vpn.firewallOutboundSubnets }}"
+            {{- if .Values.vpn.killSwitch }}
+            - name: FIREWALL
+              value: "on"
+            {{- else }}
+            - name: FIREWALL
+              value: "off"
+            {{- end }}
+            - name: HEALTH_SERVER_ADDRESS
+              value: ":9999"
+          ports:
+            - name: gluetun-http
+              containerPort: 8888
+              protocol: TCP
+            - name: gluetun-ctrl
+              containerPort: 8000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 9999
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 9999
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.vpn.resources | nindent 12 }}
+        {{- end }}
         - name: rutorrent
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}

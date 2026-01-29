@@ -84,7 +84,6 @@ COPY charts/ /app/charts/
 
 # Set environment variables
 ENV CHARTS_DIR=/app/charts
-ENV DATABASE_URL=sqlite:///app/data/kubarr.db
 ENV COMMIT_HASH=${COMMIT_HASH}
 ENV BUILD_TIME=${BUILD_TIME}
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt

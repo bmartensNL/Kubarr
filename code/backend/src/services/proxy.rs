@@ -55,7 +55,9 @@ impl ProxyService {
         // Forward headers, excluding hop-by-hop headers
         for (name, value) in headers.iter() {
             let name_str = name.as_str().to_lowercase();
-            // Skip hop-by-hop and problematic headers
+            // Skip hop-by-hop, problematic, and encoding negotiation headers.
+            // accept-encoding is stripped so upstream apps don't compress responses,
+            // since the proxy reads the full body into memory and may rewrite HTML content.
             if matches!(
                 name_str.as_str(),
                 "host"
@@ -68,6 +70,7 @@ impl ProxyService {
                     | "transfer-encoding"
                     | "upgrade"
                     | "content-length"
+                    | "accept-encoding"
             ) {
                 continue;
             }
@@ -104,7 +107,8 @@ impl ProxyService {
 
         // Forward response headers
         for (name, value) in resp_headers.iter() {
-            // Skip hop-by-hop headers
+            // Skip hop-by-hop headers and content-encoding (we strip accept-encoding
+            // from requests, but also guard against upstream compressing anyway)
             if matches!(
                 name.as_str(),
                 "connection"
@@ -114,6 +118,7 @@ impl ProxyService {
                     | "te"
                     | "trailers"
                     | "transfer-encoding"
+                    | "content-encoding"
             ) {
                 continue;
             }

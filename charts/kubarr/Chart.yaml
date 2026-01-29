@@ -17,6 +17,15 @@ sources:
 maintainers:
   - name: Kubarr Team
     email: your.email@example.com
+# Kubarr annotations - used by the catalog service to discover and display apps.
+# See services/catalog.rs for how these are parsed.
+#   display-name: Human-readable name shown in the dashboard UI
+#   icon:         Emoji or icon identifier used in the app catalog and sidebar
+#   category:     Groups apps in the catalog (e.g., download-client, media-server, monitoring)
+#   system:       "true" prevents users from uninstalling the app
+#   hidden:       "true" hides the app from the catalog listing entirely
+#   browseable:   "false" disables the web UI proxy (app has no accessible UI)
+#   optional:     "true" marks the app as optional during setup wizard (not auto-installed)
 annotations:
   kubarr.io/display-name: "Kubarr"
   kubarr.io/icon: "🎛️"

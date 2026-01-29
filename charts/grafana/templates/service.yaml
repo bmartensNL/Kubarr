@@ -5,6 +5,13 @@ metadata:
   namespace: {{ .Values.namespace.name }}
   labels:
     {{- include "grafana.labels" . | nindent 4 }}
+  annotations:
+    {{- /* kubarr.io/base-path: Tells the Kubarr proxy that this app serves its UI at a subpath */}}
+    {{- /* (e.g., /sonarr). When set, the proxy keeps the full path instead of stripping the app prefix. */}}
+    {{- /* Only set this if the app is actually configured to serve from this path. */}}
+    {{- if .Values.grafana.basePath }}
+    kubarr.io/base-path: {{ .Values.grafana.basePath | quote }}
+    {{- end }}
 spec:
   type: {{ .Values.grafana.service.type }}
   ports:

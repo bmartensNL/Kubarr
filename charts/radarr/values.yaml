@@ -104,6 +104,31 @@ storage:
     rootPath: ""  # e.g., /mnt/data/kubarr - set by Kubarr
   mountPath: /data
 
+# VPN Configuration
+# When enabled, a Gluetun sidecar container is added to route all traffic through VPN
+vpn:
+  enabled: false
+  # Name of the Kubernetes secret containing VPN credentials
+  # Created by Kubarr when you configure VPN in Settings > Networking
+  secretName: ""
+  # Gluetun container image
+  image:
+    repository: qmcgaw/gluetun
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  # Resource limits for Gluetun container
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  # Kill switch - block all traffic if VPN disconnects
+  killSwitch: true
+  # Subnets to allow even when VPN is active (for cluster internal communication)
+  firewallOutboundSubnets: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+
 # Network policy configuration
 networkPolicy:
   enabled: true

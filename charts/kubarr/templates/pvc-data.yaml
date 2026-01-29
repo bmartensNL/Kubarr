@@ -1,19 +1,4 @@
-{{- if .Values.oauth2.enabled }}
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: {{ include "kubarr.fullname" . }}-data
-  namespace: {{ .Values.namespace.name }}
-  labels:
-    {{- include "kubarr.labels" . | nindent 4 }}
-    component: database
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: {{ .Values.database.storage | default "1Gi" }}
-  {{- if .Values.database.storageClassName }}
-  storageClassName: {{ .Values.database.storageClassName }}
-  {{- end }}
-{{- end }}
+{{/*
+  SQLite PVC is no longer needed - PostgreSQL (CloudNativePG) manages its own storage.
+  This file is kept for reference but produces no resources.
+*/}}

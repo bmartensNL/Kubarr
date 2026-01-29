@@ -71,11 +71,14 @@ fn extract_session_token(headers: &axum::http::HeaderMap) -> Option<String> {
     None
 }
 
-/// Rewrite Location headers in app proxy responses so redirects go through the proxy
+/// Rewrite Location headers in app proxy responses so redirects go through the proxy.
+/// For apps without base_path: rewrite internal URLs and prepend app name to absolute paths.
+/// For apps with base_path: only rewrite internal URLs (absolute paths already have correct prefix).
 fn rewrite_app_response(
     mut response: Response<Body>,
     app_name: &str,
     internal_base_url: &str,
+    has_base_path: bool,
 ) -> Response<Body> {
     if !response.status().is_redirection() {
         return response;
@@ -92,12 +95,19 @@ fn rewrite_app_response(
     let rewritten = if let Some(path) = location.strip_prefix(internal_base_url) {
         // Absolute internal URL: http://app.ns.svc.cluster.local:PORT/path → /app_name/path
         let path = path.trim_start_matches('/');
-        format!("/{}/{}", app_name, path)
-    } else if location.starts_with('/') {
-        // Absolute path: always prepend the app prefix
+        if has_base_path {
+            // For base_path apps, the path already contains the base path prefix
+            // (e.g., /jackett/UI/Login) — don't add app_name again
+            format!("/{}", path)
+        } else {
+            format!("/{}/{}", app_name, path)
+        }
+    } else if !has_base_path && location.starts_with('/') {
+        // Absolute path without base_path: prepend the app prefix
+        // (apps with base_path already have the correct prefix in their redirects)
         format!("/{}{}", app_name, location)
     } else {
-        // Relative or full external URL, leave as-is
+        // Relative or full external URL, or base_path app with correct absolute path
         location
     };
 
@@ -107,6 +117,131 @@ fn rewrite_app_response(
 
     response
 }
+
+/// Rewrite text response bodies for apps without base_path.
+/// Handles HTML, JavaScript, and CSS responses to prefix absolute paths with /{app_name}
+/// so the browser fetches resources through the proxy instead of hitting the SPA fallback.
+async fn rewrite_response_body(response: Response<Body>, app_name: &str) -> Response<Body> {
+    let content_type = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+
+    let is_html = content_type.contains("text/html");
+    let is_js = content_type.contains("javascript");
+    let is_css = content_type.contains("text/css");
+
+    if !is_html && !is_js && !is_css {
+        return response;
+    }
+
+    let (parts, body) = response.into_parts();
+    let bytes = match axum::body::to_bytes(body, 10 * 1024 * 1024).await {
+        Ok(b) => b,
+        Err(_) => return Response::from_parts(parts, Body::empty()),
+    };
+
+    let text = String::from_utf8_lossy(&bytes);
+    let prefix = format!("/{}", app_name);
+
+    let rewritten = if is_html {
+        rewrite_html(&text, &prefix)
+    } else if is_js {
+        rewrite_js(&text, &prefix)
+    } else {
+        rewrite_css(&text, &prefix)
+    };
+
+    let body_bytes = rewritten.into_bytes();
+    let mut parts = parts;
+    if parts.headers.contains_key(header::CONTENT_LENGTH) {
+        if let Ok(val) = body_bytes.len().to_string().parse() {
+            parts.headers.insert(header::CONTENT_LENGTH, val);
+        }
+    }
+
+    Response::from_parts(parts, Body::from(body_bytes))
+}
+
+/// Rewrite HTML content: absolute paths in attributes + inline script patterns
+fn rewrite_html(html: &str, prefix: &str) -> String {
+    // Rewrite absolute paths in HTML attributes (double and single quoted)
+    let rewritten = html
+        .replace("src=\"/", &format!("src=\"{}/", prefix))
+        .replace("href=\"/", &format!("href=\"{}/", prefix))
+        .replace("action=\"/", &format!("action=\"{}/", prefix))
+        .replace("src='/", &format!("src='{}/", prefix))
+        .replace("href='/", &format!("href='{}/", prefix))
+        .replace("action='/", &format!("action='{}/", prefix));
+
+    // Fix protocol-relative URLs that got incorrectly rewritten (e.g., //cdn.example.com)
+    let rewritten = rewritten
+        .replace(&format!("src=\"{}//", prefix), "src=\"//")
+        .replace(&format!("href=\"{}//", prefix), "href=\"//")
+        .replace(&format!("action=\"{}//", prefix), "action=\"//")
+        .replace(&format!("src='{}//", prefix), "src='//")
+        .replace(&format!("href='{}//", prefix), "href='//")
+        .replace(&format!("action='{}//", prefix), "action='//");
+
+    // Rewrite inline JS patterns commonly found in <script> blocks:
+    // - JSON config values like "base": "/" or "basePath": "/"
+    //   These are used by apps (e.g., Deluge ExtJS) to construct URLs at runtime
+    rewrite_js_paths(&rewritten, prefix)
+}
+
+/// Rewrite JavaScript content: webpack public paths and other absolute path patterns
+fn rewrite_js(js: &str, prefix: &str) -> String {
+    rewrite_js_paths(js, prefix)
+}
+
+/// Rewrite CSS content: url() references with absolute paths
+fn rewrite_css(css: &str, prefix: &str) -> String {
+    // url("/path/...") → url("/app_name/path/...")
+    let rewritten = css
+        .replace("url(\"/", &format!("url(\"{}/", prefix))
+        .replace("url('/", &format!("url('{}/", prefix))
+        .replace("url(/", &format!("url({}/", prefix));
+
+    // Fix protocol-relative
+    rewritten
+        .replace(&format!("url(\"{}//'", prefix), "url(\"//")
+        .replace(&format!("url('{}//'", prefix), "url('//")
+        .replace(&format!("url({}//'", prefix), "url(//")
+}
+
+/// Rewrite common JS patterns containing absolute paths.
+/// This is generic and handles patterns from various frameworks:
+/// - Webpack minified public path: .p="/..." (e.g., .p="/_next/")
+/// - JSON-style config values: :"/" or : "/" (e.g., "base": "/")
+fn rewrite_js_paths(text: &str, prefix: &str) -> String {
+    let rewritten = text
+        // Webpack public path (minified): .p="/..." or .p='/'
+        .replace(".p=\"/", &format!(".p=\"{}/", prefix))
+        .replace(".p='/", &format!(".p='{}/", prefix))
+        // JSON config values: :"/" and : "/" (with optional space after colon)
+        // Catches patterns like "base":"/" or "base": "/"
+        .replace(":\"/", &format!(":\"{}/", prefix))
+        .replace(":'/", &format!(":\'{}/", prefix))
+        .replace(": \"/", &format!(": \"{}/", prefix))
+        .replace(": '/", &format!(": '{}/", prefix));
+
+    // Fix protocol-relative URLs that got incorrectly rewritten
+    let rewritten = rewritten
+        .replace(&format!(".p=\"{}//", prefix), ".p=\"//")
+        .replace(&format!(".p='{}//", prefix), ".p='//")
+        .replace(&format!(":\"{}//'", prefix), ":\"//")
+        .replace(&format!(":\'{}//'", prefix), ":'//")
+        .replace(&format!(": \"{}//'", prefix), ": \"//")
+        .replace(&format!(": '{}//'", prefix), ": '//");
+
+    // Fix double-prefixing: if a path already had the prefix, undo the extra one
+    let double_prefix = format!("{}{}/", prefix, prefix);
+    let single_prefix = format!("{}/", prefix);
+    rewritten.replace(&double_prefix, &single_prefix)
+}
+
 
 /// Create a redirect response to the app error page
 fn redirect_to_app_error(app_name: &str, reason: &str, details: &str) -> Response<Body> {
@@ -202,14 +337,21 @@ pub async fn proxy_frontend(
                                 let proxy = &state.proxy;
                                 match proxy.proxy_http(&target_url, method, headers, body).await {
                                     Ok(response) => {
-                                        // Apps with base_path already have correct Location headers
-                                        // Apps without base_path need Location rewriting
-                                        if has_base_path {
-                                            return Ok(response);
-                                        }
-                                        return Ok(rewrite_app_response(
-                                            response, app_name, &base_url,
-                                        ));
+                                        // Rewrite Location headers for redirects
+                                        let response = rewrite_app_response(
+                                            response,
+                                            app_name,
+                                            &base_url,
+                                            has_base_path,
+                                        );
+                                        // For apps without base_path, rewrite HTML body
+                                        // to prefix absolute paths with /{app_name}
+                                        let response = if !has_base_path {
+                                            rewrite_response_body(response, app_name).await
+                                        } else {
+                                            response
+                                        };
+                                        return Ok(response);
                                     }
                                     Err(e) => {
                                         tracing::warn!(

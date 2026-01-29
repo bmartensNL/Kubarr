@@ -45,23 +45,15 @@ spec:
             {{- if .Values.oauth2.enabled }}
             - name: KUBARR_OAUTH2_ENABLED
               value: "true"
-            - name: KUBARR_DB_PATH
-              value: "/data/kubarr.db"
             {{- end }}
             {{- if .Values.storage.hostPath.enabled }}
             - name: KUBARR_STORAGE_PATH
               value: "{{ .Values.storage.mountPath }}"
             {{- end }}
-          {{- if or .Values.oauth2.enabled .Values.storage.hostPath.enabled }}
+          {{- if .Values.storage.hostPath.enabled }}
           volumeMounts:
-            {{- if .Values.oauth2.enabled }}
-            - name: data
-              mountPath: /data
-            {{- end }}
-            {{- if .Values.storage.hostPath.enabled }}
             - name: storage
               mountPath: {{ .Values.storage.mountPath }}
-            {{- end }}
           {{- end }}
           livenessProbe:
             {{- toYaml .Values.backend.livenessProbe | nindent 12 }}
@@ -69,19 +61,12 @@ spec:
             {{- toYaml .Values.backend.readinessProbe | nindent 12 }}
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}
-      {{- if or .Values.oauth2.enabled .Values.storage.hostPath.enabled }}
+      {{- if .Values.storage.hostPath.enabled }}
       volumes:
-        {{- if .Values.oauth2.enabled }}
-        - name: data
-          persistentVolumeClaim:
-            claimName: {{ include "kubarr.fullname" . }}-data
-        {{- end }}
-        {{- if .Values.storage.hostPath.enabled }}
         - name: storage
           hostPath:
             path: {{ .Values.storage.hostPath.rootPath }}
             type: Directory
-        {{- end }}
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

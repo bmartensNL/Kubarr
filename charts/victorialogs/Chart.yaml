@@ -4,6 +4,12 @@ description: VictoriaLogs - lightweight, high-performance log storage
 type: application
 version: 0.1.0
 appVersion: "1.3.2"
+# Kubarr annotations - used by the catalog service (services/catalog.rs) for app discovery.
+# display-name: human-readable name for the dashboard UI
+# icon: emoji or identifier for the app catalog and sidebar
+# category: groups apps in catalog (download-client, media-server, media-manager, etc.)
+# system: "true" = cannot be uninstalled by users
+# hidden: "true" = hidden from catalog listing entirely
 annotations:
   kubarr.io/display-name: "VictoriaLogs"
   kubarr.io/icon: "📋"

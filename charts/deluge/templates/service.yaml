@@ -5,10 +5,16 @@ metadata:
   namespace: {{ .Values.namespace.name }}
   labels:
     {{- include "deluge.labels" . | nindent 4 }}
-  {{- with .Values.deluge.service.annotations }}
   annotations:
+    {{- /* kubarr.io/base-path: Tells the Kubarr proxy that this app serves its UI at a subpath */}}
+    {{- /* (e.g., /sonarr). When set, the proxy keeps the full path instead of stripping the app prefix. */}}
+    {{- /* Only set this if the app is actually configured to serve from this path. */}}
+    {{- if .Values.deluge.basePath }}
+    kubarr.io/base-path: {{ .Values.deluge.basePath | quote }}
+    {{- end }}
+    {{- with .Values.deluge.service.annotations }}
     {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- end }}
 spec:
   type: {{ .Values.deluge.service.type }}
   ports:

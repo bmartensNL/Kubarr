@@ -26,11 +26,11 @@ qbittorrent:
   # Resource limits and requests
   resources:
     requests:
-      cpu: 100m
-      memory: 128Mi
+      cpu: 250m
+      memory: 512Mi
     limits:
       # No CPU limit - allow unlimited cores for fast transfers
-      memory: 512Mi
+      memory: 2Gi
 
   # Environment variables
   env:
@@ -54,15 +54,20 @@ qbittorrent:
       # Whitelist all private networks (pod network will be in this range)
       AuthSubnetWhitelist: "10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16"
     BitTorrent:
-      # Limit disk cache to reduce RAM usage (in MiB, -1 = auto which uses lots of RAM)
-      Session\DiskCacheSize: "64"
+      # Disk cache size (in MiB, -1 = auto)
+      Session\DiskCacheSize: "256"
       # Disk cache expiry (seconds)
       Session\DiskCacheTTL: "60"
-      # Limit connections to reduce memory
-      Session\MaxConnections: "200"
-      Session\MaxConnectionsPerTorrent: "50"
-      Session\MaxUploads: "20"
-      Session\MaxUploadsPerTorrent: "4"
+      # Connection limits (high for max performance)
+      Session\MaxConnections: "5000"
+      Session\MaxConnectionsPerTorrent: "500"
+      Session\MaxUploads: "200"
+      Session\MaxUploadsPerTorrent: "20"
+      # Uncapped speeds (0 = unlimited)
+      Session\GlobalDownloadSpeedLimit: "0"
+      Session\GlobalUploadSpeedLimit: "0"
+      Session\AlternativeGlobalDownloadSpeedLimit: "0"
+      Session\AlternativeGlobalUploadSpeedLimit: "0"
 
   # Probes configuration
   livenessProbe:
@@ -196,7 +201,7 @@ exporter:
   resources:
     requests:
       cpu: 10m
-      memory: 32Mi
-    limits:
-      cpu: 100m
       memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi

@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { NetworkTopology, formatBandwidth, formatPackets } from '../api/networking'
+import { AppVpnConfig, appVpnApi } from '../api/vpn'
 import { useNetworkMetricsWs, ConnectionMode } from '../hooks/useNetworkMetricsWs'
 import { AppIcon } from '../components/AppIcon'
 import {
@@ -35,6 +36,7 @@ import {
   Minimize2,
   Radio,
   RotateCw,
+  Shield,
 } from 'lucide-react'
 
 // ============================================================================
@@ -52,6 +54,7 @@ interface TrafficNodeData {
   isHighlighted: boolean
   isFaded: boolean
   isSelected: boolean
+  vpnConfig?: AppVpnConfig
   [key: string]: unknown
 }
 
@@ -121,9 +124,31 @@ function TrafficNode({ data }: { data: TrafficNodeData }) {
         </div>
 
         {/* Pod count badge */}
-        {data.podCount > 0 && (
+        {data.podCount > 0 && !data.vpnConfig && (
           <div className="absolute -top-2 -right-2 bg-blue-500 text-white text-[9px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow">
             {data.podCount}
+          </div>
+        )}
+
+        {/* VPN indicator badge */}
+        {data.vpnConfig && (
+          <div className="absolute -top-2 -right-2 group">
+            <div className="bg-green-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow cursor-help">
+              <Shield size={12} />
+            </div>
+            {/* VPN Tooltip */}
+            <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block z-50">
+              <div className="bg-gray-900 text-white text-xs rounded-lg px-3 py-2 whitespace-nowrap shadow-lg">
+                <div className="font-semibold text-green-400 mb-1">VPN Active</div>
+                <div className="text-gray-300">Provider: {data.vpnConfig.vpn_provider_name}</div>
+                <div className="text-gray-300">
+                  Kill Switch: {data.vpnConfig.effective_kill_switch ? 'ON' : 'OFF'}
+                </div>
+                <div className="absolute bottom-0 right-3 translate-y-full">
+                  <div className="border-4 border-transparent border-t-gray-900"></div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -309,9 +334,10 @@ const edgeTypes = { animated: AnimatedEdge }
 interface FlowVisualizationProps {
   topology: NetworkTopology
   isFullscreen?: boolean
+  vpnConfigs?: AppVpnConfig[]
 }
 
-function NetworkFlowVisualizationInner({ topology, isFullscreen }: FlowVisualizationProps) {
+function NetworkFlowVisualizationInner({ topology, isFullscreen, vpnConfigs = [] }: FlowVisualizationProps) {
   // State for selected and hovered nodes
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
@@ -354,23 +380,29 @@ function NetworkFlowVisualizationInner({ topology, isFullscreen }: FlowVisualiza
   const { initialNodes, initialEdges } = useMemo(() => {
     const maxTraffic = Math.max(...topology.nodes.map(n => n.total_traffic), 1)
 
-    const nodes: Node<TrafficNodeData>[] = topology.nodes.map((node) => ({
-      id: node.id,
-      type: 'traffic',
-      position: { x: 0, y: 0 }, // Will be set by dagre
-      data: {
-        label: node.name,
-        type: node.type,
-        rx: node.rx_bytes_per_sec,
-        tx: node.tx_bytes_per_sec,
-        total: node.total_traffic,
-        podCount: node.pod_count,
-        appId: node.id,
-        isHighlighted: false,
-        isFaded: false,
-        isSelected: false,
-      },
-    }))
+    const nodes: Node<TrafficNodeData>[] = topology.nodes.map((node) => {
+      // Find VPN config for this app (match by node id which is the app name/namespace)
+      const vpnConfig = vpnConfigs.find(c => c.app_name === node.id)
+
+      return {
+        id: node.id,
+        type: 'traffic',
+        position: { x: 0, y: 0 }, // Will be set by dagre
+        data: {
+          label: node.name,
+          type: node.type,
+          rx: node.rx_bytes_per_sec,
+          tx: node.tx_bytes_per_sec,
+          total: node.total_traffic,
+          podCount: node.pod_count,
+          appId: node.id,
+          isHighlighted: false,
+          isFaded: false,
+          isSelected: false,
+          vpnConfig,
+        },
+      }
+    })
 
     const edges: Edge<AnimatedEdgeData>[] = topology.edges.map((edge, i) => {
       const sourceNode = topology.nodes.find(n => n.id === edge.source)
@@ -387,7 +419,7 @@ function NetworkFlowVisualizationInner({ topology, isFullscreen }: FlowVisualiza
     })
 
     return { initialNodes: nodes, initialEdges: edges, maxTraffic }
-  }, [topology])
+  }, [topology, vpnConfigs])
 
   // Apply dagre layout
   const { nodes: layoutedNodes, edges: layoutedEdges } = useMemo(
@@ -609,10 +641,10 @@ function NetworkFlowVisualizationInner({ topology, isFullscreen }: FlowVisualiza
   )
 }
 
-function NetworkFlowVisualization({ topology, isFullscreen }: FlowVisualizationProps) {
+function NetworkFlowVisualization({ topology, isFullscreen, vpnConfigs = [] }: FlowVisualizationProps) {
   return (
     <ReactFlowProvider>
-      <NetworkFlowVisualizationInner topology={topology} isFullscreen={isFullscreen} />
+      <NetworkFlowVisualizationInner topology={topology} isFullscreen={isFullscreen} vpnConfigs={vpnConfigs} />
     </ReactFlowProvider>
   )
 }
@@ -773,6 +805,7 @@ const INFRA_NAMESPACES = ['fluent-bit', 'victoriametrics', 'victorialogs']
 export default function NetworkingPage() {
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [showInfra, setShowInfra] = useState(false)
+  const [vpnConfigs, setVpnConfigs] = useState<AppVpnConfig[]>([])
   const networkFlowRef = useRef<HTMLDivElement>(null)
 
   // Use WebSocket hook for real-time updates with HTTP polling fallback
@@ -782,6 +815,22 @@ export default function NetworkingPage() {
     connectionMode,
     error: wsError,
   } = useNetworkMetricsWs()
+
+  // Fetch VPN configs for app indicators
+  useEffect(() => {
+    const fetchVpnConfigs = async () => {
+      try {
+        const configs = await appVpnApi.listConfigs()
+        setVpnConfigs(configs)
+      } catch (err) {
+        console.error('Failed to fetch VPN configs:', err)
+      }
+    }
+    fetchVpnConfigs()
+    // Refresh VPN configs every 30 seconds
+    const interval = setInterval(fetchVpnConfigs, 30000)
+    return () => clearInterval(interval)
+  }, [])
 
   const isLoading = !topology && !stats
   const hasError = wsError && connectionMode === 'disconnected'
@@ -868,7 +917,7 @@ export default function NetworkingPage() {
             Networking
           </h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">
-            Network topology and traffic flow between applications
+            Network topology and traffic flow
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -983,7 +1032,7 @@ export default function NetworkingPage() {
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
             </div>
           ) : filteredTopology ? (
-            <NetworkFlowVisualization topology={filteredTopology} isFullscreen={isFullscreen} />
+            <NetworkFlowVisualization topology={filteredTopology} isFullscreen={isFullscreen} vpnConfigs={vpnConfigs} />
           ) : null}
         </div>
       </div>

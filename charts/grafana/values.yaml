@@ -15,6 +15,10 @@ grafana:
     port: 3000
     targetPort: 3000
 
+  # Base path for URL routing - must match Grafana's root_url server config
+  # Grafana is configured with serve_from_sub_path=true and root_url ending in /grafana/
+  basePath: "/grafana"
+
   # Root URL for reverse proxy
   rootUrl: "%(protocol)s://%(domain)s/grafana/"
   serveFromSubPath: true

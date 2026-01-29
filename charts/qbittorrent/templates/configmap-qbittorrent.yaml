@@ -18,12 +18,11 @@ data:
     Session\QueueingSystemEnabled=true
     Session\ShareLimitAction=Stop
     Session\TempPath=/downloads/incomplete/
-    Session\DiskCacheSize=64
-    Session\DiskCacheTTL=60
-    Session\MaxConnections=200
-    Session\MaxConnectionsPerTorrent=50
-    Session\MaxUploads=20
-    Session\MaxUploadsPerTorrent=4
+    {{- with .Values.qbittorrent.qbittorrentConf.BitTorrent }}
+    {{- range $key, $value := . }}
+    {{ $key }}={{ $value }}
+    {{- end }}
+    {{- end }}
 
     [LegalNotice]
     Accepted=true

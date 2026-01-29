@@ -1,0 +1,13 @@
+instances: 1
+
+storage:
+  size: 5Gi
+  storageClassName: ""
+
+database:
+  name: kubarr
+  owner: kubarr
+
+postgresql:
+  parameters:
+    max_connections: "100"

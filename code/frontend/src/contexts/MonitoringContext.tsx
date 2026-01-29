@@ -20,6 +20,7 @@ interface MonitoringState {
 
   // Apps data
   catalog: AppConfig[]
+  catalogLoading: boolean
   installedApps: string[]
   appStatuses: Record<string, AppStatusInfo>
 
@@ -45,6 +46,7 @@ export function MonitoringProvider({ children }: { children: ReactNode }) {
 
   // Apps state - initialize from precache if available
   const [catalog, setCatalog] = useState<AppConfig[]>(precachedCatalog || [])
+  const [catalogLoading, setCatalogLoading] = useState(!precachedCatalog)
   const [installedApps, setInstalledApps] = useState<string[]>(precachedInstalled || [])
   const [appStatuses, setAppStatuses] = useState<Record<string, AppStatusInfo>>({})
 
@@ -80,6 +82,7 @@ export function MonitoringProvider({ children }: { children: ReactNode }) {
 
       setCatalog(catalogData)
       setInstalledApps(installedData)
+      setCatalogLoading(false)
 
       // Preload all app icons in the background
       preloadIcons(catalogData.map(app => app.name))
@@ -146,6 +149,7 @@ export function MonitoringProvider({ children }: { children: ReactNode }) {
     metricsLoading,
     metricsAvailable,
     catalog,
+    catalogLoading,
     installedApps,
     appStatuses,
     refreshMetrics,

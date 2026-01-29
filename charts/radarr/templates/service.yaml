@@ -5,10 +5,16 @@ metadata:
   namespace: {{ .Values.namespace.name }}
   labels:
     {{- include "radarr.labels" . | nindent 4 }}
-  {{- with .Values.radarr.service.annotations }}
   annotations:
+    {{- /* kubarr.io/base-path: Tells the Kubarr proxy that this app serves its UI at a subpath */}}
+    {{- /* (e.g., /sonarr). When set, the proxy keeps the full path instead of stripping the app prefix. */}}
+    {{- /* Only set this if the app is actually configured to serve from this path. */}}
+    {{- if .Values.radarr.basePath }}
+    kubarr.io/base-path: {{ .Values.radarr.basePath | quote }}
+    {{- end }}
+    {{- with .Values.radarr.service.annotations }}
     {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- end }}
 spec:
   type: {{ .Values.radarr.service.type }}
   ports:
