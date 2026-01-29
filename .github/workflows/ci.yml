@@ -83,14 +83,44 @@ jobs:
         run: npm run build
 
   # =============================================================================
+  # Build Docker Images (once, shared via local Docker daemon)
+  # =============================================================================
+  build-images:
+    name: Build Docker Images
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build images in parallel
+        run: |
+          TAG="ci-${{ github.sha }}"
+
+          docker build -f docker/Dockerfile.backend -t kubarr-backend:${TAG} \
+            --build-arg COMMIT_HASH=${{ github.sha }} \
+            --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") . &
+          PID1=$!
+
+          docker build -f docker/Dockerfile.frontend -t kubarr-frontend:${TAG} \
+            --build-arg COMMIT_HASH=${{ github.sha }} \
+            --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") . &
+          PID2=$!
+
+          wait $PID1 && echo "Backend image built"
+          wait $PID2 && echo "Frontend image built"
+
+  # =============================================================================
   # E2E Tests (Kind cluster + Playwright)
   # =============================================================================
   e2e-tests:
     name: E2E Tests
+    needs: build-images
     runs-on: self-hosted
     timeout-minutes: 30
     env:
       KIND_CLUSTER_NAME: kubarr-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+      IMAGE_TAG: ci-${{ github.sha }}
 
     steps:
       - name: Checkout code
@@ -116,25 +146,10 @@ jobs:
           kind create cluster --name "$KIND_CLUSTER_NAME" --wait 120s
           kubectl cluster-info --context "kind-${KIND_CLUSTER_NAME}"
 
-      - name: Build Docker images
-        run: |
-          docker build -f docker/Dockerfile.backend -t kubarr-backend:e2e \
-            --build-arg COMMIT_HASH=${{ github.sha }} \
-            --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") . &
-          PID1=$!
-
-          docker build -f docker/Dockerfile.frontend -t kubarr-frontend:e2e \
-            --build-arg COMMIT_HASH=${{ github.sha }} \
-            --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") . &
-          PID2=$!
-
-          wait $PID1 && echo "Backend image built"
-          wait $PID2 && echo "Frontend image built"
-
       - name: Load images into Kind
         run: |
-          kind load docker-image kubarr-backend:e2e --name "$KIND_CLUSTER_NAME"
-          kind load docker-image kubarr-frontend:e2e --name "$KIND_CLUSTER_NAME"
+          kind load docker-image "kubarr-backend:${IMAGE_TAG}" --name "$KIND_CLUSTER_NAME"
+          kind load docker-image "kubarr-frontend:${IMAGE_TAG}" --name "$KIND_CLUSTER_NAME"
 
       - name: Generate secrets
         run: |
@@ -157,10 +172,10 @@ jobs:
             --namespace kubarr \
             --set namespace.create=false \
             --set backend.image.repository=kubarr-backend \
-            --set backend.image.tag=e2e \
+            --set backend.image.tag=${IMAGE_TAG} \
             --set backend.image.pullPolicy=Never \
             --set frontend.image.repository=kubarr-frontend \
-            --set frontend.image.tag=e2e \
+            --set frontend.image.tag=${IMAGE_TAG} \
             --set frontend.image.pullPolicy=Never \
             --set oauth2.enabled=true \
             --set auth.jwt.existingSecret=kubarr-jwt-keys \
