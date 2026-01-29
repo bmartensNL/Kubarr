@@ -161,11 +161,28 @@ See [Configuration Reference](./docs/configuration.md) for the complete list of 
 
 ## 📸 Screenshots
 
-| Dashboard | Application Catalog | Resource Monitor |
-|-----------|-------------------|------------------|
-| ![Dashboard](./docs/screenshots/dashboard.png) | ![Catalog](./docs/screenshots/catalog.png) | ![Monitor](./docs/screenshots/monitor.png) |
+### Authentication & Dashboard
 
-*Screenshots are placeholders - actual UI may vary*
+| Login Page | Dashboard Overview |
+|------------|-------------------|
+| ![Login Page](./docs/screenshots/login.png) | ![Dashboard](./docs/screenshots/dashboard.png) |
+| *Secure authentication with JWT and optional 2FA* | *Real-time overview of cluster resources and deployed applications* |
+
+### Application Management
+
+| Application Catalog | Deployed Applications | Logs Viewer |
+|--------------------|----------------------|-------------|
+| ![App Catalog](./docs/screenshots/catalog.png) | ![Deployed Apps](./docs/screenshots/deployed-apps.png) | ![Logs Viewer](./docs/screenshots/logs-viewer.png) |
+| *Browse and deploy applications from the catalog* | *Manage running applications and their resources* | *Real-time log streaming with filtering and search* |
+
+### Advanced Features
+
+| File Browser | User Management | Role Management |
+|--------------|----------------|----------------|
+| ![File Browser](./docs/screenshots/file-browser.png) | ![User Management](./docs/screenshots/user-management.png) | ![Role Management](./docs/screenshots/role-management.png) |
+| *Browse and edit ConfigMaps and Secrets* | *Manage users and their access* | *Configure RBAC roles and permissions* |
+
+*All screenshots are placeholders - actual UI may vary. See [docs/screenshots/README.md](./docs/screenshots/README.md) for details.*
 
 ## 🤝 Contributing
 
