@@ -708,8 +708,13 @@ pub async fn test_vpn_connection(
         }
     };
 
-    // TODO: Cleanup will be implemented in subtask-1-3
-    // For now, we leave the pod running so we can debug
+    // Clean up test resources
+    if let Err(e) = delete_test_pod(k8s, &test_pod_name, namespace).await {
+        tracing::warn!("Failed to clean up test pod {}: {}", test_pod_name, e);
+    }
+    if let Err(e) = delete_test_vpn_secret(k8s, &secret_name, namespace).await {
+        tracing::warn!("Failed to clean up test secret {}: {}", secret_name, e);
+    }
 
     Ok(VpnTestResult {
         success: true,
