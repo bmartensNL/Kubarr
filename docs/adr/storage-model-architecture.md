@@ -159,22 +159,42 @@ Used for dynamic configuration (storage path, OAuth2 settings, JWT keys) without
 
 ### Performance Issues
 
-1. **No auth-layer caching** - 4+ database queries per authenticated request for session, user, and permissions lookups
-2. **Hardcoded connection pool** - 10 max connections is excessive for 1-5 users; not tunable without code changes
-3. **No cache eviction** - Both `EndpointCache` and `NetworkMetricsCache` grow unbounded; expired entries are never pruned
-4. **Audit log growth** - No automatic retention policy; `clear_audit_logs` exists but must be called manually (clears >90 days)
+1. **Audit stats loads all logs into memory** - `get_audit_stats()` in `audit.rs` (line 281) executes `audit_log::Entity::find().all(db).await?` to compute top actions by counting in application code. This fetches every audit log row into memory instead of using a SQL `GROUP BY` aggregation. As the audit log grows, this becomes an unbounded memory allocation that will eventually cause OOM or severe latency spikes.
+
+   ```rust
+   // Current: loads ALL logs into memory to count actions
+   let all_logs = audit_log::Entity::find().all(db).await?;
+   let mut action_counts: HashMap<String, u64> = HashMap::new();
+   for log in all_logs {
+       *action_counts.entry(log.action.clone()).or_insert(0) += 1;
+   }
+   ```
+
+2. **No auth-layer caching** - 4+ database queries per authenticated request for session, user, and permissions lookups. Every request hits PostgreSQL for session validation, user fetch, roles, and permissions - no in-memory caching of auth context.
+
+3. **Hardcoded connection pool** - Pool size is hardcoded at 10 max / 1 min connections in `database.rs` and not configurable via environment variables. For a homelab with 1-5 users, 10 connections is excessive and wastes PostgreSQL memory (~10MB per connection). Conversely, if the application's concurrency needs change, a code change and rebuild is required.
+
+4. **No automatic cache eviction** - Both `EndpointCache` and `NetworkMetricsCache` use lazy expiration (staleness checked on read only). Expired entries are never removed from the underlying `HashMap`. There is no background eviction task, no `remove()` on stale reads, and no periodic cleanup. Over time, the cache accumulates dead entries that consume memory without providing value.
+
+5. **Unbounded cache growth** - Neither cache implementation has a maximum size limit. While `NetworkMetricsCache` is practically bounded by the number of Kubernetes namespaces, `EndpointCache` has no such natural bound. There is no LRU eviction, no max-entries cap, and no memory pressure monitoring.
+
+6. **Audit log growth** - No automatic retention policy. `clear_old_logs()` exists but must be called manually via the admin API. Without scheduled cleanup, the audit_log table grows indefinitely, compounding the `get_audit_stats` memory issue above.
 
 ### Architectural Limitations
 
-1. **CNPG operator overhead** - Running a PostgreSQL operator adds resource consumption and operational complexity for what is fundamentally a single-user embedded database workload
-2. **Cache volatility** - All cached data is lost on pod restart, requiring cold-start re-population
-3. **No connection retry** - If PostgreSQL is temporarily unavailable after initial connect, there is no reconnection logic
-4. **hostPath coupling** - File storage is tied to the node's filesystem with no portability across nodes
-5. **SQLite already compiled** - Both `sqlx-postgres` and `sqlx-sqlite` feature flags are enabled in `Cargo.toml`, but only PostgreSQL is used at runtime
+1. **CNPG operator overhead** - Running the CloudNativePG operator adds significant resource consumption and operational complexity for what is fundamentally a single-pod, single-user embedded database workload. The operator itself runs as a separate deployment with its own CPU/memory allocation, watches CRDs, and manages failover logic that is unnecessary when there is only one database pod. For a homelab, this is a disproportionate amount of infrastructure for the problem being solved.
+
+2. **Cache data lost on pod restart** - All cached data (endpoint lookups, network metrics history, rate calculations) is lost when the backend pod restarts. This causes a cold-start penalty: the first requests after restart must re-populate caches via K8s API calls and metric collection. Network rate calculations need multiple samples before producing accurate sliding-window averages, meaning the dashboard shows incomplete data for several polling intervals after restart.
+
+3. **No connection retry logic** - If PostgreSQL becomes temporarily unavailable after the initial connection is established (e.g., during a CNPG switchover, brief network partition, or pod reschedule), there is no reconnection logic. The `try_connect()` function provides graceful degradation during bootstrap but does not handle mid-operation disconnects. SeaORM's underlying connection pool (sqlx) does handle some reconnection, but the application has no explicit retry-with-backoff strategy for transient failures.
+
+4. **hostPath coupling** - File storage is tied to the node's filesystem with no portability across nodes. If the pod is rescheduled to a different node, storage is lost. No PVC abstraction or CSI driver integration exists.
+
+5. **SQLite already compiled** - Both `sqlx-postgres` and `sqlx-sqlite` feature flags are enabled in `Cargo.toml`, but only PostgreSQL is used at runtime. This means the binary already includes SQLite support, making a potential migration to SQLite a smaller lift than it might otherwise be.
 
 ### Operational Complexity
 
-1. **CNPG dependency** - Requires installing and managing the CNPG operator in the cluster
-2. **Backup configuration** - CNPG backups require separate configuration (S3, scheduled backups, etc.)
-3. **Resource footprint** - CNPG operator pod + PostgreSQL pod(s) consume memory and CPU beyond what the application needs
-4. **Port forwarding fragility** - Development workflow requires manual port-forward restart after every deployment
+1. **CNPG dependency** - Requires installing and managing the CNPG operator in the cluster before Kubarr can be deployed. This adds a prerequisite step that complicates initial setup for homelab users.
+2. **Backup configuration** - CNPG backups require separate configuration (S3-compatible storage, scheduled backups, retention policies). Without this, there is no automated backup - a risk for homelab users who may not configure it.
+3. **Resource footprint** - CNPG operator pod + PostgreSQL pod(s) consume memory (~256MB+ for PostgreSQL, ~128MB for the operator) and CPU beyond what the application itself needs. On constrained homelab hardware (e.g., Raspberry Pi, mini PC), this overhead is significant.
+4. **Port forwarding fragility** - Development workflow requires manual port-forward restart after every deployment, adding friction to the development cycle.
