@@ -17,8 +17,8 @@ futures-util = "0.3"
 http = "1"
 
 # Database
-sea-orm = { version = "1.1", features = ["sqlx-postgres", "runtime-tokio-native-tls", "macros", "with-chrono"] }
-sea-orm-migration = { version = "1.1", features = ["sqlx-postgres", "runtime-tokio-native-tls"] }
+sea-orm = { version = "1.1", features = ["sqlx-postgres", "sqlx-sqlite", "runtime-tokio-native-tls", "macros", "with-chrono"] }
+sea-orm-migration = { version = "1.1", features = ["sqlx-postgres", "sqlx-sqlite", "runtime-tokio-native-tls"] }
 
 # Kubernetes
 kube = { version = "0.95", features = ["runtime", "client", "derive"] }
