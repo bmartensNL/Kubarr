@@ -20,7 +20,11 @@ ARG BUILD_TIME=unknown
 ENV VITE_COMMIT_HASH=${COMMIT_HASH}
 ENV VITE_BUILD_TIME=${BUILD_TIME}
 
+# Test stage: has Node.js + all dev dependencies for lint/build checks
+FROM builder AS test
+
 # Build the app
+FROM builder AS built
 RUN npm run build
 
 # Production stage - minimal BusyBox httpd (~1MB total)
@@ -29,7 +33,7 @@ FROM busybox:1.36
 WORKDIR /var/www
 
 # Copy built files
-COPY --from=builder /app/dist /var/www
+COPY --from=built /app/dist /var/www
 
 # Expose port
 EXPOSE 80

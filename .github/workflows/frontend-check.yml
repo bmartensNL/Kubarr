@@ -2,31 +2,20 @@ name: Frontend Check
 
 on:
   workflow_call:
+    inputs:
+      image-tag:
+        description: Docker image tag with test stage
+        required: true
+        type: string
 
 jobs:
   frontend-check:
     name: Frontend Check
     runs-on: self-hosted
-    defaults:
-      run:
-        working-directory: code/frontend
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: code/frontend/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
       - name: Lint
-        run: npm run lint
+        run: docker run --rm "kubarr-frontend-test:${{ inputs.image-tag }}" npm run lint
 
       - name: Build (includes TypeScript check)
-        run: npm run build
+        run: docker run --rm "kubarr-frontend-test:${{ inputs.image-tag }}" npm run build

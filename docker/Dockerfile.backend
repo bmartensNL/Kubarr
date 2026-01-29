@@ -40,7 +40,14 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # Copy actual source code
 COPY code/backend/src ./src
 
-# Build the binary
+# Test stage: has full Rust toolchain + source for running tests
+FROM rust-builder AS test
+RUN rustup component add clippy rustfmt
+
+# Build stage: produce the final binary
+FROM rust-builder AS builder
+ARG PROFILE=release
+
 # Touch main.rs to force rebuild after copying real source, clear cached binary
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
@@ -74,7 +81,7 @@ RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 
 # Copy the Rust binary
-COPY --from=rust-builder /kubarr /app/kubarr
+COPY --from=builder /kubarr /app/kubarr
 
 # Copy Helm binary (statically linked)
 COPY --from=asset-builder /helm /usr/local/bin/helm

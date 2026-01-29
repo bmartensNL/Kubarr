@@ -17,17 +17,35 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build images in parallel
+      - name: Build backend (test + production)
         run: |
-          docker build -f docker/Dockerfile.backend -t kubarr-backend:${{ inputs.image-tag }} \
+          docker build -f docker/Dockerfile.backend \
+            --target test \
+            -t kubarr-backend-test:${{ inputs.image-tag }} \
             --build-arg COMMIT_HASH=${{ github.sha }} \
             --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") . &
           PID1=$!
 
-          docker build -f docker/Dockerfile.frontend -t kubarr-frontend:${{ inputs.image-tag }} \
+          docker build -f docker/Dockerfile.frontend \
+            --target test \
+            -t kubarr-frontend-test:${{ inputs.image-tag }} \
             --build-arg COMMIT_HASH=${{ github.sha }} \
             --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") . &
           PID2=$!
 
-          wait $PID1 && echo "Backend image built"
-          wait $PID2 && echo "Frontend image built"
+          docker build -f docker/Dockerfile.backend \
+            -t kubarr-backend:${{ inputs.image-tag }} \
+            --build-arg COMMIT_HASH=${{ github.sha }} \
+            --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") . &
+          PID3=$!
+
+          docker build -f docker/Dockerfile.frontend \
+            -t kubarr-frontend:${{ inputs.image-tag }} \
+            --build-arg COMMIT_HASH=${{ github.sha }} \
+            --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") . &
+          PID4=$!
+
+          wait $PID1 && echo "Backend test image built"
+          wait $PID2 && echo "Frontend test image built"
+          wait $PID3 && echo "Backend production image built"
+          wait $PID4 && echo "Frontend production image built"
