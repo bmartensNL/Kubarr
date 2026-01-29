@@ -56,9 +56,8 @@ async fn cleanup_postgres_tables(db: &DatabaseConnection) {
         "pending_2fa_challenges",
         "oauth_providers",
         "oauth_accounts",
-        "oauth2_tokens",
-        "oauth2_authorization_codes",
-        "oauth2_clients",
+        "vpn_providers",
+        "app_vpn_configs",
         "role_permissions",
         "role_app_permissions",
         "user_roles",
@@ -315,26 +314,28 @@ async fn all_tables_created_impl(db: &DatabaseConnection) {
     let tables = get_table_names(db).await;
 
     let expected_tables = [
+        "app_vpn_configs",
         "audit_logs",
+        "bootstrap_status",
         "invites",
         "notification_channels",
         "notification_events",
         "notification_logs",
-        "oauth2_authorization_codes",
-        "oauth2_clients",
-        "oauth2_tokens",
         "oauth_accounts",
         "oauth_providers",
         "pending_2fa_challenges",
         "role_app_permissions",
         "role_permissions",
         "roles",
+        "server_config",
+        "sessions",
         "system_settings",
         "user_notification_prefs",
         "user_notifications",
         "user_preferences",
         "user_roles",
         "users",
+        "vpn_providers",
     ];
 
     for table in expected_tables {
@@ -423,35 +424,7 @@ async fn roles_table_structure_impl(db: &DatabaseConnection) {
 
 test_both_databases!(test_roles_table_structure, roles_table_structure_impl);
 
-async fn oauth2_clients_table_structure_impl(db: &DatabaseConnection) {
-    Migrator::up(db, None)
-        .await
-        .expect("Failed to apply migrations");
-
-    let columns = get_table_columns(db, "oauth2_clients").await;
-    let column_names: Vec<&str> = columns.iter().map(|(n, _)| n.as_str()).collect();
-
-    let expected_columns = [
-        "client_id",
-        "client_secret_hash",
-        "name",
-        "redirect_uris",
-        "created_at",
-    ];
-
-    for col in expected_columns {
-        assert!(
-            column_names.contains(&col),
-            "Column '{}' should exist in oauth2_clients table",
-            col
-        );
-    }
-}
-
-test_both_databases!(
-    test_oauth2_clients_table_structure,
-    oauth2_clients_table_structure_impl
-);
+// Note: oauth2_* tables removed in favor of oauth_providers and oauth_accounts
 
 async fn audit_logs_table_structure_impl(db: &DatabaseConnection) {
     Migrator::up(db, None)
@@ -522,67 +495,8 @@ async fn user_roles_foreign_keys_impl(db: &DatabaseConnection) {
 
 test_both_databases!(test_user_roles_foreign_keys, user_roles_foreign_keys_impl);
 
-async fn oauth2_authorization_codes_foreign_keys_impl(db: &DatabaseConnection) {
-    Migrator::up(db, None)
-        .await
-        .expect("Failed to apply migrations");
-
-    let fks = get_foreign_keys(db, "oauth2_authorization_codes").await;
-
-    let has_users_fk = fks
-        .iter()
-        .any(|(from, table, to)| from == "user_id" && table == "users" && to == "id");
-    let has_clients_fk = fks.iter().any(|(from, table, to)| {
-        from == "client_id" && table == "oauth2_clients" && to == "client_id"
-    });
-
-    assert!(
-        has_users_fk,
-        "oauth2_authorization_codes should have FK to users. FKs: {:?}",
-        fks
-    );
-    assert!(
-        has_clients_fk,
-        "oauth2_authorization_codes should have FK to oauth2_clients. FKs: {:?}",
-        fks
-    );
-}
-
-test_both_databases!(
-    test_oauth2_authorization_codes_foreign_keys,
-    oauth2_authorization_codes_foreign_keys_impl
-);
-
-async fn oauth2_tokens_foreign_keys_impl(db: &DatabaseConnection) {
-    Migrator::up(db, None)
-        .await
-        .expect("Failed to apply migrations");
-
-    let fks = get_foreign_keys(db, "oauth2_tokens").await;
-
-    let has_users_fk = fks
-        .iter()
-        .any(|(from, table, to)| from == "user_id" && table == "users" && to == "id");
-    let has_clients_fk = fks.iter().any(|(from, table, to)| {
-        from == "client_id" && table == "oauth2_clients" && to == "client_id"
-    });
-
-    assert!(
-        has_users_fk,
-        "oauth2_tokens should have FK to users. FKs: {:?}",
-        fks
-    );
-    assert!(
-        has_clients_fk,
-        "oauth2_tokens should have FK to oauth2_clients. FKs: {:?}",
-        fks
-    );
-}
-
-test_both_databases!(
-    test_oauth2_tokens_foreign_keys,
-    oauth2_tokens_foreign_keys_impl
-);
+// Note: oauth2_authorization_codes and oauth2_tokens foreign key tests removed
+// These tables were replaced by oauth_providers and oauth_accounts
 
 async fn invites_foreign_keys_impl(db: &DatabaseConnection) {
     Migrator::up(db, None)
@@ -759,52 +673,7 @@ test_both_databases!(
     can_insert_role_and_assign_to_user_impl
 );
 
-async fn can_insert_oauth2_client_and_token_impl(db: &DatabaseConnection) {
-    Migrator::up(db, None)
-        .await
-        .expect("Failed to apply migrations");
-
-    let backend = db.get_database_backend();
-
-    // Insert user first (for FK)
-    let user_sql = match backend {
-        DbBackend::Sqlite => "INSERT INTO users (username, email, hashed_password, is_active, is_approved, totp_enabled, created_at, updated_at) VALUES ('testuser', 'test@example.com', 'hashed', 1, 1, 0, datetime('now'), datetime('now'))".to_string(),
-        DbBackend::Postgres => "INSERT INTO users (username, email, hashed_password, is_active, is_approved, totp_enabled, created_at, updated_at) VALUES ('testuser', 'test@example.com', 'hashed', true, true, false, NOW(), NOW())".to_string(),
-        _ => panic!("Unsupported database backend"),
-    };
-    db.execute(Statement::from_string(backend, user_sql))
-        .await
-        .expect("Failed to insert user");
-
-    // Insert OAuth2 client
-    let client_sql = match backend {
-        DbBackend::Sqlite => "INSERT INTO oauth2_clients (client_id, client_secret_hash, name, redirect_uris, created_at) VALUES ('client123', 'secret_hash', 'Test Client', 'http://localhost:8080/callback', datetime('now'))".to_string(),
-        DbBackend::Postgres => "INSERT INTO oauth2_clients (client_id, client_secret_hash, name, redirect_uris, created_at) VALUES ('client123', 'secret_hash', 'Test Client', 'http://localhost:8080/callback', NOW())".to_string(),
-        _ => panic!("Unsupported database backend"),
-    };
-    db.execute(Statement::from_string(backend, client_sql))
-        .await
-        .expect("Failed to insert OAuth2 client");
-
-    // Insert OAuth2 token
-    let token_sql = match backend {
-        DbBackend::Sqlite => "INSERT INTO oauth2_tokens (access_token, client_id, user_id, expires_at, revoked, created_at) VALUES ('token123', 'client123', 1, datetime('now', '+1 hour'), 0, datetime('now'))".to_string(),
-        DbBackend::Postgres => "INSERT INTO oauth2_tokens (access_token, client_id, user_id, expires_at, revoked, created_at) VALUES ('token123', 'client123', 1, NOW() + INTERVAL '1 hour', false, NOW())".to_string(),
-        _ => panic!("Unsupported database backend"),
-    };
-    let result = db.execute(Statement::from_string(backend, token_sql)).await;
-
-    assert!(
-        result.is_ok(),
-        "Should be able to insert OAuth2 token: {:?}",
-        result.err()
-    );
-}
-
-test_both_databases!(
-    test_can_insert_oauth2_client_and_token,
-    can_insert_oauth2_client_and_token_impl
-);
+// Note: oauth2 client and token insert test removed - tables no longer exist
 
 async fn can_insert_notification_data_impl(db: &DatabaseConnection) {
     Migrator::up(db, None)
@@ -1000,7 +869,7 @@ async fn migration_count_impl(db: &DatabaseConnection) {
         .expect("Failed to query migrations");
 
     let count: i64 = result[0].try_get("", "cnt").unwrap();
-    assert_eq!(count, 20, "Should have exactly 20 migrations applied");
+    assert_eq!(count, 22, "Should have exactly 22 migrations applied");
 }
 
 test_both_databases!(test_migration_count, migration_count_impl);
