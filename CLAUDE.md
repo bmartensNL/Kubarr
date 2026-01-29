@@ -116,3 +116,38 @@ docker context use default
 - **Port 6443 unreachable:** Ensure the remote server's firewall allows connections on port 6443 (Kind API server)
 - **SSH connection failures:** Verify SSH key-based auth works: `ssh <USER>@<HOST> 'echo OK'`
 - **Kind not found on remote:** Kind runs **locally** and targets the remote Docker daemon via the Docker context — it does NOT need to be installed on the remote server
+
+---
+
+### SSH MCP Server for Remote Execution (Optional)
+
+Configure an SSH MCP server so Claude Code can execute commands directly on the remote server. This is a **user-level** configuration stored in `~/.claude/mcp.json`, not a project-level setting.
+
+#### Setup
+```bash
+# Add the SSH MCP server to Claude Code (user-level scope)
+claude mcp add --transport stdio ssh-mcp --scope user -- npx -y ssh-mcp -- \
+  --host=<REMOTE_IP> \
+  --user=<REMOTE_USER> \
+  --privateKeyPath=~/.ssh/id_ed25519
+```
+
+Replace `<REMOTE_IP>`, `<REMOTE_USER>`, and the key path with your actual values.
+
+#### What This Enables
+- Claude Code can run commands on the remote server via the `ssh-mcp` MCP tool
+- Useful for inspecting remote Docker state, checking Kind cluster health, or running diagnostics
+- Commands execute over SSH using key-based authentication (no password prompts)
+
+#### Verification
+After adding the MCP server, restart Claude Code and verify the tool is available:
+```bash
+# Check MCP server is registered
+claude mcp list
+```
+
+#### Notes
+- The SSH MCP server requires `npx` (Node.js) to be available locally
+- The private key must have no passphrase (or use an SSH agent)
+- This configuration is **optional** — all build/deploy commands work without it via Docker contexts and kubectl
+- To remove the MCP server: `claude mcp remove ssh-mcp`
