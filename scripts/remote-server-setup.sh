@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -8,8 +8,18 @@ LOCAL_BIN="$PROJECT_ROOT/bin"
 REMOTE_HOST=""
 REMOTE_USER=""
 SSH_KEY=""
-DOCKER_CONTEXT_NAME="kubarr-remote"
-KIND_CLUSTER_NAME="kubarr"
+readonly DOCKER_CONTEXT_NAME="kubarr-remote"
+readonly KIND_CLUSTER_NAME="kubarr"
+
+# Temp files to clean up on exit
+TEMP_FILES=()
+
+cleanup() {
+    for f in "${TEMP_FILES[@]}"; do
+        rm -f "$f"
+    done
+}
+trap cleanup EXIT
 
 usage() {
     echo "Usage: $0 --host <REMOTE_IP> --user <REMOTE_USER> [--key <SSH_KEY_PATH>]"
@@ -31,14 +41,26 @@ usage() {
 while [[ $# -gt 0 ]]; do
     case $1 in
         --host)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --host requires a value"
+                usage
+            fi
             REMOTE_HOST="$2"
             shift 2
             ;;
         --user)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --user requires a value"
+                usage
+            fi
             REMOTE_USER="$2"
             shift 2
             ;;
         --key)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --key requires a value"
+                usage
+            fi
             SSH_KEY="$2"
             shift 2
             ;;
@@ -169,6 +191,8 @@ if ! ssh "${SSH_OPTS[@]}" "$REMOTE_USER@$REMOTE_HOST" 'docker ps' &> /dev/null; 
 fi
 echo "  Docker permissions: OK"
 
+# SC2155: Declare and assign separately
+REMOTE_DOCKER_VERSION=""
 REMOTE_DOCKER_VERSION=$(ssh "${SSH_OPTS[@]}" "$REMOTE_USER@$REMOTE_HOST" 'docker --version')
 echo "  Remote Docker: $REMOTE_DOCKER_VERSION"
 
@@ -183,6 +207,8 @@ if docker context inspect "$DOCKER_CONTEXT_NAME" &> /dev/null; then
     echo "  Docker context '$DOCKER_CONTEXT_NAME' already exists"
 
     # Verify the existing context points to the correct host
+    # SC2155: Declare and assign separately
+    EXISTING_HOST=""
     EXISTING_HOST=$(docker context inspect "$DOCKER_CONTEXT_NAME" --format '{{.Endpoints.docker.Host}}')
     if [[ "$EXISTING_HOST" != "$DOCKER_HOST_URL" ]]; then
         echo "  Warning: Existing context points to '$EXISTING_HOST', expected '$DOCKER_HOST_URL'"
@@ -229,6 +255,7 @@ else
 
     # Substitute the remote IP into the Kind config
     TEMP_KIND_CONFIG=$(mktemp)
+    TEMP_FILES+=("$TEMP_KIND_CONFIG")
     sed "s/__API_SERVER_ADDRESS__/$REMOTE_HOST/" "$KIND_CONFIG_FILE" > "$TEMP_KIND_CONFIG"
 
     # Switch to remote docker context for Kind cluster creation
@@ -238,8 +265,6 @@ else
 
     # Switch back to default context
     docker context use default
-
-    rm -f "$TEMP_KIND_CONFIG"
 
     echo "  Kind cluster created on remote server"
 fi
@@ -253,6 +278,7 @@ echo "--- Configuring kubeconfig ---"
 docker context use "$DOCKER_CONTEXT_NAME"
 
 REMOTE_KUBECONFIG=$(mktemp)
+TEMP_FILES+=("$REMOTE_KUBECONFIG")
 kind get kubeconfig --name "$KIND_CLUSTER_NAME" > "$REMOTE_KUBECONFIG"
 
 # Switch back to default context
@@ -272,6 +298,7 @@ mkdir -p "$KUBE_DIR"
 if [[ -f "$KUBE_DIR/config" ]]; then
     echo "  Merging remote kubeconfig with existing config..."
     MERGED_CONFIG=$(mktemp)
+    TEMP_FILES+=("$MERGED_CONFIG")
     KUBECONFIG="$KUBE_DIR/config:$REMOTE_KUBECONFIG" kubectl config view --merge --flatten > "$MERGED_CONFIG"
     cp "$KUBE_DIR/config" "$KUBE_DIR/config.backup"
     mv "$MERGED_CONFIG" "$KUBE_DIR/config"
@@ -281,8 +308,6 @@ else
     cp "$REMOTE_KUBECONFIG" "$KUBE_DIR/config"
     chmod 600 "$KUBE_DIR/config"
 fi
-
-rm -f "$REMOTE_KUBECONFIG"
 
 echo "  Kubeconfig configured: OK"
 
