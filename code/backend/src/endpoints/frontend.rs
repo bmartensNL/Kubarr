@@ -242,7 +242,6 @@ fn rewrite_js_paths(text: &str, prefix: &str) -> String {
     rewritten.replace(&double_prefix, &single_prefix)
 }
 
-
 /// Create a redirect response to the app error page
 fn redirect_to_app_error(app_name: &str, reason: &str, details: &str) -> Response<Body> {
     let encoded_details = urlencoding::encode(details);
