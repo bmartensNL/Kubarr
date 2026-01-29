@@ -1295,3 +1295,277 @@ The quantitative case against adding a caching layer for Kubarr's target deploym
 | Valkey license changes | Very low | Low | Valkey is Linux Foundation governed; unlikely to change. Can also self-host Redis <7.4 (BSD licensed) |
 
 **Overall risk: Medium-High.** The caching layer adds complexity and failure modes that are disproportionate to the benefit for a single-pod homelab. The primary risk is over-engineering: spending development effort on optimization that doesn't meaningfully improve the user experience. However, if multi-pod deployment or auth performance becomes a real requirement, the hybrid approach provides a clear upgrade path from Option B.
+
+---
+
+## Caching Strategy Evaluation
+
+This section evaluates caching strategies independently from the primary database choice. Regardless of whether Kubarr uses PostgreSQL (Option A), SQLite (Option B), or a hybrid approach (Option C), the caching layer serves a distinct purpose: reducing repetitive lookups for transient, reconstructable data. The evaluation below compares three approaches and analyzes Kubarr's actual caching needs to determine the best fit for a homelab context.
+
+### Kubarr's Actual Caching Needs
+
+Before evaluating solutions, it is essential to understand what Kubarr actually caches and whether those workloads genuinely benefit from caching infrastructure.
+
+#### EndpointCache — Kubernetes Service Discovery
+
+The `EndpointCache` in `state.rs` caches the results of Kubernetes API calls that resolve app names to service endpoints (base URL and base path). This avoids hitting the K8s API server on every proxy request.
+
+```rust
+pub struct EndpointCache {
+    cache: Arc<RwLock<HashMap<String, CachedEndpoint>>>,
+    ttl: Duration, // 60 seconds
+}
+```
+
+**Characteristics:**
+- **Data is transient** — Endpoint mappings are derived from live Kubernetes service state. They change only when services are created, updated, or deleted — events that happen rarely in a homelab (minutes to hours apart, not seconds).
+- **Data is fully reconstructable** — On cache miss or pod restart, a single K8s API call reconstructs the entry. There is no data loss risk; the source of truth is the Kubernetes API server.
+- **Access pattern** — Read-heavy with infrequent writes. Most requests hit the same small set of endpoints (the user's installed apps).
+- **Size** — Bounded by the number of apps managed by Kubarr. A typical homelab has 5-20 apps, each producing one cache entry (~200 bytes). Total: <5KB.
+- **TTL** — 60 seconds. Short enough to pick up service changes quickly; long enough to avoid K8s API pressure.
+
+**Current issues:**
+1. Lazy expiration only — expired entries are never removed, just ignored on read
+2. No size bound — theoretically unbounded, though practically limited by the number of apps
+3. No background cleanup — stale entries from deleted apps accumulate indefinitely
+
+#### NetworkMetricsCache — Rate Calculation State
+
+The `NetworkMetricsCache` stores cumulative network counters and computes sliding-window rate averages for dashboard display.
+
+```rust
+pub struct NetworkMetricsCache {
+    cache: Arc<RwLock<HashMap<String, CachedNetworkMetrics>>>,
+    max_age: Duration, // 5 minutes
+}
+```
+
+**Characteristics:**
+- **Data is transient** — Rate calculations are derived from sequential counter snapshots. The cache holds recent samples to compute a sliding-window average.
+- **Data is reconstructable** — After a pod restart, the first few polling intervals produce incomplete rate data (needs ≥2 samples to compute a delta), but the cache self-heals within 2-3 polling cycles (~20-30 seconds).
+- **Access pattern** — Write-on-poll (every ~10 seconds per namespace), read-on-dashboard-request. Writes and reads are roughly balanced.
+- **Size** — One entry per monitored namespace. A typical homelab has 3-10 namespaces. Each entry contains a sliding window of 5 `RateSample` structs (~320 bytes) plus metadata. Total: <5KB.
+- **TTL** — 5-minute max age. Stale entries indicate a namespace has stopped being polled (possibly deleted).
+- **Smoothing** — Exponential Moving Average (EMA) smoothing prevents abrupt rate jumps. This stateful computation benefits from cache continuity but recovers quickly from a cold start.
+
+**Current issues:**
+1. No background eviction — entries for deleted namespaces remain in memory
+2. No size bound — one entry per namespace, but no cap
+3. Cold-start gap — 2-3 polling intervals of incomplete rate data after restart
+
+#### Key Insight: Both Caches Are Trivially Small and Fully Transient
+
+Neither cache stores durable, authoritative data. Both are derived views of external state (Kubernetes API, cAdvisor metrics) that can be reconstructed from their sources within seconds. The total memory footprint of both caches combined is under 10KB for a typical homelab deployment.
+
+This means the caching strategy should prioritize **simplicity and correctness** over advanced features like persistence, replication, or distributed consistency. The cold-start penalty (a few seconds of stale/missing data after pod restart) is acceptable for a homelab dashboard.
+
+### Strategy 1: Improved In-Memory Caching
+
+**Approach:** Enhance the existing `Arc<RwLock<HashMap>>` caches with background eviction and size bounds. No new dependencies, no new infrastructure, no architectural changes.
+
+#### Proposed Improvements
+
+**Background eviction via `tokio::spawn` interval task:**
+
+```rust
+// Add to application startup after AppState is created
+let endpoint_cache = app_state.endpoint_cache.clone();
+let metrics_cache = app_state.network_metrics_cache.clone();
+
+tokio::spawn(async move {
+    let mut interval = tokio::time::interval(Duration::from_secs(300)); // Every 5 minutes
+    loop {
+        interval.tick().await;
+        let evicted_endpoints = endpoint_cache.evict_expired().await;
+        let evicted_metrics = metrics_cache.evict_stale().await;
+        if evicted_endpoints > 0 || evicted_metrics > 0 {
+            tracing::debug!(
+                "Cache cleanup: evicted {} endpoints, {} metrics entries",
+                evicted_endpoints,
+                evicted_metrics
+            );
+        }
+    }
+});
+```
+
+**Eviction methods on `EndpointCache`:**
+
+```rust
+impl EndpointCache {
+    /// Remove all expired entries from the cache.
+    /// Returns the number of entries evicted.
+    pub async fn evict_expired(&self) -> usize {
+        let mut cache = self.cache.write().await;
+        let before = cache.len();
+        cache.retain(|_, entry| entry.expires_at > Instant::now());
+        before - cache.len()
+    }
+}
+```
+
+**Eviction methods on `NetworkMetricsCache`:**
+
+```rust
+impl NetworkMetricsCache {
+    /// Remove all stale entries from the cache.
+    /// Returns the number of entries evicted.
+    pub async fn evict_stale(&self) -> usize {
+        let mut cache = self.cache.write().await;
+        let before = cache.len();
+        let max_age = self.max_age;
+        cache.retain(|_, entry| entry.timestamp.elapsed() < max_age);
+        before - cache.len()
+    }
+}
+```
+
+**Max-size bounds:**
+
+```rust
+impl EndpointCache {
+    const MAX_ENTRIES: usize = 100; // Far more than any homelab needs
+
+    pub async fn set(&self, key: String, endpoint: CachedEndpoint) {
+        let mut cache = self.cache.write().await;
+
+        // Enforce max size: evict expired first, then oldest if still over limit
+        if cache.len() >= Self::MAX_ENTRIES && !cache.contains_key(&key) {
+            cache.retain(|_, entry| entry.expires_at > Instant::now());
+            if cache.len() >= Self::MAX_ENTRIES {
+                // Remove the entry closest to expiration
+                if let Some(oldest_key) = cache.iter()
+                    .min_by_key(|(_, v)| v.expires_at)
+                    .map(|(k, _)| k.clone())
+                {
+                    cache.remove(&oldest_key);
+                }
+            }
+        }
+
+        cache.insert(key, endpoint);
+    }
+}
+```
+
+#### Assessment
+
+| Criterion | Rating | Notes |
+|-----------|--------|-------|
+| Complexity | ✅ Minimal | ~50 lines of new code; no new dependencies |
+| Operational overhead | ✅ None | No new pods, no new services, no configuration |
+| Memory usage | ✅ Negligible | <10KB for both caches combined in typical deployments |
+| Cold-start penalty | ⚠️ Unchanged | Caches are empty after pod restart; rebuilds within seconds |
+| Eviction | ✅ Fixed | Background task cleans up every 5 minutes |
+| Size bounds | ✅ Fixed | Max entries cap prevents unbounded growth |
+| Persistence | ❌ None | Data lost on pod restart (acceptable for transient data) |
+| Multi-pod support | ❌ None | Per-process cache; no sharing across pods |
+
+### Strategy 2: External Redis/Valkey
+
+**Approach:** Deploy a Redis or Valkey instance alongside the backend pod and use it as a shared cache for endpoint lookups, network metrics, and potentially auth-layer session data.
+
+#### What It Provides
+
+- **Native TTL expiration** — `SET key value EX 60` automatically expires entries without background tasks. Redis/Valkey handles eviction internally with configurable policies (`allkeys-lru`, `volatile-ttl`, etc.).
+- **Persistence across restarts** — Even without RDB/AOF persistence, a separate Valkey pod survives backend pod restarts. If persistence is enabled, cache data survives Valkey pod restarts too.
+- **Session sharing for multi-pod** — If Kubarr ever scales to multiple replicas, all pods can share session state via Valkey. In-memory caches cannot be shared across processes.
+- **Pub/Sub for WebSockets** — Valkey's `PUBLISH`/`SUBSCRIBE` enables cross-pod event broadcasting. The current Tokio broadcast channels are process-local.
+- **Atomic operations** — `INCR`, `DECR`, `GETSET` for rate limiting and counters without application-level locking.
+
+#### What It Costs
+
+| Cost | Details |
+|------|---------|
+| **Additional pod** | Valkey runs as a separate Deployment (~32-96MB RAM, ~10-100m CPU) |
+| **Network latency** | Every cache operation is a network round-trip (~0.1-0.5ms within the same node). For <10KB of cache data, this overhead may exceed the savings from avoiding the original K8s API call or metric computation. |
+| **Operational complexity** | Another service to deploy, monitor, upgrade, and debug. Valkey configuration (maxmemory, eviction policy, persistence settings) must be understood by homelab operators. |
+| **New dependency** | `fred` crate (~2MB binary size increase); Valkey Docker image (~30MB); Kubernetes manifests for Deployment + Service. |
+| **Connection management** | Must handle Valkey connection failures gracefully. If Valkey is unavailable, the backend must fall back to direct source lookups (K8s API, cAdvisor). |
+| **Over-engineering risk** | For caching <10KB of transient, reconstructable data, an external key-value store is a disproportionate solution. |
+
+#### Assessment
+
+| Criterion | Rating | Notes |
+|-----------|--------|-------|
+| Complexity | ❌ Significant | New dependency, new pod, new configuration |
+| Operational overhead | ❌ High | Another service for homelab operators to manage |
+| Memory usage | ⚠️ Moderate | +32-96MB for Valkey pod; disproportionate for <10KB of cached data |
+| Cold-start penalty | ✅ Eliminated | Cache survives backend pod restarts (if Valkey stays up) |
+| Eviction | ✅ Native | Built-in TTL and LRU eviction policies |
+| Size bounds | ✅ Native | `maxmemory` with configurable eviction policy |
+| Persistence | ✅ Optional | RDB/AOF available if needed |
+| Multi-pod support | ✅ Full | Shared state, pub/sub, atomic operations |
+
+**Verdict:** Redis/Valkey is the right choice if Kubarr needs multi-pod deployment, shared sessions, or cross-pod pub/sub. For a single-pod homelab caching <10KB of transient data, it adds significant complexity for marginal benefit.
+
+### Strategy 3: Embedded redb
+
+**Approach:** Use the `redb` crate (pure-Rust B+ tree key-value store) to persist cache data to disk within the backend process. Cache entries survive pod restarts without external infrastructure.
+
+#### What It Provides
+
+- **ACID transactions** — Full crash safety with transactional reads and writes. Data is never in an inconsistent state, even after unexpected termination.
+- **Persistent cache** — Cache data survives pod restarts. Endpoint lookups and network rate history are immediately available after restart, eliminating cold-start gaps.
+- **No network overhead** — Embedded in the backend process; no TCP round-trips for cache operations. Read latency is comparable to in-memory access when data is in the OS page cache.
+- **Zero external dependencies** — No new pods, no new services. Just a file on the existing PVC.
+
+#### What It Costs
+
+| Cost | Details |
+|------|---------|
+| **Single-process only** | redb, like SQLite, is single-writer. Cannot be shared across multiple pods. |
+| **No native TTL** | Expiration must be implemented manually (expiry timestamp column + periodic cleanup), similar to the current in-memory approach. |
+| **Disk I/O for cache ops** | Every cache write triggers a disk fsync (ACID guarantee). For a cache that writes on every metric poll (~every 10 seconds), this adds ~1ms of latency per write on SSD. |
+| **Two embedded databases** | If using SQLite for the primary database, adding redb means two embedded storage engines with separate file management, backup considerations, and potential lock contention. |
+| **New dependency** | `redb` crate (~1MB binary size increase). Minimal, but non-zero. |
+| **Complexity vs. benefit** | Persisting <10KB of transient, reconstructable data to disk provides marginal benefit. The cold-start penalty (2-3 polling cycles, ~20-30 seconds) is acceptable for a homelab dashboard. |
+
+#### Assessment
+
+| Criterion | Rating | Notes |
+|-----------|--------|-------|
+| Complexity | ⚠️ Moderate | New dependency, manual TTL implementation, file management |
+| Operational overhead | ✅ Low | No new pods; embedded in backend process |
+| Memory usage | ✅ Low | ~5-20MB for memory-mapped file (mostly OS page cache) |
+| Cold-start penalty | ✅ Eliminated | Cache data persisted to disk, available immediately |
+| Eviction | ⚠️ Manual | Must implement TTL checking and background cleanup (same as in-memory) |
+| Size bounds | ⚠️ Manual | Must implement max-entries logic (same as in-memory) |
+| Persistence | ✅ Full | ACID-guaranteed crash safety |
+| Multi-pod support | ❌ None | Single-process embedded database |
+
+**Verdict:** redb is a well-designed embedded store, but for Kubarr's caching needs it solves a problem that barely exists. The cold-start penalty it eliminates (20-30 seconds of incomplete rate data) does not justify the added complexity of a second embedded database engine, manual TTL implementation, and disk I/O overhead on cache writes.
+
+### Comparison Matrix
+
+| Criterion | Improved In-Memory | External Redis/Valkey | Embedded redb |
+|-----------|-------------------|----------------------|---------------|
+| **New dependencies** | None | `fred` crate + Valkey pod | `redb` crate |
+| **Implementation effort** | ~2-4 hours | ~18 hours | ~11 hours |
+| **Lines of code** | ~50 | ~300+ | ~150+ |
+| **Additional pods** | 0 | 1 | 0 |
+| **Additional RAM** | 0 | +32-96MB | +5-20MB |
+| **Persistence** | ❌ | ✅ | ✅ |
+| **Multi-pod support** | ❌ | ✅ | ❌ |
+| **Native TTL** | ❌ (manual) | ✅ | ❌ (manual) |
+| **Operational complexity** | ✅ None added | ❌ Significant | ⚠️ Moderate |
+| **Solves current issues** | ✅ Eviction + bounds | ✅ All + persistence | ✅ All + persistence |
+| **Proportionate to need** | ✅ Yes | ❌ No (for homelab) | ⚠️ Borderline |
+
+### Recommendation: Improved In-Memory Caching
+
+**For Kubarr's homelab context, improved in-memory caching is the recommended strategy.** The rationale:
+
+1. **The data is transient and reconstructable.** Both `EndpointCache` and `NetworkMetricsCache` derive their contents from external sources (Kubernetes API, cAdvisor) that are always available. There is no durable state to protect. Persisting cache entries across pod restarts saves at most 20-30 seconds of incomplete dashboard data — a negligible improvement for a homelab user.
+
+2. **The data volume is trivially small.** Both caches combined hold <10KB in a typical deployment. Deploying a 32-96MB Valkey pod or adding a second embedded database engine to cache <10KB is a disproportionate response. The improved in-memory approach handles this with ~50 lines of code and zero new infrastructure.
+
+3. **The current issues are minor and easily fixed.** The two real problems — lack of background eviction and lack of size bounds — are solved with a `tokio::spawn` interval task and a max-entries check in `set()`. These are ~50 lines of straightforward Rust code with no new dependencies.
+
+4. **Operational simplicity is a core decision driver.** Kubarr targets homelab operators, not SREs. Every additional component (Valkey pod, redb file, new crate dependency) increases the surface area for debugging, monitoring, and maintenance. The in-memory approach adds zero operational burden.
+
+5. **Multi-pod and persistence are not current requirements.** If Kubarr ever needs shared sessions or cross-pod pub/sub, the architecture can be extended to include Valkey at that point. The in-memory cache design does not preclude adding an external cache later — it simply avoids adding one prematurely.
+
+6. **The cold-start penalty is acceptable.** After a pod restart, `EndpointCache` repopulates on the first request to each app (~1 K8s API call, <100ms). `NetworkMetricsCache` needs 2-3 polling intervals (~20-30 seconds) to produce accurate rate averages. For a homelab dashboard, this brief warm-up period is entirely acceptable.
+
+**Implementation priority:** The improved in-memory caching changes (background eviction + max-size bounds) should be implemented as part of the "Quick Wins" regardless of which primary database option (A, B, or C) is chosen. They are orthogonal to the database decision and address real (if minor) issues in the current architecture.
