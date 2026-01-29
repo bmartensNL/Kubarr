@@ -35,13 +35,16 @@ pub async fn create_test_db_with_seed() -> DatabaseConnection {
 }
 
 /// Seed default test data into the database
+/// Note: Most seed data is now inserted by migrations, so we only add
+/// data that isn't already present
 pub async fn seed_test_data(db: &DatabaseConnection) {
+    use kubarr::models::prelude::*;
     use kubarr::models::{role, role_app_permission, role_permission, system_setting};
-    use sea_orm::{ActiveModelTrait, Set};
+    use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 
     let now = chrono::Utc::now();
 
-    // Create system settings
+    // Create system settings (only if not already present from migrations)
     let default_settings = [
         (
             "registration_enabled",
@@ -56,16 +59,34 @@ pub async fn seed_test_data(db: &DatabaseConnection) {
     ];
 
     for (key, value, description) in default_settings {
-        let setting = system_setting::ActiveModel {
-            key: Set(key.to_string()),
-            value: Set(value.to_string()),
-            description: Set(Some(description.to_string())),
-            updated_at: Set(now),
-        };
-        setting.insert(db).await.unwrap();
+        // Check if setting already exists
+        if SystemSetting::find_by_id(key).one(db).await.unwrap().is_none() {
+            let setting = system_setting::ActiveModel {
+                key: Set(key.to_string()),
+                value: Set(value.to_string()),
+                description: Set(Some(description.to_string())),
+                updated_at: Set(now),
+            };
+            setting.insert(db).await.unwrap();
+        }
     }
 
-    // Create default roles
+    // Create default roles (only if not already present from migrations)
+    use sea_orm::ColumnTrait;
+    use sea_orm::QueryFilter;
+
+    // Check if admin role exists
+    if Role::find()
+        .filter(role::Column::Name.eq("admin"))
+        .one(db)
+        .await
+        .unwrap()
+        .is_some()
+    {
+        // Seed data already exists from migrations
+        return;
+    }
+
     let admin_role = role::ActiveModel {
         name: Set("admin".to_string()),
         description: Set(Some("Full administrator access".to_string())),
