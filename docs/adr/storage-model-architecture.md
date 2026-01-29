@@ -920,3 +920,378 @@ sqlite3 /tmp/kubarr.db "SELECT name, (SELECT COUNT(*) FROM [name]) FROM sqlite_m
 | StatefulSet operational complexity | Low | Low | Standard K8s pattern; well-documented; simpler than CNPG operator |
 
 **Overall risk: Medium.** The migration itself carries moderate risk (data conversion, migration compatibility), but the runtime risk is lower than the current architecture (fewer moving parts, fewer failure modes). The ability to keep both feature flags and switch via `DATABASE_URL` provides a safe rollback path.
+
+---
+
+## Option C: Hybrid Approach (SQLite + Optional Caching Layer)
+
+**Summary:** Use SQLite as the primary relational database (identical to Option B), but add an optional caching layer to address specific performance concerns — particularly auth-layer query overhead, session management, and potential future multi-replica scenarios. The caching layer can be either an external service (Redis/Valkey) or an embedded key-value store (redb, fjall), chosen based on deployment complexity tolerance and scaling ambitions.
+
+This option recognizes that while SQLite eliminates the CNPG/PostgreSQL overhead, certain workloads (session lookups, permission caching, real-time notifications) benefit from a dedicated caching layer that survives beyond individual request lifetimes and offers native TTL expiration.
+
+### Primary Storage: SQLite (Same as Option B)
+
+The SQLite configuration, Litestream replication, StatefulSet deployment, data migration approach, and all critical constraints documented in Option B apply identically here. Option C extends Option B by layering a caching strategy on top.
+
+**Refer to Option B for:**
+- SeaORM feature flag configuration
+- Data type compatibility (all 22 entities portable)
+- SQLite PRAGMA settings (WAL mode, busy_timeout, synchronous, foreign_keys)
+- StatefulSet with Litestream sidecar deployment
+- S3-compatible backup via Backblaze B2
+- Single-writer limitation and constraints
+- Data migration approach from PostgreSQL
+
+### When an External Caching Layer Is Justified
+
+Not every deployment benefits from adding a caching layer. The decision depends on specific workload characteristics and operational requirements:
+
+#### Justified Scenarios
+
+| Scenario | Why Caching Helps |
+|----------|-------------------|
+| **Multi-replica sessions** | If Kubarr ever needs to scale beyond a single pod (e.g., separate API and worker pods), session state must be shared across processes. An in-memory cache per pod cannot serve this need. |
+| **Cross-pod pub/sub** | WebSocket notifications currently use Tokio broadcast channels, which are process-local. If multiple pods need to broadcast events (e.g., "new download started"), a shared pub/sub mechanism (Redis/Valkey PUBLISH/SUBSCRIBE) enables cross-pod communication without polling. |
+| **Persistent cache across restarts** | Current in-memory caches (`EndpointCache`, `NetworkMetricsCache`) are lost on pod restart. An external or embedded persistent cache preserves warm data across restarts, eliminating cold-start latency for auth lookups, endpoint resolution, and rate history. |
+| **Auth-layer query reduction** | The current architecture performs 4+ database queries per authenticated request. A cache with TTL-based expiration can serve session/user/permission lookups from memory, reducing database load from O(requests) to O(cache_misses). |
+| **Rate limiting** | If rate limiting is ever needed, atomic increment operations with TTL (native to Redis/Valkey) are the standard implementation pattern. SQLite cannot efficiently serve this use case. |
+
+#### Not Justified Scenarios
+
+| Scenario | Why Caching Is Overkill |
+|----------|------------------------|
+| **Single-pod homelab with 1-5 users** | SQLite queries for auth lookups complete in <1ms from disk (often from OS page cache). The 4+ queries per request are fast enough that the latency is imperceptible to users. Adding a cache adds complexity without measurable user-facing improvement. |
+| **Low write volume** | Kubarr's write workload (<100 writes/minute) means cache invalidation is trivial — but it also means there's little to gain from caching because the database is never under pressure. |
+| **Simple deployment priority** | Homelab operators who chose SQLite to eliminate CNPG complexity may not want to add Redis/Valkey complexity back. The operational burden of another service (even a small one) contradicts the simplicity motivation. |
+
+### External Caching: Redis / Valkey
+
+#### Overview
+
+Redis is the de facto standard for application-level caching, session storage, and pub/sub messaging. Valkey is the open-source fork of Redis (created after Redis Ltd. changed its license to RSALv2 + SSPLv1 in March 2024) and is API-compatible.
+
+**Recommendation:** Use Valkey over Redis for new deployments. Valkey is maintained by the Linux Foundation, is fully open-source (BSD-3-Clause license), and has broad industry backing (AWS, Google, Oracle, Ericsson). It is a drop-in replacement for Redis with identical API and protocol.
+
+#### Rust Client: `fred` Crate (Preferred)
+
+The `fred` crate is the recommended Redis/Valkey client for Rust async applications:
+
+```toml
+# Cargo.toml addition for Option C with external cache
+fred = { version = "9", features = ["subscriber-client", "tokio-runtime"] }
+```
+
+**Why `fred` over alternatives:**
+
+| Crate | Assessment |
+|-------|-----------|
+| `fred` (recommended) | Full async/await, connection pooling, cluster support, pub/sub, Lua scripting, pipeline batching, reconnect with backoff. Actively maintained, production-tested. |
+| `redis-rs` | Older, widely used but lower-level. Less ergonomic async API. Adequate but `fred` is more modern. |
+| `deadpool-redis` | Connection pool wrapper around `redis-rs`. Adds pooling but not pub/sub or advanced features. |
+
+**Example: Auth-layer caching with `fred`:**
+
+```rust
+use fred::prelude::*;
+
+/// Cache key format for session lookups
+fn session_cache_key(session_id: &str) -> String {
+    format!("session:{}", session_id)
+}
+
+/// Cached auth context: session + user + permissions
+#[derive(Serialize, Deserialize)]
+struct CachedAuthContext {
+    session: SessionModel,
+    user: UserModel,
+    permissions: Vec<String>,
+    app_permissions: Vec<AppPermission>,
+}
+
+/// Look up auth context: cache first, then database
+async fn get_auth_context(
+    client: &RedisClient,
+    db: &DatabaseConnection,
+    session_id: &str,
+) -> Result<CachedAuthContext> {
+    let cache_key = session_cache_key(session_id);
+
+    // Try cache first
+    if let Some(cached): Option<String> = client.get(&cache_key).await? {
+        if let Ok(ctx) = serde_json::from_str::<CachedAuthContext>(&cached) {
+            return Ok(ctx);
+        }
+    }
+
+    // Cache miss: query database (4+ queries)
+    let session = Session::find_by_id(session_id).one(db).await?;
+    let user = User::find_by_id(session.user_id).one(db).await?;
+    let permissions = fetch_permissions(db, user.id).await?;
+    let app_permissions = fetch_app_permissions(db, user.id).await?;
+
+    let ctx = CachedAuthContext { session, user, permissions, app_permissions };
+
+    // Cache with TTL (e.g., 5 minutes)
+    let json = serde_json::to_string(&ctx)?;
+    client.set(&cache_key, json.as_str(), Some(Expiration::EX(300)), None, false).await?;
+
+    Ok(ctx)
+}
+```
+
+#### Native Redis/Valkey Features Relevant to Kubarr
+
+| Feature | Use Case in Kubarr | Benefit |
+|---------|-------------------|---------|
+| **TTL expiration** | Session cache auto-expires after 5 minutes; no manual eviction needed | Eliminates the "no automatic cache eviction" issue identified in the current architecture |
+| **Pub/Sub** | `PUBLISH kubarr:notifications <event>` enables cross-pod WebSocket event broadcasting | Future-proofs multi-pod notification delivery without polling |
+| **Atomic operations** | `INCR`, `EXPIRE` for rate limiting counters | Enables rate limiting without database writes |
+| **Key patterns** | `session:*`, `endpoint:*`, `auth:*` with `SCAN` for bulk operations | Clean cache invalidation on permission changes (e.g., `DEL session:*` after role update) |
+| **Memory management** | `maxmemory-policy allkeys-lru` for automatic eviction under memory pressure | Bounded memory usage without application-level eviction logic |
+
+#### Kubernetes Deployment (Valkey)
+
+```yaml
+# Minimal Valkey deployment for homelab
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubarr-valkey
+  namespace: kubarr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kubarr-valkey
+  template:
+    spec:
+      containers:
+        - name: valkey
+          image: valkey/valkey:8-alpine
+          ports:
+            - containerPort: 6379
+          command: ["valkey-server"]
+          args:
+            - "--maxmemory"
+            - "64mb"
+            - "--maxmemory-policy"
+            - "allkeys-lru"
+            - "--save"
+            - ""           # Disable RDB persistence (cache-only; SQLite is source of truth)
+            - "--appendonly"
+            - "no"         # Disable AOF persistence
+          resources:
+            requests:
+              memory: 32Mi
+              cpu: 10m
+            limits:
+              memory: 96Mi
+              cpu: 100m
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubarr-valkey
+  namespace: kubarr
+spec:
+  selector:
+    app: kubarr-valkey
+  ports:
+    - port: 6379
+      targetPort: 6379
+```
+
+**Key decisions:**
+- **No persistence** — Valkey is a cache, not a database. SQLite is the source of truth. Disabling RDB and AOF saves disk I/O and simplifies operation.
+- **64MB memory limit** — Sufficient for caching sessions, endpoints, and permissions for 1-5 users. LRU eviction handles memory pressure automatically.
+- **Alpine image** — Minimal footprint (~30MB container image vs ~130MB full image).
+
+### Embedded Key-Value Alternatives
+
+For deployments where adding an external service (Valkey) is undesirable, an embedded Rust key-value store can provide persistent caching within the backend process itself.
+
+#### redb (Recommended)
+
+**Repository:** [cberner/redb](https://github.com/cberner/redb)
+**License:** MIT / Apache-2.0
+
+```toml
+redb = "2"
+```
+
+**Characteristics:**
+- **ACID transactions** — Full transactional guarantees with crash safety
+- **Stable API** — Reached 1.0 in 2023; now at 2.x with a mature, well-documented API
+- **B+ tree storage engine** — Optimized for read-heavy workloads (ideal for cache lookups)
+- **Zero dependencies** — Pure Rust, no C bindings, no system library requirements
+- **Memory-mapped I/O** — Leverages OS page cache for fast reads without explicit caching logic
+- **Concurrent readers** — Multiple threads can read simultaneously (similar to SQLite WAL mode)
+- **Single-writer** — One write transaction at a time (same constraint as SQLite)
+
+**Example: Auth context caching with redb:**
+
+```rust
+use redb::{Database, ReadableTable, TableDefinition};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+const AUTH_CACHE: TableDefinition<&str, &[u8]> = TableDefinition::new("auth_cache");
+const AUTH_EXPIRY: TableDefinition<&str, u64> = TableDefinition::new("auth_expiry");
+
+fn get_cached_auth(db: &Database, session_id: &str) -> Option<CachedAuthContext> {
+    let read_txn = db.begin_read().ok()?;
+    let expiry_table = read_txn.open_table(AUTH_EXPIRY).ok()?;
+    let cache_table = read_txn.open_table(AUTH_CACHE).ok()?;
+
+    // Check expiry
+    let expiry = expiry_table.get(session_id).ok()??;
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
+    if now > expiry.value() {
+        return None; // Expired
+    }
+
+    // Read cached value
+    let value = cache_table.get(session_id).ok()??;
+    serde_json::from_slice(value.value()).ok()
+}
+```
+
+**Assessment for Kubarr:** redb is the best embedded KV option. Its ACID guarantees, stable API, and read-optimized B+ tree engine align perfectly with Kubarr's cache use case (frequent reads, infrequent writes, crash safety desired). The pure-Rust implementation eliminates cross-compilation concerns for ARM homelab devices.
+
+#### fjall
+
+**Repository:** [fjall-rs/fjall](https://github.com/fjall-rs/fjall)
+**License:** MIT / Apache-2.0
+
+```toml
+fjall = "2"
+```
+
+**Characteristics:**
+- **LSM-tree storage engine** — Optimized for write-heavy workloads with background compaction
+- **Key-value partitions** — Supports multiple "partitions" (column families) within one database
+- **Configurable compaction** — Leveled, tiered, or FIFO compaction strategies
+- **Bloom filters** — Reduces unnecessary disk reads for missing keys
+- **Cross-partition transactions** — Atomic writes across multiple partitions
+- **Active development** — Rapidly evolving API; version 2.x
+
+**Assessment for Kubarr:** fjall is better suited for write-heavy workloads (logging, time-series) than for read-heavy cache lookups. Its LSM-tree engine has higher read amplification than redb's B+ tree for point lookups. The API is less stable than redb. **Use fjall only if write throughput is a bottleneck** — which it is not for Kubarr's homelab workload.
+
+#### sled — NOT RECOMMENDED
+
+**Repository:** [spacejam/sled](https://github.com/spacejam/sled)
+
+**⚠️ Do not use sled.** Despite its popularity (4K+ GitHub stars), sled has critical issues:
+
+- **Perpetual beta** — The README explicitly states: "sled is still beta quality." It has been in beta since 2018 with no 1.0 release timeline.
+- **Data loss bugs** — Multiple open issues report data corruption and loss under concurrent access.
+- **Uncertain maintenance** — Development has slowed significantly; the maintainer has discussed rewriting the engine entirely.
+- **API instability** — Breaking changes between minor versions with no stability guarantees.
+
+**redb was explicitly created as a stable, ACID-compliant alternative to sled.** Use redb instead.
+
+#### Embedded KV Comparison
+
+| Feature | redb | fjall | sled |
+|---------|------|-------|------|
+| Storage engine | B+ tree | LSM-tree | Lock-free B+ tree |
+| ACID transactions | ✅ Full | ✅ Full | ⚠️ Partial |
+| API stability | ✅ Stable (2.x) | ⚠️ Evolving (2.x) | ❌ Beta |
+| Read performance | ✅ Excellent | ⚠️ Good (read amplification) | ✅ Good |
+| Write performance | ✅ Good | ✅ Excellent | ✅ Good |
+| Crash safety | ✅ Proven | ✅ Yes | ⚠️ Reported issues |
+| Dependencies | Zero | Minimal | Minimal |
+| Recommended? | **✅ Yes** | Conditional (write-heavy only) | **❌ No** |
+
+### Is a Caching Layer Overkill for Single-Pod Homelab?
+
+**Short answer: Yes, for most homelab deployments.**
+
+The quantitative case against adding a caching layer for Kubarr's target deployment:
+
+| Metric | Without Cache | With Cache | Improvement |
+|--------|--------------|------------|-------------|
+| Auth lookup latency | ~1-5ms (SQLite, likely from OS page cache) | ~0.1-0.5ms (in-memory) | 1-5ms saved per request |
+| Auth queries per request | 4+ SQLite queries | 1 cache lookup (on hit) | 3 fewer queries |
+| Total request latency | ~10-50ms (typical API) | ~5-45ms | Imperceptible to user |
+| Cold start penalty | ~5-10 seconds (cache rebuilds) | None (persistent cache) | Moderate improvement |
+| Memory overhead | None | +32-96MB (Valkey) or +5-20MB (redb) | Negative (more memory used) |
+
+**For 1-5 users making <100 requests/minute**, the latency improvement is imperceptible. SQLite with WAL mode and OS page caching already serves read queries in <1ms for Kubarr's data sizes (<100MB). The 4+ auth queries complete in ~2-5ms total — well within acceptable latency for a homelab UI.
+
+**When the calculus changes:**
+- **>10 concurrent users** — Auth query volume becomes meaningful; cache reduces database load
+- **Multi-pod deployment** — Shared session state requires external cache (in-memory is per-pod)
+- **Sub-millisecond latency requirements** — If Kubarr becomes an API gateway or proxy with strict latency SLOs
+- **Rate limiting** — Atomic increment with TTL is a cache-native operation
+
+**Recommendation:** Start without a caching layer (pure Option B). Add redb as an embedded auth cache when/if auth latency becomes measurable. Add Valkey only if multi-pod deployment becomes a requirement.
+
+### Pros and Cons
+
+| Aspect | Assessment |
+|--------|------------|
+| **Pros** | |
+| All Option B benefits | SQLite simplicity, eliminated CNPG, Litestream backup, lower resource footprint |
+| Auth performance improvement | 4+ DB queries reduced to 1 cache lookup (cache hit) for session/user/permissions |
+| Native TTL expiration | Redis/Valkey or redb-with-expiry replaces manual eviction logic in current `EndpointCache`/`NetworkMetricsCache` |
+| Future-proof for multi-pod | External cache (Valkey) enables shared sessions and pub/sub if horizontal scaling is ever needed |
+| Persistent cache survives restarts | Eliminates cold-start penalty for endpoint lookups and network rate history (with redb or Valkey with persistence) |
+| Bounded memory by design | Valkey's `maxmemory-policy allkeys-lru` or redb's disk-backed storage prevents unbounded growth |
+| **Cons** | |
+| Added operational complexity | One more component to deploy, monitor, and debug (Valkey) or one more database file to manage (redb) |
+| Marginal benefit for homelab | 1-5ms latency improvement is imperceptible for 1-5 users; effort-to-value ratio is poor |
+| Cache invalidation complexity | Must invalidate cached auth context when permissions change, sessions are revoked, or users are deactivated |
+| Two storage engines to understand | Developers must understand both SQLite and the cache layer; increases onboarding complexity |
+| Valkey adds ~96MB RAM | Partially offsets the ~325MB saved by removing PostgreSQL/CNPG |
+| redb adds write contention | Both SQLite and redb are single-writer; two single-writer stores on the same pod increase lock contention risk |
+
+### Migration Effort
+
+**Effort: Option B base + caching layer addition**
+
+| Task | Effort | Risk |
+|------|--------|------|
+| All Option B tasks (SQLite migration) | ~28 hours (3-4 days) | Medium (see Option B) |
+| **Additional for Valkey path:** | | |
+| Add `fred` crate and connection setup | ~2 hours | Low - well-documented crate |
+| Implement auth-layer cache (get/set/invalidate) | ~6 hours | Medium - cache invalidation logic |
+| Add Valkey Kubernetes deployment | ~2 hours | Low - standard deployment |
+| Cache invalidation on permission changes | ~4 hours | Medium - must cover all mutation paths |
+| Integration testing (cache hit/miss/invalidation) | ~4 hours | Medium - edge cases in invalidation |
+| **Valkey subtotal** | **~18 hours (2-3 days)** | **Medium** |
+| **Additional for redb path:** | | |
+| Add `redb` crate and database setup | ~2 hours | Low - simple API |
+| Implement auth-layer cache with expiry | ~4 hours | Low - straightforward key-value ops |
+| Background expiry cleanup task | ~2 hours | Low - periodic scan and delete |
+| Integration testing | ~3 hours | Low - embedded, easier to test |
+| **redb subtotal** | **~11 hours (1-2 days)** | **Low** |
+
+**Total effort:**
+- Option C with Valkey: ~46 hours (5-6 days)
+- Option C with redb: ~39 hours (4-5 days)
+
+### Resource Impact
+
+| Resource | Option B (SQLite only) | Option C + Valkey | Option C + redb |
+|----------|----------------------|-------------------|-----------------|
+| Backend pod memory | ~50MB | ~50MB | ~55-70MB (+redb mmap) |
+| Valkey pod | N/A | ~32-96MB | N/A |
+| Litestream sidecar | ~32-64MB | ~32-64MB | ~32-64MB |
+| Total RAM | ~82-114MB | ~114-210MB | ~87-134MB |
+| Additional pods | 0 | 1 (Valkey) | 0 |
+| Additional PVCs | 0 | 0 (cache-only, no persistence) | 0 (redb shares data PVC) |
+| Additional Docker images | 0 | 1 (valkey:8-alpine, ~30MB) | 0 |
+
+### Risk Assessment
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| All Option B risks | (see Option B) | (see Option B) | (see Option B) |
+| Cache-database inconsistency | Medium | Medium | Short TTL (5 min); explicit invalidation on writes; cache is non-authoritative |
+| Valkey pod failure | Low | Low | Application falls back to direct SQLite queries; cache is optional |
+| redb file corruption | Very low | Low | redb is ACID; cache can be rebuilt from SQLite (source of truth) |
+| Cache invalidation bugs | Medium | Medium | Comprehensive test coverage; conservative TTL; manual cache-clear admin endpoint |
+| Over-engineering for homelab | High | Low | Document that caching layer is optional; default deployment is Option B without cache |
+| Valkey license changes | Very low | Low | Valkey is Linux Foundation governed; unlikely to change. Can also self-host Redis <7.4 (BSD licensed) |
+
+**Overall risk: Medium-High.** The caching layer adds complexity and failure modes that are disproportionate to the benefit for a single-pod homelab. The primary risk is over-engineering: spending development effort on optimization that doesn't meaningfully improve the user experience. However, if multi-pod deployment or auth performance becomes a real requirement, the hybrid approach provides a clear upgrade path from Option B.
