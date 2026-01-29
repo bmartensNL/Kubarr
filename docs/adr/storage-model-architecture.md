@@ -15,7 +15,7 @@ Kubarr is a Kubernetes-native homelab management platform designed for single-po
 - **Resource efficiency** - Minimize memory and CPU overhead on constrained hardware
 - **Data durability** - Protect against data loss without complex backup infrastructure
 - **Single-pod architecture** - No horizontal scaling; one backend pod serves all traffic
-- **Migration feasibility** - Any change must handle 22 existing entity models and 23 migrations
+- **Migration feasibility** - Any change must handle 22 existing entity models and 22 migrations
 
 ---
 
@@ -46,7 +46,7 @@ opts.max_connections(10)
 
 | Category | Models |
 |----------|--------|
-| Auth & Users | `user`, `session`, `role`, `user_role`, `role_permission`, `role_app_permission`, `invite`, `pending_2fa_challenge` |
+| Auth & Users | `user`, `session`, `role`, `user_role`, `role_permission`, `role_app_permission`, `invite`, `pending_2fa_challenge`, `user_preferences` |
 | OAuth | `oauth_account`, `oauth_provider` |
 | Notifications | `notification_channel`, `notification_event`, `notification_log`, `user_notification`, `user_notification_pref` |
 | System | `system_setting`, `server_config`, `bootstrap_status`, `audit_log` |
@@ -54,7 +54,7 @@ opts.max_connections(10)
 
 All models use standard SeaORM patterns: `DeriveEntityModel` with `Serialize`/`Deserialize`, `i64` primary keys (PostgreSQL `bigint`), and `DateTimeUtc` timestamps.
 
-**Migrations** (`code/backend/src/migrations/`): 23 ordered migrations (including a seed-defaults migration) covering schema creation from `m20260127_000001` through `m20260130_000002`.
+**Migrations** (`code/backend/src/migrations/`): 22 ordered migrations (including a seed-defaults migration) covering schema creation from `m20260127_000001` through `m20260130_000002`.
 
 **CNPG RBAC** (`charts/kubarr/values.yaml`):
 
@@ -859,7 +859,7 @@ sqlite3 /tmp/kubarr.db "SELECT name, (SELECT COUNT(*) FROM [name]) FROM sqlite_m
 | Task | Effort | Risk |
 |------|--------|------|
 | SQLite PRAGMAs in `database.rs` | ~2 hours | Low - well-documented SQLite best practices |
-| Migration compatibility testing | ~4 hours | Medium - verify all 23 migrations run on SQLite |
+| Migration compatibility testing | ~4 hours | Medium - verify all 22 migrations run on SQLite |
 | StatefulSet Helm template | ~4 hours | Low - template conversion with Litestream sidecar |
 | Litestream ConfigMap and Secret | ~2 hours | Low - standard Kubernetes resources |
 | Data export/import tooling | ~4 hours | Medium - type conversion edge cases |
@@ -912,7 +912,7 @@ sqlite3 /tmp/kubarr.db "SELECT name, (SELECT COUNT(*) FROM [name]) FROM sqlite_m
 |------|-----------|--------|------------|
 | Migration data loss | Low | High | Test migration on copy; verify row counts; keep PostgreSQL running during transition |
 | SQLite corruption | Very low | High | Litestream provides continuous backup; WAL mode is mature and well-tested |
-| SeaORM migration incompatibility | Medium | Medium | Run all 23 migrations on SQLite in CI; fix any PostgreSQL-specific DDL |
+| SeaORM migration incompatibility | Medium | Medium | Run all 22 migrations on SQLite in CI; fix any PostgreSQL-specific DDL |
 | Litestream S3 outage | Low | Low | Local PVC has full data; S3 is only for backup, not runtime |
 | Write contention under load | Very low | Low | SQLite handles >50K writes/sec; Kubarr does <100 writes/min |
 | Future need for PostgreSQL features | Low | Medium | Both feature flags remain compiled; can switch back via `DATABASE_URL` |
@@ -1712,11 +1712,11 @@ Implement all five quick wins listed above. These improvements benefit the curre
 
 #### Phase 1: SQLite Compatibility (Week 2)
 
-Verify and fix all 23 SeaORM migrations for SQLite compatibility. Add SQLite PRAGMA configuration to `database.rs`. Run integration tests against SQLite.
+Verify and fix all 22 SeaORM migrations for SQLite compatibility. Add SQLite PRAGMA configuration to `database.rs`. Run integration tests against SQLite.
 
 **Deliverables:**
 - SQLite PRAGMA configuration (`journal_mode=WAL`, `busy_timeout=5000`, `synchronous=NORMAL`, `foreign_keys=ON`)
-- All 23 migrations verified on SQLite (fix any PostgreSQL-specific DDL)
+- All 22 migrations verified on SQLite (fix any PostgreSQL-specific DDL)
 - Integration test suite passing against both PostgreSQL and SQLite
 - `DATABASE_URL` scheme detection for automatic backend selection
 
@@ -1783,7 +1783,7 @@ SeaORM 2.0 (currently in release candidate) introduces the **Entity First Workfl
 **Impact on this recommendation:**
 
 - **Option B (SQLite) is fully compatible with SeaORM 2.0.** The Entity First Workflow supports SQLite as a backend. Entity definitions using `DeriveEntityModel` will work identically on both PostgreSQL and SQLite.
-- **Existing migrations continue to work.** SeaORM 2.0 does not deprecate the migration-first workflow. The 23 existing migrations will continue to function. The Entity First Workflow is an *additional* option, not a replacement.
+- **Existing migrations continue to work.** SeaORM 2.0 does not deprecate the migration-first workflow. The 22 existing migrations will continue to function. The Entity First Workflow is an *additional* option, not a replacement.
 - **Dual feature flags remain valid.** Keeping both `sqlx-postgres` and `sqlx-sqlite` compiled ensures compatibility with SeaORM 2.0's auto-schema-sync feature, which can target either backend.
 - **No blocking conflicts.** The SQLite migration recommended here does not introduce any patterns or dependencies that conflict with a future SeaORM 2.0 upgrade. If anything, the simplified deployment (no external database to coordinate schema changes with) makes schema sync easier.
 
