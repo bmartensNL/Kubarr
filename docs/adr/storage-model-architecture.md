@@ -493,3 +493,430 @@ Note: CNPG tuning increases PostgreSQL memory allocation intentionally to improv
 | Audit retention deletes needed logs | Low | Medium | Default 90 days is conservative; env-configurable |
 
 **Overall risk: Low.** All changes are incremental, independently deployable, and reversible. The quick wins address real issues with proven patterns. CNPG tuning follows well-documented PostgreSQL best practices.
+
+---
+
+## Option B: SQLite + Litestream
+
+**Summary:** Replace PostgreSQL with an embedded SQLite database running inside the backend process, eliminating the CNPG operator and external database pod entirely. Continuous replication to S3-compatible storage (Backblaze B2) is handled by Litestream running as a sidecar container. The Kubernetes deployment model changes from a Deployment to a StatefulSet with `replicas: 1`.
+
+### SeaORM Feature Flag Change
+
+The Rust backend already compiles both PostgreSQL and SQLite support via SeaORM feature flags in `Cargo.toml`:
+
+```toml
+# Current Cargo.toml - both backends already compiled
+sea-orm = { version = "1.1", features = ["sqlx-postgres", "sqlx-sqlite", "runtime-tokio-native-tls", "macros", "with-chrono"] }
+sea-orm-migration = { version = "1.1", features = ["sqlx-postgres", "sqlx-sqlite", "runtime-tokio-native-tls"] }
+```
+
+For a SQLite-only deployment, the feature flags would change to remove the PostgreSQL dependency:
+
+```toml
+# Option B: SQLite-only (reduces binary size and compile time)
+sea-orm = { version = "1.1", features = ["sqlx-sqlite", "runtime-tokio-native-tls", "macros", "with-chrono"] }
+sea-orm-migration = { version = "1.1", features = ["sqlx-sqlite", "runtime-tokio-native-tls"] }
+```
+
+Alternatively, both can be kept (as today) and the database backend selected at runtime via the `DATABASE_URL` scheme:
+
+```rust
+// SQLite: DATABASE_URL=sqlite:///data/kubarr.db?mode=rwc
+// PostgreSQL: DATABASE_URL=postgres://user:pass@host:5432/kubarr
+```
+
+SeaORM's `Database::connect()` automatically selects the correct driver based on the URL scheme. This means the same binary can support both backends, controlled entirely by configuration.
+
+**Recommendation:** Keep both feature flags compiled (as today) to preserve the ability to use either backend. The binary size increase is negligible (~2MB), and it provides deployment flexibility.
+
+### Data Type Compatibility
+
+All 22 entity models use SeaORM-portable types that work identically across PostgreSQL and SQLite:
+
+| SeaORM Type | PostgreSQL Mapping | SQLite Mapping | Compatible? |
+|-------------|-------------------|----------------|-------------|
+| `i64` (primary keys) | `BIGINT` | `INTEGER` (64-bit) | ✅ Yes |
+| `String` | `VARCHAR`/`TEXT` | `TEXT` | ✅ Yes |
+| `DateTimeUtc` (chrono) | `TIMESTAMPTZ` | `TEXT` (ISO 8601) | ✅ Yes |
+| `bool` | `BOOLEAN` | `INTEGER` (0/1) | ✅ Yes |
+| `Option<T>` | `NULLABLE` | `NULLABLE` | ✅ Yes |
+| `Json` (serde_json) | `JSONB` | `TEXT` (JSON string) | ✅ Yes¹ |
+
+¹ SQLite stores JSON as text. SeaORM handles serialization/deserialization transparently. However, PostgreSQL JSON operators (`->`, `->>`, `@>`, `#>`) are not available in SQLite. The current codebase uses `serde_json::Value` for JSON columns and deserializes in application code, so this is not an issue.
+
+**Verified:** All 22 entity models in `code/backend/src/models/` use `i64` primary keys and `DateTimeUtc` timestamps. No PostgreSQL-specific column types (arrays, enums, custom types) are used. The SeaORM abstraction layer handles type mapping transparently.
+
+### Connection Configuration Change
+
+The `database.rs` connection setup changes minimally for SQLite:
+
+```rust
+// Current PostgreSQL connection
+let mut opts = ConnectOptions::new("postgres://user:pass@host:5432/kubarr");
+opts.max_connections(10)
+    .min_connections(1)
+    .connect_timeout(Duration::from_secs(30))
+    .idle_timeout(Duration::from_secs(600))
+    .sqlx_logging(false);
+
+// SQLite connection (Option B)
+let mut opts = ConnectOptions::new("sqlite:///data/kubarr.db?mode=rwc");
+opts.max_connections(1)       // SQLite: single-writer, one connection for writes
+    .min_connections(1)       // Keep connection alive
+    .connect_timeout(Duration::from_secs(10))
+    .idle_timeout(Duration::from_secs(600))
+    .sqlx_logging(false);
+
+// Critical: enable WAL mode for concurrent reads during writes
+db.execute_unprepared("PRAGMA journal_mode=WAL").await?;
+db.execute_unprepared("PRAGMA busy_timeout=5000").await?;
+db.execute_unprepared("PRAGMA synchronous=NORMAL").await?;
+db.execute_unprepared("PRAGMA foreign_keys=ON").await?;
+```
+
+**Key SQLite PRAGMAs:**
+- `journal_mode=WAL` — Enables Write-Ahead Logging for concurrent read access during writes. Essential for Litestream replication.
+- `busy_timeout=5000` — Wait up to 5 seconds for write lock instead of immediately returning SQLITE_BUSY.
+- `synchronous=NORMAL` — Balanced durability/performance. WAL mode makes this safe; Litestream provides the durability guarantee via S3 replication.
+- `foreign_keys=ON` — SQLite disables foreign key enforcement by default. Must be enabled per connection.
+
+### StatefulSet Deployment
+
+SQLite requires a persistent volume mounted into the pod. The Kubernetes deployment model changes from `Deployment` to `StatefulSet` to ensure stable storage identity:
+
+```yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "kubarr.fullname" . }}-backend
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "kubarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  serviceName: {{ include "kubarr.fullname" . }}-backend
+  replicas: 1  # CRITICAL: SQLite requires single-writer; never scale beyond 1
+  updateStrategy:
+    type: Recreate  # Must stop old pod before starting new one (no rolling updates)
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "kubarr.name" . }}-backend
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "kubarr.name" . }}-backend
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ include "kubarr.serviceAccountName" . }}
+      # Init container: restore SQLite database from S3 via Litestream before backend starts
+      initContainers:
+        - name: litestream-restore
+          image: litestream/litestream:0.3
+          args: ["restore", "-if-db-not-exists", "/data/kubarr.db"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          envFrom:
+            - secretRef:
+                name: {{ include "kubarr.fullname" . }}-litestream
+      containers:
+        # Backend API container
+        - name: backend
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          ports:
+            - name: http
+              containerPort: {{ .Values.backend.service.targetPort }}
+              protocol: TCP
+          env:
+            - name: DATABASE_URL
+              value: "sqlite:///data/kubarr.db?mode=rwc"
+            {{- toYaml .Values.backend.env | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            {{- toYaml .Values.backend.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.backend.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}
+        # Litestream sidecar: continuous replication to S3
+        - name: litestream
+          image: litestream/litestream:0.3
+          args: ["replicate"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: litestream-config
+              mountPath: /etc/litestream.yml
+              subPath: litestream.yml
+          envFrom:
+            - secretRef:
+                name: {{ include "kubarr.fullname" . }}-litestream
+          resources:
+            requests:
+              memory: 32Mi
+              cpu: 10m
+            limits:
+              memory: 64Mi
+              cpu: 50m
+      volumes:
+        - name: litestream-config
+          configMap:
+            name: {{ include "kubarr.fullname" . }}-litestream
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.storage.storageClass | default "local-path" }}
+        resources:
+          requests:
+            storage: {{ .Values.storage.size | default "1Gi" }}
+```
+
+**Key design decisions:**
+- `replicas: 1` — SQLite's single-writer constraint means only one pod can write at a time. Attempting to scale beyond 1 would cause `SQLITE_BUSY` errors.
+- `updateStrategy: Recreate` — The old pod must fully stop (releasing the SQLite file lock) before the new pod starts. Rolling updates would cause two pods to contend for the same database file.
+- `volumeClaimTemplates` — StatefulSet provides stable PVC identity (`data-kubarr-backend-0`) that survives pod restarts and rescheduling.
+- Init container runs `litestream restore` with `-if-db-not-exists` — Only restores from S3 on first deploy or after data loss. Subsequent restarts use the existing PVC data.
+
+### Litestream Sidecar Pattern
+
+Litestream continuously replicates SQLite's WAL (Write-Ahead Log) to S3-compatible object storage. This provides near-real-time backup without any application code changes.
+
+**How it works:**
+
+1. **Init container (restore):** Before the backend starts, Litestream downloads the latest database snapshot and WAL segments from S3, reconstructing the full SQLite database. The `-if-db-not-exists` flag skips restore if the database already exists on the PVC.
+
+2. **Sidecar container (replicate):** Runs alongside the backend, watching the SQLite WAL file for changes. New WAL frames are uploaded to S3 within seconds of being written. Litestream performs periodic snapshots (default: every 24 hours) for faster future restores.
+
+**Litestream configuration:**
+
+```yaml
+# ConfigMap: litestream.yml
+dbs:
+  - path: /data/kubarr.db
+    replicas:
+      - type: s3
+        bucket: kubarr-backups
+        path: db
+        endpoint: https://s3.us-west-000.backblazeb2.com
+        region: us-west-000
+        retention: 168h          # Keep 7 days of WAL segments
+        retention-check-interval: 1h
+        snapshot-interval: 24h   # Full snapshot daily
+        sync-interval: 1s       # Replicate WAL changes every second
+        validation-interval: 12h # Verify replica integrity every 12 hours
+```
+
+**Recovery scenarios:**
+
+| Scenario | Recovery Method | Downtime | Data Loss |
+|----------|----------------|----------|-----------|
+| Pod restart (same node) | PVC data intact; no restore needed | ~5-10 seconds (pod startup) | None |
+| Pod reschedule (different node) | PVC may need re-provisioning; Litestream restores from S3 | ~30-60 seconds (restore + startup) | ≤1 second (last unreplicated WAL frame) |
+| PVC data corruption | Litestream restores latest snapshot + WAL from S3 | ~30-60 seconds | ≤1 second |
+| S3 bucket loss | PVC still has local data; manual backup needed | None (until PVC loss) | None (if PVC intact) |
+| Complete disaster (PVC + S3) | Full data loss | N/A | All data |
+
+### S3-Compatible Backup (Backblaze B2)
+
+Backblaze B2 is the recommended S3-compatible storage for homelab use:
+
+- **Free tier:** 10 GB storage, 1 GB/day download — more than sufficient for SQLite databases (typical Kubarr DB: <50MB)
+- **S3-compatible API:** Litestream natively supports B2's S3 endpoint
+- **Pricing beyond free tier:** $0.006/GB/month storage, $0.01/GB egress — negligible for database backups
+- **Regions:** US West, US East, EU Central — low latency for most homelab locations
+
+**Setup:**
+
+```yaml
+# Kubernetes Secret for Litestream S3 credentials
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kubarr-litestream
+type: Opaque
+stringData:
+  LITESTREAM_ACCESS_KEY_ID: "your-b2-application-key-id"
+  LITESTREAM_SECRET_ACCESS_KEY: "your-b2-application-key"
+```
+
+**Alternative S3 backends:** MinIO (self-hosted), Wasabi ($6.99/TB/month), AWS S3, or any S3-compatible storage. Litestream is backend-agnostic.
+
+**Offline/air-gapped fallback:** For environments without internet access, Litestream can replicate to a local MinIO instance or an NFS-mounted directory using the `file` replica type:
+
+```yaml
+replicas:
+  - type: file
+    path: /backup/kubarr-db
+    retention: 168h
+```
+
+### Critical Constraints
+
+#### 1. Single-Pod Only (Single-Writer Limitation)
+
+SQLite supports only one concurrent writer. All write operations are serialized through a single write lock. This means:
+
+- **No horizontal scaling** — Only one backend pod can exist. Attempting `replicas: 2` would cause `SQLITE_BUSY` errors on writes.
+- **No read replicas** — Unlike PostgreSQL, there is no streaming replication for read scaling.
+- **Write throughput** — SQLite in WAL mode handles ~50,000-100,000 simple writes/second on SSD. For Kubarr's homelab workload (1-5 users, <100 writes/minute), this is orders of magnitude more than sufficient.
+- **Concurrent reads** — WAL mode allows unlimited concurrent readers even during writes. Read throughput is not a concern.
+
+**Assessment for Kubarr:** The single-writer limitation is a non-issue for the homelab use case. Kubarr is already designed for single-pod deployment (`replicas: 1` in the current Deployment). The write workload (session updates, audit logs, configuration changes) is extremely light.
+
+#### 2. Brief Downtime on Pod Reschedule
+
+The `Recreate` update strategy means the old pod must fully terminate before the new pod starts. During this window:
+
+- **Duration:** Typically 10-30 seconds (pod termination + new pod scheduling + Litestream restore if PVC is lost + app startup)
+- **Impact:** API requests return 503 during the transition. WebSocket connections are dropped and must reconnect.
+- **Mitigation:** Kubernetes `terminationGracePeriodSeconds` allows the backend to complete in-flight requests. Litestream's init container restore is fast for small databases (<1 second for <50MB).
+
+**Assessment:** This downtime window is identical to the current behavior with PostgreSQL when the backend pod restarts. The CNPG database pod also has its own restart/failover time. In practice, SQLite may have *less* total downtime because there is no external database pod to restart or failover.
+
+#### 3. No LISTEN/NOTIFY
+
+PostgreSQL's `LISTEN/NOTIFY` mechanism provides real-time database-level event notifications. SQLite has no equivalent feature. This affects:
+
+- **Current usage:** The Kubarr codebase does not currently use `LISTEN/NOTIFY`. WebSocket notifications are handled via Tokio broadcast channels in `AppState` (`NetworkMetricsBroadcast`, `BootstrapBroadcast`), not database triggers.
+- **Future impact:** If real-time database change notifications were ever needed, they would need to be implemented via application-level event emission (e.g., publish to a Tokio channel after each write) rather than database triggers.
+
+**Assessment:** No impact on current functionality. The application already uses in-memory broadcast channels for real-time events.
+
+#### 4. No Advanced PostgreSQL Features
+
+Migrating to SQLite means losing access to:
+
+- **Full-text search (tsvector)** — Not currently used. If needed, SQLite's FTS5 extension provides similar functionality.
+- **Array columns** — Not currently used in any of the 22 entity models.
+- **JSONB operators** — Not used in queries; JSON is deserialized in application code via `serde_json`.
+- **Advanced indexing (GIN, GiST, BRIN)** — Not currently used. SQLite supports standard B-tree indexes, which are sufficient for the current query patterns.
+- **Window functions** — SQLite supports window functions (since 3.25.0), so this is not a limitation.
+- **CTEs** — SQLite supports CTEs (since 3.8.3), so this is not a limitation.
+
+**Assessment:** No current Kubarr functionality depends on PostgreSQL-specific features. All queries use standard SQL that is portable across both backends.
+
+### Data Migration Approach
+
+Migrating existing data from PostgreSQL to SQLite requires a one-time export/import process:
+
+#### Step 1: Export from PostgreSQL
+
+```bash
+# Export each table as SQL INSERT statements (portable format)
+pg_dump --data-only --inserts --no-owner --no-privileges \
+  --exclude-table=sea_orm_migration \
+  -d kubarr > kubarr_data.sql
+```
+
+Using `--inserts` instead of `COPY` ensures the SQL is SQLite-compatible. The `sea_orm_migration` table is excluded because SeaORM recreates it automatically.
+
+#### Step 2: Create SQLite Database
+
+```bash
+# Run the backend with SQLite URL to trigger SeaORM migrations
+DATABASE_URL=sqlite:///tmp/kubarr.db?mode=rwc cargo run
+# Or use the migration CLI:
+sea-orm-cli migrate up -d /tmp/kubarr.db
+```
+
+SeaORM's migration framework handles the SQLite schema creation. The same migration files work for both PostgreSQL and SQLite because they use SeaORM's database-agnostic DDL API.
+
+#### Step 3: Import Data
+
+```bash
+# Clean up PostgreSQL-specific syntax from the dump
+sed -e "s/true/1/g" -e "s/false/0/g" \
+    -e "s/::.*//g" \
+    -e "/^SET /d" -e "/^SELECT pg_/d" \
+    kubarr_data.sql > kubarr_data_sqlite.sql
+
+# Import into SQLite
+sqlite3 /tmp/kubarr.db < kubarr_data_sqlite.sql
+```
+
+**Data type conversions during migration:**
+- `boolean` → `0`/`1` (SQLite stores booleans as integers)
+- `timestamptz` → ISO 8601 text (SeaORM handles this transparently via chrono)
+- `bigint` → `INTEGER` (SQLite's INTEGER is 64-bit, matching PostgreSQL's BIGINT)
+- PostgreSQL type casts (`::text`, `::integer`) → removed (SQLite doesn't use cast syntax in this form)
+
+#### Step 4: Verify
+
+```bash
+# Count rows in each table to verify migration completeness
+sqlite3 /tmp/kubarr.db "SELECT name, (SELECT COUNT(*) FROM [name]) FROM sqlite_master WHERE type='table';"
+```
+
+**Alternative approach:** A Rust migration tool could be written to read from PostgreSQL and write to SQLite using SeaORM, providing type-safe migration with automatic conversion. This is more robust but requires development effort.
+
+#### Migration Effort Estimate
+
+| Task | Effort | Risk |
+|------|--------|------|
+| SQLite PRAGMAs in `database.rs` | ~2 hours | Low - well-documented SQLite best practices |
+| Migration compatibility testing | ~4 hours | Medium - verify all 23 migrations run on SQLite |
+| StatefulSet Helm template | ~4 hours | Low - template conversion with Litestream sidecar |
+| Litestream ConfigMap and Secret | ~2 hours | Low - standard Kubernetes resources |
+| Data export/import tooling | ~4 hours | Medium - type conversion edge cases |
+| Integration testing | ~8 hours | Medium - verify all 22 entities CRUD on SQLite |
+| Remove CNPG dependency | ~2 hours | Low - delete CRDs, operator, and RBAC rules |
+| Documentation | ~2 hours | Low - update README and deployment guide |
+| **Total** | **~28 hours (3-4 days)** | **Medium overall** |
+
+### Pros and Cons
+
+| Aspect | Assessment |
+|--------|------------|
+| **Pros** | |
+| Eliminates CNPG operator | No operator pod (~128MB RAM), no CRDs, no operator upgrades to manage |
+| Eliminates PostgreSQL pod | No separate database pod (~256MB+ RAM), no connection pool overhead |
+| Dramatically simpler deployment | One StatefulSet with a sidecar replaces Deployment + CNPG Cluster + operator |
+| Lower resource footprint | SQLite is embedded in the backend process; total savings ~384MB+ RAM |
+| Automated backup via Litestream | Continuous S3 replication with <1s RPO; simpler than CNPG Barman config |
+| No network database latency | Queries execute in-process via file I/O, not over TCP. ~10x faster for simple queries |
+| SQLite already compiled | Both `sqlx-postgres` and `sqlx-sqlite` feature flags are in `Cargo.toml`; no new dependencies |
+| Ideal for homelab scale | SQLite handles millions of rows; Kubarr's 22 tables with <100K rows total is trivial |
+| Fewer failure modes | No database connection failures, no network partitions, no connection pool exhaustion |
+| **Cons** | |
+| Single-writer limitation | Cannot scale beyond 1 replica; writes are serialized (but sufficient for homelab) |
+| Recreate update strategy | Brief downtime (~10-30s) during pod updates; no zero-downtime rolling updates |
+| No LISTEN/NOTIFY | Database-level event notifications unavailable (not currently used) |
+| Migration effort required | ~3-4 days of development to convert, test, and validate data migration |
+| S3 dependency for backup | Litestream requires S3-compatible storage; adds external dependency (but free via B2) |
+| Less ecosystem tooling | No pgAdmin, no `psql`, limited debugging tools vs PostgreSQL's rich ecosystem |
+| StatefulSet complexity | PVC management, volume provisioning, and storage class requirements |
+| No advanced SQL features | No PostgreSQL-specific features (though none are currently used) |
+
+### Resource Impact
+
+| Resource | Current (PostgreSQL + CNPG) | Option B (SQLite + Litestream) | Savings |
+|----------|---------------------------|-------------------------------|---------|
+| CNPG operator pod | ~128MB RAM, ~50m CPU | Eliminated | 128MB RAM |
+| Database pod | ~256MB RAM, ~100m CPU | Eliminated | 256MB RAM |
+| Litestream sidecar | N/A | ~32-64MB RAM, ~10m CPU | -64MB RAM |
+| Backend memory (DB) | ~10MB (connection pool) | ~5MB (SQLite in-process) | 5MB RAM |
+| Database connections | 10 TCP connections | 1 file handle | Negligible |
+| Storage volumes | CNPG PVC (5Gi) + WAL PVC (2Gi) | Single PVC (1Gi) | 6Gi disk |
+| S3 backup storage | Optional (CNPG Barman) | Required (Litestream) | ~Same cost |
+| **Total RAM savings** | | | **~325MB** |
+| **Total pod count** | 3 (backend + PG + operator) | 1 (backend + sidecar) | 2 fewer pods |
+
+### Risk Assessment
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| Migration data loss | Low | High | Test migration on copy; verify row counts; keep PostgreSQL running during transition |
+| SQLite corruption | Very low | High | Litestream provides continuous backup; WAL mode is mature and well-tested |
+| SeaORM migration incompatibility | Medium | Medium | Run all 23 migrations on SQLite in CI; fix any PostgreSQL-specific DDL |
+| Litestream S3 outage | Low | Low | Local PVC has full data; S3 is only for backup, not runtime |
+| Write contention under load | Very low | Low | SQLite handles >50K writes/sec; Kubarr does <100 writes/min |
+| Future need for PostgreSQL features | Low | Medium | Both feature flags remain compiled; can switch back via `DATABASE_URL` |
+| PVC data loss on node failure | Low | Medium | Litestream restores from S3 within seconds; RPO <1 second |
+| StatefulSet operational complexity | Low | Low | Standard K8s pattern; well-documented; simpler than CNPG operator |
+
+**Overall risk: Medium.** The migration itself carries moderate risk (data conversion, migration compatibility), but the runtime risk is lower than the current architecture (fewer moving parts, fewer failure modes). The ability to keep both feature flags and switch via `DATABASE_URL` provides a safe rollback path.
