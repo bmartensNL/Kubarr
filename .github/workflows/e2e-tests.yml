@@ -73,12 +73,12 @@ jobs:
 
       - name: Wait for pods
         run: |
-          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kubarr -n kubarr --timeout=180s
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kubarr-backend -n kubarr --timeout=180s
           kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kubarr-frontend -n kubarr --timeout=120s
 
       - name: Port-forward and seed
         run: |
-          kubectl port-forward svc/kubarr 8000:8000 -n kubarr &
+          kubectl port-forward svc/kubarr-backend 8000:8000 -n kubarr &
           echo $! > "/tmp/pf-${KIND_CLUSTER}.pid"
 
           for i in $(seq 1 30); do
@@ -114,7 +114,7 @@ jobs:
       - name: Debug logs
         if: failure()
         run: |
-          kubectl logs -l app.kubernetes.io/name=kubarr -n kubarr --tail=50 2>/dev/null || true
+          kubectl logs -l app.kubernetes.io/name=kubarr-backend -n kubarr --tail=50 2>/dev/null || true
           kubectl logs -l app.kubernetes.io/name=kubarr-frontend -n kubarr --tail=50 2>/dev/null || true
           kubectl describe pods -n kubarr 2>/dev/null | tail -100 || true
 
