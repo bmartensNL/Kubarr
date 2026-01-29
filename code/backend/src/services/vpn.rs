@@ -6,7 +6,9 @@
 use std::collections::BTreeMap;
 
 use chrono::Utc;
-use k8s_openapi::api::core::v1::Secret;
+use k8s_openapi::api::core::v1::{
+    Capabilities, Container, EnvVar, Pod, PodSpec, Secret, SecurityContext,
+};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::api::{Api, DeleteParams, PostParams};
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
@@ -619,6 +621,234 @@ pub struct VpnDeploymentConfig {
     pub secret_name: String,
     pub kill_switch: bool,
     pub firewall_outbound_subnets: String,
+}
+
+/// VPN connection test result
+#[derive(Debug, Clone, Serialize)]
+pub struct VpnTestResult {
+    pub success: bool,
+    pub message: String,
+    pub public_ip: Option<String>,
+}
+
+// ============================================================================
+// VPN Connection Testing
+// ============================================================================
+
+/// Test VPN connection by creating a temporary Gluetun pod
+pub async fn test_vpn_connection(
+    k8s: &K8sClient,
+    db: &DbConn,
+    provider_id: i64,
+) -> Result<VpnTestResult> {
+    // Get and validate provider
+    let provider = VpnProvider::find_by_id(provider_id)
+        .one(db)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("VPN provider {} not found", provider_id)))?;
+
+    if !provider.enabled {
+        return Err(AppError::BadRequest(
+            "Cannot test a disabled VPN provider".to_string(),
+        ));
+    }
+
+    // Generate test pod name with random suffix
+    let random_suffix: String = (0..8)
+        .map(|_| format!("{:x}", rand::random::<u8>() % 16))
+        .collect();
+    let test_pod_name = format!("vpn-test-{}-{}", provider_id, random_suffix);
+    let namespace = "kubarr";
+
+    tracing::info!(
+        "Testing VPN provider {} with test pod {}",
+        provider.name,
+        test_pod_name
+    );
+
+    // Create test secret
+    let secret_name = create_test_vpn_secret(k8s, db, &test_pod_name, namespace, provider_id).await?;
+
+    // Create test pod
+    match create_gluetun_test_pod(k8s, &test_pod_name, namespace, &secret_name).await {
+        Ok(_) => {
+            tracing::info!("Created test pod {}", test_pod_name);
+        }
+        Err(e) => {
+            // Clean up secret on failure
+            let _ = delete_test_vpn_secret(k8s, &secret_name, namespace).await;
+            return Err(e);
+        }
+    }
+
+    // Wait for pod to be ready (this will be implemented in subtask-1-2)
+    // For now, just return success
+    Ok(VpnTestResult {
+        success: true,
+        message: format!(
+            "Test pod {} created successfully (readiness check pending)",
+            test_pod_name
+        ),
+        public_ip: None,
+    })
+}
+
+/// Create a K8s secret for VPN test pod
+async fn create_test_vpn_secret(
+    k8s: &K8sClient,
+    db: &DbConn,
+    test_pod_name: &str,
+    namespace: &str,
+    provider_id: i64,
+) -> Result<String> {
+    // Get provider
+    let provider = VpnProvider::find_by_id(provider_id)
+        .one(db)
+        .await?
+        .ok_or_else(|| AppError::Internal(format!("VPN provider {} not found", provider_id)))?;
+
+    // Parse credentials
+    let credentials: serde_json::Value = serde_json::from_str(&provider.credentials_json)
+        .map_err(|e| AppError::Internal(format!("Invalid credentials JSON: {}", e)))?;
+
+    // Build secret data based on VPN type
+    let mut secret_data: BTreeMap<String, String> = BTreeMap::new();
+
+    // Set VPN type
+    secret_data.insert("VPN_TYPE".to_string(), provider.vpn_type.to_string());
+
+    // Set service provider if specified
+    if let Some(ref service_provider) = provider.service_provider {
+        if service_provider != "custom" {
+            secret_data.insert("VPN_SERVICE_PROVIDER".to_string(), service_provider.clone());
+        }
+    }
+
+    match provider.vpn_type {
+        vpn_provider::VpnType::WireGuard => {
+            build_wireguard_secret_data(&credentials, &mut secret_data)?;
+        }
+        vpn_provider::VpnType::OpenVpn => {
+            build_openvpn_secret_data(&credentials, &mut secret_data)?;
+        }
+    }
+
+    // Convert to base64-encoded data
+    let encoded_data: BTreeMap<String, k8s_openapi::ByteString> = secret_data
+        .into_iter()
+        .map(|(k, v)| (k, k8s_openapi::ByteString(v.into_bytes())))
+        .collect();
+
+    let secret_name = format!("vpn-test-{}", test_pod_name);
+
+    // Create secret object
+    let secret = Secret {
+        metadata: ObjectMeta {
+            name: Some(secret_name.clone()),
+            namespace: Some(namespace.to_string()),
+            labels: Some(BTreeMap::from([
+                (
+                    "app.kubernetes.io/managed-by".to_string(),
+                    "kubarr".to_string(),
+                ),
+                (
+                    "kubarr.io/vpn-test".to_string(),
+                    "true".to_string(),
+                ),
+            ])),
+            ..Default::default()
+        },
+        data: Some(encoded_data),
+        ..Default::default()
+    };
+
+    // Create in K8s
+    let secrets: Api<Secret> = Api::namespaced(k8s.client().clone(), namespace);
+
+    // Try to delete existing secret first (in case of previous failed test)
+    let _ = secrets.delete(&secret_name, &DeleteParams::default()).await;
+
+    // Create new secret
+    secrets.create(&PostParams::default(), &secret).await?;
+
+    Ok(secret_name)
+}
+
+/// Delete a test VPN secret
+async fn delete_test_vpn_secret(k8s: &K8sClient, secret_name: &str, namespace: &str) -> Result<()> {
+    let secrets: Api<Secret> = Api::namespaced(k8s.client().clone(), namespace);
+
+    match secrets.delete(secret_name, &DeleteParams::default()).await {
+        Ok(_) => Ok(()),
+        Err(kube::Error::Api(ae)) if ae.code == 404 => Ok(()), // Not found is OK
+        Err(e) => {
+            tracing::warn!("Failed to delete test VPN secret {}: {}", secret_name, e);
+            Ok(()) // Don't fail on cleanup errors
+        }
+    }
+}
+
+/// Create a Gluetun test pod
+async fn create_gluetun_test_pod(
+    k8s: &K8sClient,
+    pod_name: &str,
+    namespace: &str,
+    secret_name: &str,
+) -> Result<()> {
+    let pods: Api<Pod> = Api::namespaced(k8s.client().clone(), namespace);
+
+    // Build environment variables from secret
+    let env_vars = vec![
+        EnvVar {
+            name: "HEALTH_SERVER_ADDRESS".to_string(),
+            value: Some(":9999".to_string()),
+            ..Default::default()
+        },
+    ];
+
+    // Build pod spec
+    let pod = Pod {
+        metadata: ObjectMeta {
+            name: Some(pod_name.to_string()),
+            namespace: Some(namespace.to_string()),
+            labels: Some(BTreeMap::from([
+                ("app.kubernetes.io/name".to_string(), "gluetun-test".to_string()),
+                ("app.kubernetes.io/managed-by".to_string(), "kubarr".to_string()),
+                ("kubarr.io/vpn-test".to_string(), "true".to_string()),
+            ])),
+            ..Default::default()
+        },
+        spec: Some(PodSpec {
+            containers: vec![Container {
+                name: "gluetun".to_string(),
+                image: Some("qmcgaw/gluetun:latest".to_string()),
+                env: Some(env_vars),
+                env_from: Some(vec![k8s_openapi::api::core::v1::EnvFromSource {
+                    secret_ref: Some(k8s_openapi::api::core::v1::SecretEnvSource {
+                        name: secret_name.to_string(),
+                        optional: Some(false),
+                    }),
+                    ..Default::default()
+                }]),
+                security_context: Some(SecurityContext {
+                    capabilities: Some(Capabilities {
+                        add: Some(vec!["NET_ADMIN".to_string()]),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            restart_policy: Some("Never".to_string()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    // Create pod
+    pods.create(&PostParams::default(), &pod).await?;
+
+    Ok(())
 }
 
 // ============================================================================
