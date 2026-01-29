@@ -66,6 +66,14 @@ spec:
       ports:
         - protocol: TCP
     {{- end }}
+    # Allow access to PostgreSQL
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: postgresql
+      ports:
+        - protocol: TCP
+          port: 5432
     # Allow access to VictoriaLogs for logs
     - to:
         - namespaceSelector:

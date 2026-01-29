@@ -37,68 +37,30 @@ jobs:
           kind create cluster --name "$KIND_CLUSTER" --wait 120s
           kubectl cluster-info --context "kind-${KIND_CLUSTER}"
 
-      - name: Pull PostgreSQL image
-        run: docker pull postgres:16-alpine
+      - name: Pull images
+        run: |
+          docker pull ghcr.io/cloudnative-pg/postgresql:16
+          docker pull ghcr.io/cloudnative-pg/cloudnative-pg:1.25.0
+          docker pull victoriametrics/victoria-metrics:v1.96.0
+          docker pull victoriametrics/victoria-logs:v1.3.2-victorialogs
+          docker pull fluent/fluent-bit:3.2.2
 
       - name: Load images into Kind
         run: |
           kind load docker-image "kubarr-backend:${TAG}" --name "$KIND_CLUSTER"
           kind load docker-image "kubarr-frontend:${TAG}" --name "$KIND_CLUSTER"
-          kind load docker-image "postgres:16-alpine" --name "$KIND_CLUSTER"
-
-      - name: Deploy PostgreSQL
-        run: |
-          kubectl create namespace kubarr --dry-run=client -o yaml | kubectl apply -f -
-
-          kubectl apply -n kubarr -f - <<'YAML'
-          apiVersion: v1
-          kind: Pod
-          metadata:
-            name: postgres
-            labels:
-              app: postgres
-          spec:
-            containers:
-              - name: postgres
-                image: postgres:16-alpine
-                env:
-                  - name: POSTGRES_DB
-                    value: kubarr
-                  - name: POSTGRES_USER
-                    value: kubarr
-                  - name: POSTGRES_PASSWORD
-                    value: kubarr
-                ports:
-                  - containerPort: 5432
-                readinessProbe:
-                  exec:
-                    command: ["pg_isready", "-U", "kubarr"]
-                  initialDelaySeconds: 5
-                  periodSeconds: 5
-          ---
-          apiVersion: v1
-          kind: Service
-          metadata:
-            name: postgres
-          spec:
-            selector:
-              app: postgres
-            ports:
-              - port: 5432
-                targetPort: 5432
-          YAML
-
-          echo "Waiting for PostgreSQL..."
-          kubectl wait --for=condition=ready pod/postgres -n kubarr --timeout=120s
-
-          kubectl create secret generic kubarr-db-app \
-            --from-literal=uri="postgres://kubarr:kubarr@postgres.kubarr.svc.cluster.local:5432/kubarr" \
-            -n kubarr --dry-run=client -o yaml | kubectl apply -f -
+          kind load docker-image ghcr.io/cloudnative-pg/postgresql:16 --name "$KIND_CLUSTER"
+          kind load docker-image ghcr.io/cloudnative-pg/cloudnative-pg:1.25.0 --name "$KIND_CLUSTER"
+          kind load docker-image victoriametrics/victoria-metrics:v1.96.0 --name "$KIND_CLUSTER"
+          kind load docker-image victoriametrics/victoria-logs:v1.3.2-victorialogs --name "$KIND_CLUSTER"
+          kind load docker-image fluent/fluent-bit:3.2.2 --name "$KIND_CLUSTER"
 
       - name: Deploy Kubarr
         run: |
           openssl genrsa -out /tmp/jwt-private-${KIND_CLUSTER}.pem 2048
           openssl rsa -in /tmp/jwt-private-${KIND_CLUSTER}.pem -pubout -out /tmp/jwt-public-${KIND_CLUSTER}.pem
+
+          kubectl create namespace kubarr --dry-run=client -o yaml | kubectl apply -f -
 
           kubectl create secret generic kubarr-jwt-keys \
             --from-file=private.pem=/tmp/jwt-private-${KIND_CLUSTER}.pem \
@@ -130,11 +92,8 @@ jobs:
 
       - name: Wait for pods
         run: |
-          echo "Waiting for backend pod..."
           kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kubarr-backend -n kubarr --timeout=300s
-          echo "Waiting for frontend pod..."
           kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kubarr-frontend -n kubarr --timeout=120s
-          echo "All pods ready"
           kubectl get pods -n kubarr
 
       - name: Port-forward
@@ -142,7 +101,6 @@ jobs:
           kubectl port-forward svc/kubarr-backend 8000:8000 -n kubarr &
           echo $! > "/tmp/pf-${KIND_CLUSTER}.pid"
 
-          echo "Waiting for backend to respond..."
           for i in $(seq 1 60); do
             if curl -s http://localhost:8000/api/system/health 2>/dev/null | grep -q "ok"; then
               echo "Backend is healthy"
@@ -150,33 +108,12 @@ jobs:
             fi
             sleep 2
           done
-          echo "ERROR: Backend did not become healthy after 120s"
-          curl -sv http://localhost:8000/api/system/health 2>&1 || true
-          kubectl logs -l app.kubernetes.io/name=kubarr-backend -n kubarr --tail=30 2>/dev/null || true
+          echo "ERROR: Backend did not become healthy"
           exit 1
-
-      - name: Seed
-        run: |
-          echo "Configuring server..."
-          curl -sf -X POST http://localhost:8000/api/setup/server \
-            -H "Content-Type: application/json" \
-            -d '{"name": "e2e-test", "storage_path": "/data"}'
-          echo ""
-
-          echo "Creating admin user..."
-          curl -sf -X POST http://localhost:8000/api/setup/initialize \
-            -H "Content-Type: application/json" \
-            -d '{
-              "admin_username": "admin",
-              "admin_email": "admin@test.local",
-              "admin_password": "admin"
-            }'
-          echo ""
-          echo "Seed complete"
 
       - name: Playwright
         working-directory: code/frontend
-        run: npx playwright test --project=chromium
+        run: npx playwright test
         env:
           BASE_URL: http://localhost:8000
           CI: true
@@ -193,15 +130,18 @@ jobs:
         if: failure()
         run: |
           echo "=== Pod status ==="
-          kubectl get pods -n kubarr -o wide 2>/dev/null || true
+          kubectl get pods -A -o wide 2>/dev/null || true
           echo "=== Backend logs ==="
           kubectl logs -l app.kubernetes.io/name=kubarr-backend -n kubarr --tail=100 2>/dev/null || true
           echo "=== Frontend logs ==="
           kubectl logs -l app.kubernetes.io/name=kubarr-frontend -n kubarr --tail=50 2>/dev/null || true
           echo "=== Pod events ==="
           kubectl get events -n kubarr --sort-by='.lastTimestamp' 2>/dev/null | tail -30 || true
-          echo "=== Pod describe ==="
-          kubectl describe pods -n kubarr 2>/dev/null || true
+          echo "=== CNPG operator logs ==="
+          kubectl logs -l app.kubernetes.io/name=cloudnative-pg -n cnpg-system --tail=30 2>/dev/null || true
+          echo "=== PostgreSQL namespace ==="
+          kubectl get pods -n postgresql 2>/dev/null || true
+          kubectl get clusters.postgresql.cnpg.io -n postgresql 2>/dev/null || true
 
       - name: Cleanup
         if: always()

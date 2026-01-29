@@ -7,7 +7,7 @@ const authFile = 'tests/.auth/user.json';
  */
 setup('authenticate', async ({ page }) => {
   const username = process.env.TEST_USERNAME || 'admin';
-  const password = process.env.TEST_PASSWORD || 'admin';
+  const password = process.env.TEST_PASSWORD || 'adminadmin';
 
   // Go to login page
   await page.goto('/login');

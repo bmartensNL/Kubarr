@@ -279,7 +279,7 @@ impl BootstrapService {
         })?;
 
         // Check if the kubarr-db-1 pod is running and ready
-        match k8s.get_pod("kubarr", "kubarr-db-1").await {
+        match k8s.get_pod("postgresql", "kubarr-db-1").await {
             Ok(pod) => {
                 if let Some(status) = pod.status {
                     if let Some(phase) = status.phase {
@@ -300,9 +300,88 @@ impl BootstrapService {
         }
     }
 
+    /// Install the CloudNativePG operator (required before PostgreSQL cluster)
+    async fn install_cnpg_operator(&self) -> Result<()> {
+        tracing::info!("Installing CloudNativePG operator");
+
+        self.broadcast(BootstrapEvent::ComponentProgress {
+            component: "postgresql".to_string(),
+            message: "Installing CloudNativePG operator...".to_string(),
+            progress: 10,
+        });
+
+        let result = tokio::process::Command::new("helm")
+            .args([
+                "upgrade",
+                "--install",
+                "cnpg",
+                "/app/charts/cnpg-operator",
+                "-n",
+                "cnpg-system",
+                "--create-namespace",
+                "--wait",
+                "--timeout",
+                "5m",
+            ])
+            .output()
+            .await;
+
+        match result {
+            Ok(output) => {
+                if !output.status.success() {
+                    let error_msg = String::from_utf8_lossy(&output.stderr).to_string();
+                    tracing::error!("CNPG operator installation failed: {}", error_msg);
+                    return Err(AppError::Internal(format!(
+                        "CloudNativePG operator installation failed: {}",
+                        error_msg
+                    )));
+                }
+                tracing::info!("CloudNativePG operator installed successfully");
+            }
+            Err(e) => {
+                return Err(AppError::Internal(format!(
+                    "Failed to run helm for CNPG operator: {}",
+                    e
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
     /// Install PostgreSQL using Helm chart
     async fn install_postgresql(&self) -> Result<()> {
         tracing::info!("Installing PostgreSQL via Helm chart");
+
+        self.update_in_memory_status(
+            "postgresql",
+            "installing",
+            Some("Installing CloudNativePG operator..."),
+            None,
+        )
+        .await;
+        self.broadcast(BootstrapEvent::ComponentStarted {
+            component: "postgresql".to_string(),
+            message: "Installing CloudNativePG operator...".to_string(),
+        });
+
+        // Install the CNPG operator first
+        if let Err(e) = self.install_cnpg_operator().await {
+            let error_msg = format!("{}", e);
+            self.update_in_memory_status(
+                "postgresql",
+                "failed",
+                Some("Operator installation failed"),
+                Some(&error_msg),
+            )
+            .await;
+            self.broadcast(BootstrapEvent::ComponentFailed {
+                component: "postgresql".to_string(),
+                message: "CloudNativePG operator installation failed".to_string(),
+                error: error_msg.clone(),
+            });
+            return Err(AppError::Internal(error_msg));
+        }
 
         self.update_in_memory_status(
             "postgresql",
@@ -311,12 +390,13 @@ impl BootstrapService {
             None,
         )
         .await;
-        self.broadcast(BootstrapEvent::ComponentStarted {
+        self.broadcast(BootstrapEvent::ComponentProgress {
             component: "postgresql".to_string(),
             message: "Deploying PostgreSQL cluster...".to_string(),
+            progress: 30,
         });
 
-        // Deploy PostgreSQL using helm
+        // Deploy PostgreSQL cluster using helm
         let result = tokio::process::Command::new("helm")
             .args([
                 "upgrade",
@@ -324,7 +404,8 @@ impl BootstrapService {
                 "postgresql",
                 "/app/charts/postgresql",
                 "-n",
-                "kubarr",
+                "postgresql",
+                "--create-namespace",
                 "--wait",
                 "--timeout",
                 "5m",
@@ -439,7 +520,7 @@ impl BootstrapService {
             AppError::ServiceUnavailable("Kubernetes client not available".to_string())
         })?;
 
-        let database_url = k8s.get_database_url("kubarr").await?;
+        let database_url = k8s.get_database_url("postgresql").await?;
         drop(k8s_guard);
 
         tracing::info!("Got database URL from K8s secret");
