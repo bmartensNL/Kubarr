@@ -91,6 +91,7 @@ helm upgrade kubarr ./charts/kubarr -n kubarr \
 
 ## 📖 Documentation
 
+- **[Quick Start Guide](./docs/quick-start.md)** - Get Kubarr running in under 15 minutes (recommended for new users)
 - **[Installation Guide](./docs/installation.md)** - Detailed installation instructions for various Kubernetes distributions
 - **[Configuration Reference](./docs/configuration.md)** - Complete list of configuration options and environment variables
 - **[User Guide](./docs/user-guide.md)** - How to use Kubarr features effectively
