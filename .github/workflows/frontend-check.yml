@@ -4,18 +4,15 @@ on:
   workflow_call:
     inputs:
       image-tag:
-        description: Docker image tag with test stage
         required: true
         type: string
 
 jobs:
-  frontend-check:
-    name: Frontend Check
+  check:
     runs-on: self-hosted
-
     steps:
       - name: Lint
         run: docker run --rm "kubarr-frontend-test:${{ inputs.image-tag }}" npm run lint
 
-      - name: Build (includes TypeScript check)
+      - name: Build
         run: docker run --rm "kubarr-frontend-test:${{ inputs.image-tag }}" npm run build

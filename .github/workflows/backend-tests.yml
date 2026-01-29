@@ -4,22 +4,19 @@ on:
   workflow_call:
     inputs:
       image-tag:
-        description: Docker image tag with test stage
         required: true
         type: string
 
 jobs:
-  backend-tests:
-    name: Backend Tests
+  test:
     runs-on: self-hosted
-
     steps:
       - name: Check formatting
         run: docker run --rm "kubarr-backend-test:${{ inputs.image-tag }}" cargo fmt --check
 
-      - name: Run clippy
+      - name: Clippy
         run: docker run --rm "kubarr-backend-test:${{ inputs.image-tag }}" cargo clippy --all-targets --all-features -- -D warnings
-        continue-on-error: true  # Don't fail on warnings for now
+        continue-on-error: true
 
-      - name: Run tests
+      - name: Unit tests
         run: docker run --rm "kubarr-backend-test:${{ inputs.image-tag }}" cargo test --verbose

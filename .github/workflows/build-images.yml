@@ -4,48 +4,42 @@ on:
   workflow_call:
     inputs:
       image-tag:
-        description: Tag for the built images
         required: true
         type: string
 
 jobs:
-  build-images:
-    name: Build Docker Images
+  build:
     runs-on: self-hosted
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Build backend (test + production)
+      - name: Build all images
         run: |
-          docker build -f docker/Dockerfile.backend \
-            --target test \
-            -t kubarr-backend-test:${{ inputs.image-tag }} \
-            --build-arg COMMIT_HASH=${{ github.sha }} \
-            --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") . &
+          TAG="${{ inputs.image-tag }}"
+          SHA="${{ github.sha }}"
+          TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          docker build -f docker/Dockerfile.backend --target test \
+            -t "kubarr-backend-test:${TAG}" . &
           PID1=$!
 
-          docker build -f docker/Dockerfile.frontend \
-            --target test \
-            -t kubarr-frontend-test:${{ inputs.image-tag }} \
-            --build-arg COMMIT_HASH=${{ github.sha }} \
-            --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") . &
+          docker build -f docker/Dockerfile.frontend --target test \
+            -t "kubarr-frontend-test:${TAG}" . &
           PID2=$!
 
           docker build -f docker/Dockerfile.backend \
-            -t kubarr-backend:${{ inputs.image-tag }} \
-            --build-arg COMMIT_HASH=${{ github.sha }} \
-            --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") . &
+            -t "kubarr-backend:${TAG}" \
+            --build-arg COMMIT_HASH="${SHA}" \
+            --build-arg BUILD_TIME="${TIME}" . &
           PID3=$!
 
           docker build -f docker/Dockerfile.frontend \
-            -t kubarr-frontend:${{ inputs.image-tag }} \
-            --build-arg COMMIT_HASH=${{ github.sha }} \
-            --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") . &
+            -t "kubarr-frontend:${TAG}" \
+            --build-arg COMMIT_HASH="${SHA}" \
+            --build-arg BUILD_TIME="${TIME}" . &
           PID4=$!
 
-          wait $PID1 && echo "Backend test image built"
-          wait $PID2 && echo "Frontend test image built"
-          wait $PID3 && echo "Backend production image built"
-          wait $PID4 && echo "Frontend production image built"
+          wait $PID1 && echo "backend-test done"
+          wait $PID2 && echo "frontend-test done"
+          wait $PID3 && echo "backend done"
+          wait $PID4 && echo "frontend done"
