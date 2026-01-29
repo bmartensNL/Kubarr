@@ -1,0 +1,21 @@
+# Kind cluster configuration for remote server deployment.
+#
+# Usage:
+#   Replace __API_SERVER_ADDRESS__ with the remote server's LAN IP address.
+#   Do NOT use 0.0.0.0 (causes x509 certificate errors).
+#   Do NOT use 127.0.0.1 (won't be reachable from another machine).
+#
+# Example:
+#   sed 's/__API_SERVER_ADDRESS__/192.168.1.100/' kind-remote-config.yaml | \
+#     kind create cluster --name kubarr --wait 60s --config=-
+#
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  apiServerAddress: "__API_SERVER_ADDRESS__"
+nodes:
+- role: control-plane
+  extraPortMappings:
+  - containerPort: 30080
+    hostPort: 8080
+    protocol: TCP
