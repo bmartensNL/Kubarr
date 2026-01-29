@@ -643,22 +643,24 @@ async fn can_insert_role_and_assign_to_user_impl(db: &DatabaseConnection) {
         .await
         .expect("Failed to insert user");
 
-    // Insert role
+    // Insert role (use unique name to avoid conflict with seeded data)
     let role_sql = match backend {
-        DbBackend::Sqlite => "INSERT INTO roles (name, is_system, requires_2fa, created_at) VALUES ('admin', 1, 0, datetime('now'))".to_string(),
-        DbBackend::Postgres => "INSERT INTO roles (name, is_system, requires_2fa, created_at) VALUES ('admin', true, false, NOW())".to_string(),
+        DbBackend::Sqlite => "INSERT INTO roles (name, is_system, requires_2fa, created_at) VALUES ('test_role_unique', 0, 0, datetime('now'))".to_string(),
+        DbBackend::Postgres => "INSERT INTO roles (name, is_system, requires_2fa, created_at) VALUES ('test_role_unique', false, false, NOW())".to_string(),
         _ => panic!("Unsupported database backend"),
     };
     db.execute(Statement::from_string(backend, role_sql))
         .await
         .expect("Failed to insert role");
 
-    // Assign role to user
+    // Assign role to user (use subqueries to get correct IDs)
+    let assign_sql = match backend {
+        DbBackend::Sqlite => "INSERT INTO user_roles (user_id, role_id) SELECT u.id, r.id FROM users u, roles r WHERE u.username = 'testuser' AND r.name = 'test_role_unique'".to_string(),
+        DbBackend::Postgres => "INSERT INTO user_roles (user_id, role_id) SELECT u.id, r.id FROM users u, roles r WHERE u.username = 'testuser' AND r.name = 'test_role_unique'".to_string(),
+        _ => panic!("Unsupported database backend"),
+    };
     let result = db
-        .execute(Statement::from_string(
-            backend,
-            "INSERT INTO user_roles (user_id, role_id) VALUES (1, 1)".to_string(),
-        ))
+        .execute(Statement::from_string(backend, assign_sql))
         .await;
 
     assert!(
@@ -712,10 +714,10 @@ async fn can_insert_notification_data_impl(db: &DatabaseConnection) {
         .await
         .expect("Failed to insert notification event");
 
-    // Insert user notification
+    // Insert user notification (use subquery for user_id)
     let notif_sql = match backend {
-        DbBackend::Sqlite => "INSERT INTO user_notifications (user_id, title, message, severity, read, created_at) VALUES (1, 'Test', 'Test message', 'info', 0, datetime('now'))".to_string(),
-        DbBackend::Postgres => "INSERT INTO user_notifications (user_id, title, message, severity, read, created_at) VALUES (1, 'Test', 'Test message', 'info', false, NOW())".to_string(),
+        DbBackend::Sqlite => "INSERT INTO user_notifications (user_id, title, message, severity, read, created_at) SELECT id, 'Test', 'Test message', 'info', 0, datetime('now') FROM users WHERE username = 'testuser'".to_string(),
+        DbBackend::Postgres => "INSERT INTO user_notifications (user_id, title, message, severity, read, created_at) SELECT id, 'Test', 'Test message', 'info', false, NOW() FROM users WHERE username = 'testuser'".to_string(),
         _ => panic!("Unsupported database backend"),
     };
     let result = db.execute(Statement::from_string(backend, notif_sql)).await;
@@ -781,28 +783,30 @@ async fn cascade_delete_user_removes_related_data_impl(db: &DatabaseConnection) 
         .await
         .expect("Failed to insert user");
 
-    // Insert role
+    // Insert role (use unique name to avoid conflict with seeded data)
     let role_sql = match backend {
-        DbBackend::Sqlite => "INSERT INTO roles (name, is_system, requires_2fa, created_at) VALUES ('admin', 1, 0, datetime('now'))".to_string(),
-        DbBackend::Postgres => "INSERT INTO roles (name, is_system, requires_2fa, created_at) VALUES ('admin', true, false, NOW())".to_string(),
+        DbBackend::Sqlite => "INSERT INTO roles (name, is_system, requires_2fa, created_at) VALUES ('test_role_unique', 0, 0, datetime('now'))".to_string(),
+        DbBackend::Postgres => "INSERT INTO roles (name, is_system, requires_2fa, created_at) VALUES ('test_role_unique', false, false, NOW())".to_string(),
         _ => panic!("Unsupported database backend"),
     };
     db.execute(Statement::from_string(backend, role_sql))
         .await
         .expect("Failed to insert role");
 
-    // Assign role to user
-    db.execute(Statement::from_string(
-        backend,
-        "INSERT INTO user_roles (user_id, role_id) VALUES (1, 1)".to_string(),
-    ))
-    .await
-    .expect("Failed to assign role");
+    // Assign role to user (use subqueries to get correct IDs)
+    let assign_sql = match backend {
+        DbBackend::Sqlite => "INSERT INTO user_roles (user_id, role_id) SELECT u.id, r.id FROM users u, roles r WHERE u.username = 'testuser' AND r.name = 'test_role_unique'".to_string(),
+        DbBackend::Postgres => "INSERT INTO user_roles (user_id, role_id) SELECT u.id, r.id FROM users u, roles r WHERE u.username = 'testuser' AND r.name = 'test_role_unique'".to_string(),
+        _ => panic!("Unsupported database backend"),
+    };
+    db.execute(Statement::from_string(backend, assign_sql))
+        .await
+        .expect("Failed to assign role");
 
-    // Insert user notification
+    // Insert user notification (use subquery for user_id)
     let notif_sql = match backend {
-        DbBackend::Sqlite => "INSERT INTO user_notifications (user_id, title, message, severity, read, created_at) VALUES (1, 'Test', 'Test message', 'info', 0, datetime('now'))".to_string(),
-        DbBackend::Postgres => "INSERT INTO user_notifications (user_id, title, message, severity, read, created_at) VALUES (1, 'Test', 'Test message', 'info', false, NOW())".to_string(),
+        DbBackend::Sqlite => "INSERT INTO user_notifications (user_id, title, message, severity, read, created_at) SELECT id, 'Test', 'Test message', 'info', 0, datetime('now') FROM users WHERE username = 'testuser'".to_string(),
+        DbBackend::Postgres => "INSERT INTO user_notifications (user_id, title, message, severity, read, created_at) SELECT id, 'Test', 'Test message', 'info', false, NOW() FROM users WHERE username = 'testuser'".to_string(),
         _ => panic!("Unsupported database backend"),
     };
     db.execute(Statement::from_string(backend, notif_sql))
@@ -812,28 +816,32 @@ async fn cascade_delete_user_removes_related_data_impl(db: &DatabaseConnection) 
     // Delete user
     db.execute(Statement::from_string(
         backend,
-        "DELETE FROM users WHERE id = 1".to_string(),
+        "DELETE FROM users WHERE username = 'testuser'".to_string(),
     ))
     .await
     .expect("Failed to delete user");
 
-    // Verify user_roles was cascaded
+    // Verify user_roles was cascaded (check for orphan records referencing non-existent users)
     let user_roles: Vec<QueryResult> = db
         .query_all(Statement::from_string(
             backend,
-            "SELECT COUNT(*) as cnt FROM user_roles WHERE user_id = 1".to_string(),
+            "SELECT COUNT(*) as cnt FROM user_roles WHERE user_id NOT IN (SELECT id FROM users)"
+                .to_string(),
         ))
         .await
         .expect("Failed to query user_roles");
 
     let count: i64 = user_roles[0].try_get("", "cnt").unwrap();
-    assert_eq!(count, 0, "user_roles should be cascaded on user delete");
+    assert_eq!(
+        count, 0,
+        "user_roles should be cascaded on user delete (no orphan records)"
+    );
 
-    // Verify user_notifications was cascaded
+    // Verify user_notifications was cascaded (check for orphan records referencing non-existent users)
     let notifications: Vec<QueryResult> = db
         .query_all(Statement::from_string(
             backend,
-            "SELECT COUNT(*) as cnt FROM user_notifications WHERE user_id = 1".to_string(),
+            "SELECT COUNT(*) as cnt FROM user_notifications WHERE user_id NOT IN (SELECT id FROM users)".to_string(),
         ))
         .await
         .expect("Failed to query notifications");
@@ -841,7 +849,7 @@ async fn cascade_delete_user_removes_related_data_impl(db: &DatabaseConnection) 
     let count: i64 = notifications[0].try_get("", "cnt").unwrap();
     assert_eq!(
         count, 0,
-        "user_notifications should be cascaded on user delete"
+        "user_notifications should be cascaded on user delete (no orphan records)"
     );
 }
 

@@ -36,11 +36,11 @@ async fn test_migrations_create_tables() {
         .await;
     assert!(result.is_ok());
 
-    // Check oauth2 tables exist
+    // Check oauth tables exist (oauth2_* replaced by oauth_providers and oauth_accounts)
     let result = db
         .execute(Statement::from_string(
             DatabaseBackend::Sqlite,
-            "SELECT COUNT(*) FROM oauth2_clients".to_string(),
+            "SELECT COUNT(*) FROM oauth_providers".to_string(),
         ))
         .await;
     assert!(result.is_ok());

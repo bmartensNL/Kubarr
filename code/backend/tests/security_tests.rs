@@ -1,9 +1,12 @@
 use kubarr::services::security::{
     create_access_token, create_refresh_token, decode_token, generate_random_string,
-    generate_rsa_key_pair, generate_secure_password, hash_password, verify_password,
+    generate_rsa_key_pair, generate_secure_password, hash_password, init_jwt_keys, verify_password,
 };
 use rsa::pkcs8::{DecodePrivateKey, DecodePublicKey};
 use rsa::{RsaPrivateKey, RsaPublicKey};
+
+mod common;
+use common::create_test_db;
 
 // ==========================================================================
 // Password Hashing Tests
@@ -105,8 +108,11 @@ fn test_generate_rsa_key_pair() {
 // JWT Token Tests
 // ==========================================================================
 
-#[test]
-fn test_create_and_decode_access_token() {
+#[tokio::test]
+async fn test_create_and_decode_access_token() {
+    let db = create_test_db().await;
+    init_jwt_keys(&db).await.expect("Failed to init JWT keys");
+
     let token = create_access_token(
         "user123",
         Some("user@example.com"),
@@ -129,8 +135,11 @@ fn test_create_and_decode_access_token() {
     assert!(claims.token_type.is_none());
 }
 
-#[test]
-fn test_create_and_decode_refresh_token() {
+#[tokio::test]
+async fn test_create_and_decode_refresh_token() {
+    let db = create_test_db().await;
+    init_jwt_keys(&db).await.expect("Failed to init JWT keys");
+
     let token = create_refresh_token(
         "user123",
         Some("user@example.com"),
@@ -148,8 +157,11 @@ fn test_create_and_decode_refresh_token() {
     assert!(claims.allowed_apps.is_none());
 }
 
-#[test]
-fn test_token_expiration() {
+#[tokio::test]
+async fn test_token_expiration() {
+    let db = create_test_db().await;
+    init_jwt_keys(&db).await.expect("Failed to init JWT keys");
+
     let token = create_access_token(
         "user123",
         None,
@@ -168,20 +180,29 @@ fn test_token_expiration() {
     );
 }
 
-#[test]
-fn test_decode_invalid_token() {
+#[tokio::test]
+async fn test_decode_invalid_token() {
+    let db = create_test_db().await;
+    init_jwt_keys(&db).await.expect("Failed to init JWT keys");
+
     let result = decode_token("not.a.valid.token");
     assert!(result.is_err());
 }
 
-#[test]
-fn test_decode_malformed_token() {
+#[tokio::test]
+async fn test_decode_malformed_token() {
+    let db = create_test_db().await;
+    init_jwt_keys(&db).await.expect("Failed to init JWT keys");
+
     let result = decode_token("completely_invalid");
     assert!(result.is_err());
 }
 
-#[test]
-fn test_access_token_minimal() {
+#[tokio::test]
+async fn test_access_token_minimal() {
+    let db = create_test_db().await;
+    init_jwt_keys(&db).await.expect("Failed to init JWT keys");
+
     let token = create_access_token("user123", None, None, None, None, None, None);
 
     assert!(token.is_ok());
