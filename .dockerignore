@@ -1,9 +1,9 @@
 # Node modules - these should be installed inside the container
-frontend/node_modules
+code/frontend/node_modules
 node_modules
 
 # Build outputs
-frontend/dist
+code/frontend/dist
 target
 
 # Git
@@ -34,3 +34,9 @@ coverage
 *.test.*
 __tests__
 .pytest_cache
+
+# Large directories not needed for Docker builds
+.auto-claude/
+docs/
+scripts/
+.github/
