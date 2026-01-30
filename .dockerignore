@@ -37,7 +37,6 @@ __tests__
 
 # Large directories not needed for Docker builds
 .auto-claude/
-charts/
 docs/
 scripts/
 .github/

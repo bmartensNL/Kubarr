@@ -42,12 +42,11 @@ COPY code/backend/src ./src
 
 # Test stage: has full Rust toolchain + source for running tests
 # NOTE: No --mount=type=cache here so compiled artifacts persist in the image layer.
-# The rust-builder stage uses cache mounts which don't persist, so we must rebuild.
+# Uses default dev profile to match cargo clippy/test commands in backend-tests.yml.
 FROM rust-builder AS test
-ARG PROFILE=release
 RUN rustup component add clippy rustfmt
-RUN cargo build --profile ${PROFILE} && \
-    cargo test --profile ${PROFILE} --no-run
+RUN cargo build && \
+    cargo test --no-run
 
 # Build stage: produce the final binary
 FROM rust-builder AS builder
