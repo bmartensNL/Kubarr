@@ -97,9 +97,7 @@ async fn admin_user_exists(state: &AppState) -> Result<bool> {
 async fn require_setup(state: &AppState) -> Result<()> {
     let admin_exists = admin_user_exists(state).await?;
     if admin_exists {
-        return Err(AppError::Forbidden(
-            "Setup already complete".to_string(),
-        ));
+        return Err(AppError::Forbidden("Setup already complete".to_string()));
     }
     Ok(())
 }
