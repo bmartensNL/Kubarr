@@ -12,7 +12,7 @@ use crate::middleware::permissions::{Authorized, SettingsManage, SettingsView};
 use crate::services::deployment::{DeploymentManager, DeploymentRequest};
 use crate::services::vpn::{
     self, AppVpnConfigResponse, AssignVpnRequest, CreateVpnProviderRequest, SupportedProvider,
-    UpdateVpnProviderRequest, VpnProviderResponse,
+    UpdateVpnProviderRequest, VpnProviderResponse, VpnTestResult,
 };
 use crate::state::AppState;
 
@@ -56,12 +56,6 @@ struct AppConfigsResponse {
 #[derive(Debug, Serialize)]
 struct SupportedProvidersResponse {
     providers: Vec<SupportedProvider>,
-}
-
-#[derive(Debug, Serialize)]
-struct TestResult {
-    success: bool,
-    message: String,
 }
 
 // ============================================================================
@@ -132,19 +126,15 @@ async fn test_provider(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     _auth: Authorized<SettingsManage>,
-) -> Result<Json<TestResult>> {
+) -> Result<Json<VpnTestResult>> {
     let db = state.get_db().await?;
-    // Verify provider exists
-    let _provider = vpn::get_vpn_provider(&db, id).await?;
+    let k8s = state.k8s_client.read().await;
+    let client = k8s.as_ref().ok_or_else(|| {
+        crate::error::AppError::Internal("Kubernetes client not available".to_string())
+    })?;
 
-    // For now, just return success if credentials are valid
-    // TODO: Implement actual VPN connection test via Gluetun test container
-    Ok(Json(TestResult {
-        success: true,
-        message:
-            "VPN provider configuration is valid. Deploy an app to test the actual connection."
-                .to_string(),
-    }))
+    let result = vpn::test_vpn_connection(client, &db, id).await?;
+    Ok(Json(result))
 }
 
 // ============================================================================

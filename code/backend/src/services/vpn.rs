@@ -6,7 +6,9 @@
 use std::collections::BTreeMap;
 
 use chrono::Utc;
-use k8s_openapi::api::core::v1::Secret;
+use k8s_openapi::api::core::v1::{
+    Capabilities, Container, EnvVar, Pod, PodSpec, Secret, SecurityContext,
+};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::api::{Api, DeleteParams, PostParams};
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
@@ -619,6 +621,412 @@ pub struct VpnDeploymentConfig {
     pub secret_name: String,
     pub kill_switch: bool,
     pub firewall_outbound_subnets: String,
+}
+
+/// VPN connection test result
+#[derive(Debug, Clone, Serialize)]
+pub struct VpnTestResult {
+    pub success: bool,
+    pub message: String,
+    pub public_ip: Option<String>,
+}
+
+// ============================================================================
+// VPN Connection Testing
+// ============================================================================
+
+/// Test VPN connection by creating a temporary Gluetun pod
+pub async fn test_vpn_connection(
+    k8s: &K8sClient,
+    db: &DbConn,
+    provider_id: i64,
+) -> Result<VpnTestResult> {
+    // Get and validate provider
+    let provider = VpnProvider::find_by_id(provider_id)
+        .one(db)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("VPN provider {} not found", provider_id)))?;
+
+    if !provider.enabled {
+        return Err(AppError::BadRequest(
+            "Cannot test a disabled VPN provider".to_string(),
+        ));
+    }
+
+    // Generate test pod name with random suffix
+    let random_suffix: String = (0..8)
+        .map(|_| format!("{:x}", rand::random::<u8>() % 16))
+        .collect();
+    let test_pod_name = format!("vpn-test-{}-{}", provider_id, random_suffix);
+    let namespace = "kubarr";
+
+    tracing::info!(
+        "Testing VPN provider {} with test pod {}",
+        provider.name,
+        test_pod_name
+    );
+
+    // Create test secret
+    let secret_name = create_test_vpn_secret(k8s, db, &test_pod_name, namespace, provider_id).await?;
+
+    // Create test pod
+    match create_gluetun_test_pod(k8s, &test_pod_name, namespace, &secret_name).await {
+        Ok(_) => {
+            tracing::info!("Created test pod {}", test_pod_name);
+        }
+        Err(e) => {
+            // Clean up secret on failure
+            let _ = delete_test_vpn_secret(k8s, &secret_name, namespace).await;
+            return Err(e);
+        }
+    }
+
+    // Wait for pod to be ready (60 second timeout)
+    match wait_for_pod_ready(k8s, &test_pod_name, namespace).await {
+        Ok(_) => {
+            tracing::info!("Test pod {} is ready", test_pod_name);
+        }
+        Err(e) => {
+            // Clean up on failure
+            let _ = delete_test_pod(k8s, &test_pod_name, namespace).await;
+            let _ = delete_test_vpn_secret(k8s, &secret_name, namespace).await;
+            return Err(e);
+        }
+    }
+
+    // Query Gluetun API for public IP (30 second timeout)
+    let public_ip = match query_gluetun_public_ip(k8s, &test_pod_name, namespace).await {
+        Ok(ip) => {
+            tracing::info!("VPN connection successful, public IP: {}", ip);
+            Some(ip)
+        }
+        Err(e) => {
+            // Clean up on failure
+            let _ = delete_test_pod(k8s, &test_pod_name, namespace).await;
+            let _ = delete_test_vpn_secret(k8s, &secret_name, namespace).await;
+            return Err(e);
+        }
+    };
+
+    // Clean up test resources
+    if let Err(e) = delete_test_pod(k8s, &test_pod_name, namespace).await {
+        tracing::warn!("Failed to clean up test pod {}: {}", test_pod_name, e);
+    }
+    if let Err(e) = delete_test_vpn_secret(k8s, &secret_name, namespace).await {
+        tracing::warn!("Failed to clean up test secret {}: {}", secret_name, e);
+    }
+
+    Ok(VpnTestResult {
+        success: true,
+        message: format!(
+            "VPN connection successful. Connected through {}.",
+            provider.name
+        ),
+        public_ip,
+    })
+}
+
+/// Create a K8s secret for VPN test pod
+async fn create_test_vpn_secret(
+    k8s: &K8sClient,
+    db: &DbConn,
+    test_pod_name: &str,
+    namespace: &str,
+    provider_id: i64,
+) -> Result<String> {
+    // Get provider
+    let provider = VpnProvider::find_by_id(provider_id)
+        .one(db)
+        .await?
+        .ok_or_else(|| AppError::Internal(format!("VPN provider {} not found", provider_id)))?;
+
+    // Parse credentials
+    let credentials: serde_json::Value = serde_json::from_str(&provider.credentials_json)
+        .map_err(|e| AppError::Internal(format!("Invalid credentials JSON: {}", e)))?;
+
+    // Build secret data based on VPN type
+    let mut secret_data: BTreeMap<String, String> = BTreeMap::new();
+
+    // Set VPN type
+    secret_data.insert("VPN_TYPE".to_string(), provider.vpn_type.to_string());
+
+    // Set service provider if specified
+    if let Some(ref service_provider) = provider.service_provider {
+        if service_provider != "custom" {
+            secret_data.insert("VPN_SERVICE_PROVIDER".to_string(), service_provider.clone());
+        }
+    }
+
+    match provider.vpn_type {
+        vpn_provider::VpnType::WireGuard => {
+            build_wireguard_secret_data(&credentials, &mut secret_data)?;
+        }
+        vpn_provider::VpnType::OpenVpn => {
+            build_openvpn_secret_data(&credentials, &mut secret_data)?;
+        }
+    }
+
+    // Convert to base64-encoded data
+    let encoded_data: BTreeMap<String, k8s_openapi::ByteString> = secret_data
+        .into_iter()
+        .map(|(k, v)| (k, k8s_openapi::ByteString(v.into_bytes())))
+        .collect();
+
+    let secret_name = format!("vpn-test-{}", test_pod_name);
+
+    // Create secret object
+    let secret = Secret {
+        metadata: ObjectMeta {
+            name: Some(secret_name.clone()),
+            namespace: Some(namespace.to_string()),
+            labels: Some(BTreeMap::from([
+                (
+                    "app.kubernetes.io/managed-by".to_string(),
+                    "kubarr".to_string(),
+                ),
+                (
+                    "kubarr.io/vpn-test".to_string(),
+                    "true".to_string(),
+                ),
+            ])),
+            ..Default::default()
+        },
+        data: Some(encoded_data),
+        ..Default::default()
+    };
+
+    // Create in K8s
+    let secrets: Api<Secret> = Api::namespaced(k8s.client().clone(), namespace);
+
+    // Try to delete existing secret first (in case of previous failed test)
+    let _ = secrets.delete(&secret_name, &DeleteParams::default()).await;
+
+    // Create new secret
+    secrets.create(&PostParams::default(), &secret).await?;
+
+    Ok(secret_name)
+}
+
+/// Delete a test VPN secret
+async fn delete_test_vpn_secret(k8s: &K8sClient, secret_name: &str, namespace: &str) -> Result<()> {
+    let secrets: Api<Secret> = Api::namespaced(k8s.client().clone(), namespace);
+
+    match secrets.delete(secret_name, &DeleteParams::default()).await {
+        Ok(_) => Ok(()),
+        Err(kube::Error::Api(ae)) if ae.code == 404 => Ok(()), // Not found is OK
+        Err(e) => {
+            tracing::warn!("Failed to delete test VPN secret {}: {}", secret_name, e);
+            Ok(()) // Don't fail on cleanup errors
+        }
+    }
+}
+
+/// Create a Gluetun test pod
+async fn create_gluetun_test_pod(
+    k8s: &K8sClient,
+    pod_name: &str,
+    namespace: &str,
+    secret_name: &str,
+) -> Result<()> {
+    let pods: Api<Pod> = Api::namespaced(k8s.client().clone(), namespace);
+
+    // Build environment variables from secret
+    let env_vars = vec![
+        EnvVar {
+            name: "HEALTH_SERVER_ADDRESS".to_string(),
+            value: Some(":9999".to_string()),
+            ..Default::default()
+        },
+    ];
+
+    // Build pod spec
+    let pod = Pod {
+        metadata: ObjectMeta {
+            name: Some(pod_name.to_string()),
+            namespace: Some(namespace.to_string()),
+            labels: Some(BTreeMap::from([
+                ("app.kubernetes.io/name".to_string(), "gluetun-test".to_string()),
+                ("app.kubernetes.io/managed-by".to_string(), "kubarr".to_string()),
+                ("kubarr.io/vpn-test".to_string(), "true".to_string()),
+            ])),
+            ..Default::default()
+        },
+        spec: Some(PodSpec {
+            containers: vec![Container {
+                name: "gluetun".to_string(),
+                image: Some("qmcgaw/gluetun:latest".to_string()),
+                env: Some(env_vars),
+                env_from: Some(vec![k8s_openapi::api::core::v1::EnvFromSource {
+                    secret_ref: Some(k8s_openapi::api::core::v1::SecretEnvSource {
+                        name: secret_name.to_string(),
+                        optional: Some(false),
+                    }),
+                    ..Default::default()
+                }]),
+                security_context: Some(SecurityContext {
+                    capabilities: Some(Capabilities {
+                        add: Some(vec!["NET_ADMIN".to_string()]),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            restart_policy: Some("Never".to_string()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    // Create pod
+    pods.create(&PostParams::default(), &pod).await?;
+
+    Ok(())
+}
+
+/// Wait for pod to be ready with timeout
+async fn wait_for_pod_ready(k8s: &K8sClient, pod_name: &str, namespace: &str) -> Result<()> {
+    use std::time::Duration;
+    use tokio::time::{sleep, timeout};
+
+    let pods: Api<Pod> = Api::namespaced(k8s.client().clone(), namespace);
+    let timeout_duration = Duration::from_secs(60);
+
+    let wait_result = timeout(timeout_duration, async {
+        loop {
+            match pods.get(pod_name).await {
+                Ok(pod) => {
+                    if let Some(status) = pod.status {
+                        // Check if pod phase is Running
+                        if let Some(phase) = status.phase {
+                            if phase == "Running" {
+                                // Check container statuses
+                                if let Some(container_statuses) = status.container_statuses {
+                                    let all_ready = container_statuses.iter().all(|cs| cs.ready);
+                                    if all_ready {
+                                        return Ok(());
+                                    }
+                                }
+                            } else if phase == "Failed" || phase == "Unknown" {
+                                let reason = status
+                                    .container_statuses
+                                    .and_then(|cs| cs.first().cloned())
+                                    .and_then(|cs| cs.state)
+                                    .and_then(|state| {
+                                        state
+                                            .terminated
+                                            .map(|t| t.reason.unwrap_or_else(|| "Unknown".to_string()))
+                                    })
+                                    .unwrap_or_else(|| "Pod failed to start".to_string());
+
+                                return Err(AppError::Internal(format!(
+                                    "VPN test pod failed: {}. Please check your VPN credentials and try again.",
+                                    reason
+                                )));
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    return Err(AppError::Internal(format!(
+                        "Failed to get pod status: {}",
+                        e
+                    )));
+                }
+            }
+
+            sleep(Duration::from_secs(2)).await;
+        }
+    })
+    .await;
+
+    match wait_result {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(e),
+        Err(_) => Err(AppError::Internal(
+            "VPN connection test timed out after 60 seconds. The VPN provider may be unreachable or credentials may be invalid.".to_string(),
+        )),
+    }
+}
+
+/// Query Gluetun API for public IP
+async fn query_gluetun_public_ip(k8s: &K8sClient, pod_name: &str, namespace: &str) -> Result<String> {
+    use std::time::Duration;
+    use tokio::time::timeout;
+
+    // Get pod IP
+    let pods: Api<Pod> = Api::namespaced(k8s.client().clone(), namespace);
+    let pod = pods.get(pod_name).await?;
+
+    let pod_ip = pod
+        .status
+        .and_then(|s| s.pod_ip)
+        .ok_or_else(|| AppError::Internal("Pod has no IP address".to_string()))?;
+
+    // Query Gluetun API with timeout
+    let timeout_duration = Duration::from_secs(30);
+    let url = format!("http://{}:8000/v1/publicip/ip", pod_ip);
+
+    let query_result = timeout(timeout_duration, async {
+        let client = reqwest::Client::new();
+        let response = client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| {
+                AppError::Internal(format!(
+                    "Failed to connect to VPN: {}. The VPN connection may not be established yet.",
+                    e
+                ))
+            })?;
+
+        if !response.status().is_success() {
+            return Err(AppError::Internal(format!(
+                "VPN API returned error status: {}. Please check your VPN configuration.",
+                response.status()
+            )));
+        }
+
+        let json: serde_json::Value = response.json().await.map_err(|e| {
+            AppError::Internal(format!("Failed to parse VPN response: {}", e))
+        })?;
+
+        // Extract public IP from response
+        let public_ip = json
+            .get("public_ip")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                AppError::Internal("VPN response missing public_ip field".to_string())
+            })?;
+
+        Ok::<String, AppError>(public_ip.to_string())
+    })
+    .await;
+
+    match query_result {
+        Ok(Ok(ip)) => Ok(ip),
+        Ok(Err(e)) => Err(e),
+        Err(_) => Err(AppError::Internal(
+            "VPN API query timed out after 30 seconds. The VPN connection may be slow or unstable.".to_string(),
+        )),
+    }
+}
+
+/// Delete a test pod
+async fn delete_test_pod(k8s: &K8sClient, pod_name: &str, namespace: &str) -> Result<()> {
+    let pods: Api<Pod> = Api::namespaced(k8s.client().clone(), namespace);
+
+    match pods.delete(pod_name, &DeleteParams::default()).await {
+        Ok(_) => {
+            tracing::info!("Deleted test pod {}", pod_name);
+            Ok(())
+        }
+        Err(kube::Error::Api(ae)) if ae.code == 404 => Ok(()), // Not found is OK
+        Err(e) => {
+            tracing::warn!("Failed to delete test pod {}: {}", pod_name, e);
+            Ok(()) // Don't fail on cleanup errors
+        }
+    }
 }
 
 // ============================================================================
