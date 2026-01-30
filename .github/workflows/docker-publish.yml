@@ -44,15 +44,23 @@ jobs:
             type=sha,prefix=
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
+      # Rebuilds from source with Buildx caching. The build job's images are
+      # local to the runner and not pushed to a registry, so we rebuild here
+      # with the production target and push directly to GHCR.
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile.${{ matrix.image }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Disable provenance attestations to avoid multi-manifest issues on GHCR
+          provenance: false
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
           build-args: |
+            PROFILE=release
             COMMIT_HASH=${{ github.sha }}
             BUILD_TIME=${{ github.event.head_commit.timestamp }}
 
