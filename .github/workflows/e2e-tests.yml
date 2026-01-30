@@ -34,7 +34,7 @@ jobs:
 
       - name: Create Kind cluster
         run: |
-          kind create cluster --name "$KIND_CLUSTER" --wait 120s
+          kind create cluster --name "$KIND_CLUSTER" --image kindest/node:v1.31.0 --wait 120s
           kubectl cluster-info --context "kind-${KIND_CLUSTER}"
 
       - name: Pull images
