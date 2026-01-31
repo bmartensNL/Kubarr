@@ -7,27 +7,43 @@ import { test as setup, expect } from '@playwright/test';
 setup('bootstrap', async ({ page }) => {
   setup.skip(!process.env.CI, 'Bootstrap only runs in CI');
 
-  // Navigate to the app - should redirect to /setup
+  // Navigate to the app - should redirect to /setup if setup is needed
   await page.goto('/');
+
+  // Wait for navigation to settle
+  await page.waitForLoadState('networkidle');
+
+  // If we're redirected to /login, setup is already complete - skip
+  if (page.url().includes('/login')) {
+    return;
+  }
+
   await expect(page).toHaveURL('/setup', { timeout: 30000 });
 
-  // Step 1: Bootstrap - click "Start Setup" to begin installing components
-  await expect(page.getByRole('button', { name: /start setup/i })).toBeVisible({ timeout: 10000 });
-  await page.getByRole('button', { name: /start setup/i }).click();
+  // Check if we're on the bootstrap step or if bootstrap already completed
+  const startSetupButton = page.getByRole('button', { name: /start setup/i });
+  const serverNameInput = page.locator('input#serverName, input[placeholder*="Server" i]').first();
 
-  // Wait for all components to become healthy (PostgreSQL, VictoriaMetrics, etc.)
-  // This can take several minutes as Helm charts are installed
-  await expect(page.getByRole('button', { name: /continue/i })).toBeVisible({ timeout: 480000 });
-  await page.getByRole('button', { name: /continue/i }).click();
+  // Wait for either the Start Setup button (step 1) or the Server Name input (step 2)
+  await expect(startSetupButton.or(serverNameInput)).toBeVisible({ timeout: 30000 });
+
+  if (await startSetupButton.isVisible().catch(() => false)) {
+    // Step 1: Bootstrap - click "Start Setup" to begin installing components
+    await startSetupButton.click();
+
+    // Wait for all components to become healthy (PostgreSQL, VictoriaMetrics, etc.)
+    // This can take several minutes as Helm charts are installed
+    await expect(page.getByRole('button', { name: /continue/i })).toBeVisible({ timeout: 480000 });
+    await page.getByRole('button', { name: /continue/i }).click();
+  }
 
   // Step 2: Server Configuration
   // The actual inputs use id="serverName" and id="storagePath" with no name attributes
-  const serverNameInput = page.locator('input#serverName, input[placeholder*="Server" i]').first();
   await expect(serverNameInput).toBeVisible({ timeout: 30000 });
   await serverNameInput.fill('e2e-test');
 
   // Fill storage path - use /tmp which exists and is writable in all containers
-  const storageInput = page.locator('input#storagePath, input[placeholder*="kubarr" i]').first();
+  const storageInput = page.locator('input#storagePath');
   await storageInput.fill('/tmp');
 
   // Click the Validate button to explicitly validate the path before proceeding.

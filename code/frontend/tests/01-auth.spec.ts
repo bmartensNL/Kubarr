@@ -27,7 +27,7 @@ test.describe('Authentication', () => {
 
     test('successful login redirects to dashboard', async ({ page }) => {
       const username = process.env.TEST_USERNAME || 'admin';
-      const password = process.env.TEST_PASSWORD || 'admin';
+      const password = process.env.TEST_PASSWORD || 'adminadmin';
 
       await page.goto('/login');
 
@@ -43,7 +43,7 @@ test.describe('Authentication', () => {
     test('redirects authenticated user away from login', async ({ page }) => {
       // First login
       const username = process.env.TEST_USERNAME || 'admin';
-      const password = process.env.TEST_PASSWORD || 'admin';
+      const password = process.env.TEST_PASSWORD || 'adminadmin';
 
       await page.goto('/login');
       await page.fill('input[name="username"]', username);
@@ -63,7 +63,7 @@ test.describe('Authentication', () => {
     test('shows account picker when add_account=true with existing sessions', async ({ page }) => {
       // First login to create a session
       const username = process.env.TEST_USERNAME || 'admin';
-      const password = process.env.TEST_PASSWORD || 'admin';
+      const password = process.env.TEST_PASSWORD || 'adminadmin';
 
       await page.goto('/login');
       await page.fill('input[name="username"]', username);
@@ -82,7 +82,7 @@ test.describe('Authentication', () => {
     test('sign in with different account button shows login form', async ({ page }) => {
       // First login to create a session
       const username = process.env.TEST_USERNAME || 'admin';
-      const password = process.env.TEST_PASSWORD || 'admin';
+      const password = process.env.TEST_PASSWORD || 'adminadmin';
 
       await page.goto('/login');
       await page.fill('input[name="username"]', username);
@@ -110,7 +110,7 @@ test.describe('Authentication', () => {
     test('logout button logs out user', async ({ page }) => {
       // First login
       const username = process.env.TEST_USERNAME || 'admin';
-      const password = process.env.TEST_PASSWORD || 'admin';
+      const password = process.env.TEST_PASSWORD || 'adminadmin';
 
       await page.goto('/login');
       await page.fill('input[name="username"]', username);
