@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { appsApi } from '../api/apps'
@@ -108,6 +108,7 @@ interface AppCardComponentProps {
   isInstalled: boolean
   isHealthy: boolean
   effectiveState: string
+  isSelected: boolean
   onInstall: () => void
   onDelete: () => void
   onOpen: () => void
@@ -120,6 +121,7 @@ function AppCardComponent({
   isInstalled,
   isHealthy,
   effectiveState,
+  isSelected,
   onInstall,
   onDelete,
   onOpen,
@@ -159,20 +161,30 @@ function AppCardComponent({
 
   const categoryLabel = categoryInfo[app.category || 'other']?.label || app.category?.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
 
+  const selectedShadow = primaryColor
+    ? `0 8px 24px ${toRgba(primaryColor, 0.25)}, 0 0 0 2px ${toRgba(primaryColor, 0.3)}`
+    : '0 8px 24px rgba(59,130,246,0.15), 0 0 0 2px rgba(59,130,246,0.2)'
+
   return (
     <div
-      className="group relative bg-white dark:bg-gray-800/90 rounded-xl border border-gray-200/60 dark:border-gray-700/60 backdrop-blur-sm hover:-translate-y-1 transition-all duration-200 overflow-hidden cursor-pointer"
+      className={`group relative bg-white dark:bg-gray-800/90 rounded-xl border backdrop-blur-sm hover:-translate-y-1 transition-all duration-200 overflow-hidden cursor-pointer ${
+        isSelected
+          ? 'border-blue-400/60 dark:border-blue-500/40 -translate-y-1'
+          : 'border-gray-200/60 dark:border-gray-700/60'
+      }`}
       style={{
         ...glassStyle,
-        boxShadow: baseShadow,
+        boxShadow: isSelected ? selectedShadow : baseShadow,
       }}
       onMouseEnter={(e) => {
-        if (hoverShadow) {
+        if (!isSelected && hoverShadow) {
           e.currentTarget.style.boxShadow = hoverShadow
         }
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.boxShadow = baseShadow || ''
+        if (!isSelected) {
+          e.currentTarget.style.boxShadow = baseShadow || ''
+        }
       }}
       onClick={onClick}
     >
@@ -333,30 +345,28 @@ function AppCardComponent({
   )
 }
 
-// App Detail Modal
-interface AppDetailModalProps {
+// App Detail Panel (right sidebar)
+interface AppDetailPanelProps {
   app: AppConfig | null
   isInstalled: boolean
   isHealthy: boolean
   effectiveState: string
-  onClose: () => void
   onInstall: () => void
   onDelete: () => void
   onOpen: () => void
   isOperationPending: boolean
 }
 
-function AppDetailModal({
+function AppDetailPanel({
   app,
   isInstalled,
   isHealthy,
   effectiveState,
-  onClose,
   onInstall,
   onDelete,
   onOpen,
   isOperationPending
-}: AppDetailModalProps) {
+}: AppDetailPanelProps) {
   const colors = useIconColors(app?.name || '')
 
   if (!app) return null
@@ -372,18 +382,10 @@ function AppDetailModal({
     : undefined
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
-      />
-
-      {/* Modal */}
-      <div
-        className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-hidden"
-        style={{ background: bgGradient }}
-      >
+    <div
+      className="w-[480px] flex-shrink-0 sticky top-0 self-start h-[calc(100vh-4rem)] overflow-y-auto bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 shadow-xl -mr-4 sm:-mr-6 lg:-mr-8 xl:-mr-12 2xl:-mr-16 -mt-8 -mb-10"
+      style={{ background: bgGradient }}
+    >
         {/* Status bar */}
         {(isInstalled || app.is_system) && (
           <div
@@ -398,16 +400,6 @@ function AppDetailModal({
             }`}
           />
         )}
-
-        {/* Close button */}
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 p-2 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors z-10"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
 
         {/* Content */}
         <div className="p-6">
@@ -557,7 +549,6 @@ function AppDetailModal({
             )}
           </div>
         </div>
-      </div>
     </div>
   )
 }
@@ -631,6 +622,15 @@ export default function AppsPage() {
       return aIndex - bIndex
     })
   }, [appsByCategory])
+
+  // Always have an app selected — pick first from top-left category
+  useEffect(() => {
+    if (!selectedApp && sortedCategories.length > 0) {
+      const firstCategory = sortedCategories[0]
+      const firstApp = appsByCategory[firstCategory]?.[0]
+      if (firstApp) setSelectedApp(firstApp)
+    }
+  }, [sortedCategories, appsByCategory, selectedApp])
 
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type })
@@ -852,96 +852,101 @@ export default function AppsPage() {
         </div>
       </div>
 
-      {/* Empty State */}
-      {sortedCategories.length === 0 && filter !== 'all' && (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="p-4 bg-gray-100 dark:bg-gray-800 rounded-full mb-4">
-            <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-            No {filter} apps found
-          </h3>
-          <p className="text-gray-500 dark:text-gray-400 mb-4">
-            {filter === 'installed' && "You haven't installed any apps yet."}
-            {filter === 'healthy' && "No apps are currently healthy."}
-            {filter === 'unhealthy' && "All your installed apps are healthy!"}
-            {filter === 'available' && "You've installed all available apps!"}
-          </p>
-          <button
-            onClick={clearFilter}
-            className="px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 transition-colors"
-          >
-            View all apps
-          </button>
+      <div className="flex gap-6">
+        {/* Main content */}
+        <div className="flex-1 min-w-0 space-y-8">
+          {/* Empty State */}
+          {sortedCategories.length === 0 && filter !== 'all' && (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="p-4 bg-gray-100 dark:bg-gray-800 rounded-full mb-4">
+                <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                No {filter} apps found
+              </h3>
+              <p className="text-gray-500 dark:text-gray-400 mb-4">
+                {filter === 'installed' && "You haven't installed any apps yet."}
+                {filter === 'healthy' && "No apps are currently healthy."}
+                {filter === 'unhealthy' && "All your installed apps are healthy!"}
+                {filter === 'available' && "You've installed all available apps!"}
+              </p>
+              <button
+                onClick={clearFilter}
+                className="px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 transition-colors"
+              >
+                View all apps
+              </button>
+            </div>
+          )}
+
+          {/* Category Sections */}
+          {sortedCategories.map(category => {
+            const info = categoryInfo[category] || { ...defaultCategoryInfo, label: category.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) }
+            const apps = appsByCategory[category]
+
+            return (
+              <section key={category} className="space-y-4">
+                {/* Category Header */}
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-gradient-to-br from-gray-100 to-gray-50 dark:from-gray-800 dark:to-gray-800/50 rounded-xl text-blue-600 dark:text-blue-400 shadow-sm">
+                    {info.icon}
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-semibold">{info.label}</h2>
+                    <p className="text-sm text-gray-500">{info.description}</p>
+                  </div>
+                  <div className="ml-auto">
+                    <span className="text-sm text-gray-500 bg-gray-100 dark:bg-gray-800 px-3 py-1 rounded-full">
+                      {apps.length} app{apps.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Apps Grid */}
+                <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                  {apps.map(app => {
+                    const { isInstalled, isHealthy, effectiveState } = getAppState(app)
+                    return (
+                      <AppCardComponent
+                        key={app.name}
+                        app={app}
+                        isInstalled={isInstalled}
+                        isHealthy={isHealthy}
+                        effectiveState={effectiveState}
+                        isSelected={selectedApp?.name === app.name}
+                        onInstall={() => installMutation.mutate(app.name)}
+                        onDelete={() => deleteMutation.mutate(app.name)}
+                        onOpen={() => handleOpen(app)}
+                        onClick={() => setSelectedApp(app)}
+                        isOperationPending={installMutation.isPending || deleteMutation.isPending}
+                      />
+                    )
+                  })}
+                </div>
+              </section>
+            )
+          })}
         </div>
-      )}
 
-      {/* Category Sections */}
-      {sortedCategories.map(category => {
-        const info = categoryInfo[category] || { ...defaultCategoryInfo, label: category.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) }
-        const apps = appsByCategory[category]
-
-        return (
-          <section key={category} className="space-y-4">
-            {/* Category Header */}
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-gradient-to-br from-gray-100 to-gray-50 dark:from-gray-800 dark:to-gray-800/50 rounded-xl text-blue-600 dark:text-blue-400 shadow-sm">
-                {info.icon}
-              </div>
-              <div>
-                <h2 className="text-xl font-semibold">{info.label}</h2>
-                <p className="text-sm text-gray-500">{info.description}</p>
-              </div>
-              <div className="ml-auto">
-                <span className="text-sm text-gray-500 bg-gray-100 dark:bg-gray-800 px-3 py-1 rounded-full">
-                  {apps.length} app{apps.length !== 1 ? 's' : ''}
-                </span>
-              </div>
-            </div>
-
-            {/* Apps Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-              {apps.map(app => {
-                const { isInstalled, isHealthy, effectiveState } = getAppState(app)
-                return (
-                  <AppCardComponent
-                    key={app.name}
-                    app={app}
-                    isInstalled={isInstalled}
-                    isHealthy={isHealthy}
-                    effectiveState={effectiveState}
-                    onInstall={() => installMutation.mutate(app.name)}
-                    onDelete={() => deleteMutation.mutate(app.name)}
-                    onOpen={() => handleOpen(app)}
-                    onClick={() => setSelectedApp(app)}
-                    isOperationPending={installMutation.isPending || deleteMutation.isPending}
-                  />
-                )
-              })}
-            </div>
-          </section>
-        )
-      })}
-
-      {/* App Detail Modal */}
-      {selectedApp && (() => {
-        const { isInstalled, isHealthy, effectiveState } = getAppState(selectedApp)
-        return (
-          <AppDetailModal
-            app={selectedApp}
-            isInstalled={isInstalled}
-            isHealthy={isHealthy}
-            effectiveState={effectiveState}
-            onClose={() => setSelectedApp(null)}
-            onInstall={() => installMutation.mutate(selectedApp.name)}
-            onDelete={() => deleteMutation.mutate(selectedApp.name)}
-            onOpen={() => handleOpen(selectedApp)}
-            isOperationPending={installMutation.isPending || deleteMutation.isPending}
-          />
-        )
-      })()}
+        {/* App Detail Panel */}
+        {selectedApp && (() => {
+          const { isInstalled, isHealthy, effectiveState } = getAppState(selectedApp)
+          return (
+            <AppDetailPanel
+              app={selectedApp}
+              isInstalled={isInstalled}
+              isHealthy={isHealthy}
+              effectiveState={effectiveState}
+              onInstall={() => installMutation.mutate(selectedApp.name)}
+              onDelete={() => deleteMutation.mutate(selectedApp.name)}
+              onOpen={() => handleOpen(selectedApp)}
+              isOperationPending={installMutation.isPending || deleteMutation.isPending}
+            />
+          )
+        })()}
+      </div>
     </div>
   )
 }

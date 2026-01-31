@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react'
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom'
 import Dashboard from './pages/Dashboard'
 import AppsPage from './pages/AppsPage'
@@ -80,6 +80,19 @@ function NotificationInbox() {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [loading, setLoading] = useState(false)
+  const notifRef = useRef<HTMLDivElement>(null)
+
+  // Close on click outside
+  useEffect(() => {
+    if (!dropdownOpen) return
+    const handler = (e: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [dropdownOpen])
 
   // Fetch unread count on mount and periodically
   useEffect(() => {
@@ -180,10 +193,9 @@ function NotificationInbox() {
   if (!isAuthenticated) return null
 
   return (
-    <div className="relative">
+    <div ref={notifRef} className="relative">
       <button
         onClick={handleOpen}
-        onBlur={() => setTimeout(() => setDropdownOpen(false), 200)}
         className="relative flex items-center justify-center w-9 h-9 rounded-md text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
         title="Notifications"
       >
@@ -194,7 +206,7 @@ function NotificationInbox() {
           </span>
         )}
       </button>
-      <div className={`absolute top-full right-0 mt-1 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50 overflow-hidden transition-all duration-200 ease-out origin-top-right ${
+      <div className={`absolute top-full right-0 mt-1 w-80 bg-white dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700/60 rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.1)] dark:shadow-[0_8px_24px_rgba(0,0,0,0.4)] z-50 overflow-hidden transition-all duration-200 ease-out origin-top-right ${
         dropdownOpen
           ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto'
           : 'opacity-0 scale-95 -translate-y-1 pointer-events-none'
@@ -290,6 +302,19 @@ function UserMenu() {
   const { user, loading, logout, otherAccounts, switchAccount } = useAuth()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const location = useLocation()
+  const userMenuRef = useRef<HTMLDivElement>(null)
+
+  // Close on click outside
+  useEffect(() => {
+    if (!dropdownOpen) return
+    const handler = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [dropdownOpen])
 
   const handleLogout = async () => {
     try {
@@ -319,11 +344,11 @@ function UserMenu() {
 
   return (
     <div
+      ref={userMenuRef}
       className="relative"
-      onMouseEnter={() => setDropdownOpen(true)}
-      onMouseLeave={() => setDropdownOpen(false)}
     >
       <button
+        onClick={() => setDropdownOpen(!dropdownOpen)}
         className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
           isAccountActive
             ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'
@@ -339,7 +364,7 @@ function UserMenu() {
           ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto'
           : 'opacity-0 scale-95 -translate-y-1 pointer-events-none'
       }`}>
-          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg">
+          <div className="bg-white dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700/60 rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.1)] dark:shadow-[0_8px_24px_rgba(0,0,0,0.4)]">
             {/* Current account indicator */}
             <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700">
               <div className="text-xs text-gray-500 dark:text-gray-400">Signed in as</div>
@@ -401,6 +426,47 @@ function Navigation() {
 
   const isActive = (path: string) => location.pathname === path
 
+  // Click outside for system dropdown
+  const systemDropdownRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!systemDropdownOpen) return
+    const handler = (e: MouseEvent) => {
+      if (systemDropdownRef.current && !systemDropdownRef.current.contains(e.target as Node)) {
+        setSystemDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [systemDropdownOpen])
+
+  // Sliding indicator
+  const navContainerRef = useRef<HTMLDivElement>(null)
+  const navItemRefs = useRef<Record<string, HTMLElement | null>>({})
+  const [indicator, setIndicator] = useState<{ left: number; width: number } | null>(null)
+
+  const setNavRef = useCallback((path: string) => (el: HTMLElement | null) => {
+    navItemRefs.current[path] = el
+  }, [])
+
+  // Determine which path is active for the indicator
+  const activePath = ['/', '/apps', '/settings'].find(p => isActive(p))
+    || (['/storage', '/logs', '/resources', '/networking', '/security'].includes(location.pathname) ? '__system' : null)
+
+  useLayoutEffect(() => {
+    if (!activePath || !navContainerRef.current) {
+      setIndicator(null)
+      return
+    }
+    const el = navItemRefs.current[activePath]
+    if (!el) { setIndicator(null); return }
+    const containerRect = navContainerRef.current.getBoundingClientRect()
+    const elRect = el.getBoundingClientRect()
+    setIndicator({
+      left: elRect.left - containerRect.left,
+      width: elRect.width,
+    })
+  }, [activePath, location.pathname])
+
   const handleLogout = async () => {
     setMobileMenuOpen(false)
     try {
@@ -433,7 +499,7 @@ function Navigation() {
   }, [location.pathname])
 
   return (
-    <nav className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+    <nav className="sticky top-0 z-40 bg-white/60 dark:bg-gray-900/60 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-700/60 shadow-[0_1px_3px_rgba(0,0,0,0.05)] dark:shadow-[0_1px_3px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.05)]">
       <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
@@ -445,13 +511,21 @@ function Navigation() {
           </div>
 
           {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center space-x-1">
+          <div ref={navContainerRef} className="hidden md:flex items-center space-x-1 relative">
+            {/* Sliding indicator */}
+            {indicator && (
+              <div
+                className="absolute top-1/2 -translate-y-1/2 h-9 rounded-lg bg-blue-500/10 dark:bg-blue-500/15 transition-all duration-150 ease-out pointer-events-none"
+                style={{ left: indicator.left, width: indicator.width }}
+              />
+            )}
             <Link
+              ref={setNavRef('/')}
               to="/"
-              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              className={`relative flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 ${
                 isActive('/')
-                  ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'
-                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
+                  ? 'text-blue-700 dark:text-blue-300'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100/80 dark:hover:bg-gray-700/60 hover:text-gray-900 dark:hover:text-white'
               }`}
             >
               <Ship size={18} strokeWidth={2} />
@@ -459,11 +533,12 @@ function Navigation() {
             </Link>
             {canViewApps && (
               <Link
+                ref={setNavRef('/apps')}
                 to="/apps"
-                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`relative flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 ${
                   isActive('/apps')
-                    ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'
-                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
+                    ? 'text-blue-700 dark:text-blue-300'
+                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100/80 dark:hover:bg-gray-700/60 hover:text-gray-900 dark:hover:text-white'
                 }`}
               >
                 <Grid3X3 size={18} strokeWidth={2} />
@@ -472,15 +547,15 @@ function Navigation() {
             )}
             {hasAnySystemPermission && (
               <div
+                ref={(el) => { systemDropdownRef.current = el; setNavRef('__system')(el) }}
                 className="relative"
-                onMouseEnter={() => setSystemDropdownOpen(true)}
-                onMouseLeave={() => setSystemDropdownOpen(false)}
               >
                 <button
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  onClick={() => setSystemDropdownOpen(!systemDropdownOpen)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 ${
                     isSystemActive
-                      ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'
-                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
+                      ? 'text-blue-700 dark:text-blue-300'
+                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100/80 dark:hover:bg-gray-700/60 hover:text-gray-900 dark:hover:text-white'
                   }`}
                 >
                   <Activity size={18} strokeWidth={2} />
@@ -492,7 +567,7 @@ function Navigation() {
                     ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto'
                     : 'opacity-0 scale-95 -translate-y-1 pointer-events-none'
                 }`}>
-                    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg">
+                    <div className="bg-white dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700/60 rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.1)] dark:shadow-[0_8px_24px_rgba(0,0,0,0.4)]">
                     {canViewResources && (
                       <Link
                         to="/resources"
@@ -564,11 +639,12 @@ function Navigation() {
             )}
             {canViewSettings && (
               <Link
+                ref={setNavRef('/settings')}
                 to="/settings"
-                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`relative flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 ${
                   isActive('/settings')
-                    ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'
-                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
+                    ? 'text-blue-700 dark:text-blue-300'
+                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100/80 dark:hover:bg-gray-700/60 hover:text-gray-900 dark:hover:text-white'
                 }`}
               >
                 <Settings size={18} strokeWidth={2} />
@@ -843,10 +919,10 @@ function AppContent() {
   return (
     <ProtectedRoute>
       <MonitoringProvider>
-      <div className="h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white flex flex-col overflow-hidden">
+      <div className="h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white overflow-auto">
         <Navigation />
         {isSettingsPage || isAccountPage || isLogsPage ? (
-          <main className="flex-1 overflow-hidden p-6">
+          <main className="p-6" style={{ minHeight: 'calc(100vh - 4rem)' }}>
             <PageTransition className="h-full">
               <Routes>
                 <Route path="/settings" element={<SettingsPage />} />
@@ -857,7 +933,7 @@ function AppContent() {
             </PageTransition>
           </main>
         ) : (
-          <main className="flex-1 overflow-auto pb-10">
+          <main className="pb-10">
             <PageTransition>
               <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16 py-8">
                 <Routes>
