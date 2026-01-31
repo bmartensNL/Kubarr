@@ -36,7 +36,6 @@ fluentbit:
     - sabnzbd
     - kubarr
     - nginx
-    - oauth2-proxy
     - victoriametrics
     - victorialogs
     - fluent-bit

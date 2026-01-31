@@ -32,15 +32,6 @@ spec:
                 port:
                   number: {{ $.Values.backend.service.port }}
 
-          # OAuth2-proxy callback (no authentication required)
-          - path: /oauth2
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "kubarr.fullname" $ }}-oauth2-proxy
-                port:
-                  number: 4180
-
           # Dashboard frontend and API (no authentication required)
           - path: /dashboard
             pathType: Prefix
@@ -57,15 +48,6 @@ spec:
                 name: {{ include "kubarr.fullname" $ }}
                 port:
                   number: {{ $.Values.backend.service.port }}
-
-          # Media apps (authentication required via oauth2-proxy)
-          - path: /apps
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "kubarr.fullname" $ }}-oauth2-proxy
-                port:
-                  number: 4180
 
           # Root path to dashboard (frontend served by busybox httpd)
           - path: /

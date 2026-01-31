@@ -45,7 +45,7 @@ grafana:
       enabled: true
       url: "http://victorialogs.victorialogs.svc.cluster.local:9428"
 
-  # Enable anonymous access (protected by oauth2-proxy)
+  # Enable anonymous access
   auth:
     disableLoginForm: true
     anonymous:

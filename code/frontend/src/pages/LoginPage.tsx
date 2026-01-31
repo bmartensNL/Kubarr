@@ -47,21 +47,17 @@ export default function LoginPage() {
   }, [])
 
   // Get the final redirect destination from OAuth state parameter
-  // The state format from oauth2-proxy is: "<csrf_token>:<original_path>"
   const redirectUrl = useMemo(() => {
     // Extract the original path from the state parameter if present
-    // oauth2-proxy encodes the original path after the colon in the state
     if (oauthParams.state) {
       const colonIndex = oauthParams.state.indexOf(':')
       if (colonIndex !== -1) {
         const originalPath = oauthParams.state.substring(colonIndex + 1)
         if (originalPath && originalPath !== '/') {
-          // Redirect to the original path - oauth2-proxy will handle the rest
           return originalPath
         }
       }
     }
-    // Default to home page - oauth2-proxy will start a fresh OAuth flow
     return '/'
   }, [oauthParams.state])
 
@@ -95,7 +91,7 @@ export default function LoginPage() {
           // No existing accounts, continue to login
         }
 
-        // Try to get current user - works with both session cookie and oauth2-proxy headers
+        // Try to get current user - works with session cookie
         await getCurrentUser()
         // User is authenticated, redirect to dashboard (unless adding new account)
         if (!isAddAccountFlow) {

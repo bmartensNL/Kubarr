@@ -23,8 +23,8 @@ const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
   }
 
   if (!isAuthenticated) {
-    // Trigger oauth2-proxy authentication
-    window.location.href = '/oauth2/sign_in';
+    // Redirect to login page
+    window.location.href = '/login';
     return null;
   }
 

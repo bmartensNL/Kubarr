@@ -38,12 +38,11 @@ kubernetes-dashboard:
       cpu: 500m
       memory: 512Mi
 
-  # Run in insecure mode (HTTP) since oauth2-proxy handles auth
-  # and nginx handles TLS termination
+  # Run in insecure mode (HTTP) since nginx handles TLS termination
   insecure: true
   insecurePort: 9090
 
-  # Disable login since oauth2-proxy handles authentication
+  # Disable login since authentication is handled externally
   enableSkipLogin: true
   enableInsecureLogin: true
 

@@ -44,7 +44,7 @@ qbittorrent:
     WEBUI_PORT: "8080"
 
   # qBittorrent.conf settings to inject on startup
-  # Disable authentication for cluster-internal requests (oauth2-proxy handles auth)
+  # Disable authentication for cluster-internal requests
   qbittorrentConf:
     WebUI:
       # Disable local host authentication - allows requests from localhost/127.0.0.1

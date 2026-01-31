@@ -49,7 +49,7 @@ spec:
               </Config>
               EOF
               else
-                # Update existing config to disable authentication (protected by oauth2-proxy)
+                # Update existing config to disable authentication
                 echo "Updating authentication settings in existing config..."
                 # Update AuthenticationMethod to External
                 if grep -q "<AuthenticationMethod>" "$CONFIG_FILE"; then

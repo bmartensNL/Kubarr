@@ -25,17 +25,6 @@ spec:
       ports:
         - protocol: TCP
           port: 8000
-    # Allow traffic from oauth2-proxy for OAuth endpoints (token, userinfo, jwks)
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: oauth2-proxy
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: oauth2-proxy
-      ports:
-        - protocol: TCP
-          port: 8000
   egress:
     # Allow DNS resolution
     - to:

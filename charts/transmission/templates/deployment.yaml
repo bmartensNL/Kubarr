@@ -37,7 +37,7 @@ spec:
               mkdir -p /config
               SETTINGS_FILE="/config/settings.json"
               if [ ! -f "$SETTINGS_FILE" ]; then
-                # Create initial settings with auth disabled (protected by oauth2-proxy)
+                # Create initial settings with auth disabled
                 cat > "$SETTINGS_FILE" << 'EOF'
               {
                 "rpc-authentication-required": false,
