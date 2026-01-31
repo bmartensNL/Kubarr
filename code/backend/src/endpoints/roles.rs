@@ -400,6 +400,17 @@ async fn list_all_permissions(_auth: Authorized<RolesView>) -> Result<Json<Vec<P
             category: "Settings".to_string(),
             description: "Modify system settings".to_string(),
         },
+        // VPN permissions
+        PermissionInfo {
+            key: "vpn.view".to_string(),
+            category: "VPN".to_string(),
+            description: "View VPN providers and app VPN configurations".to_string(),
+        },
+        PermissionInfo {
+            key: "vpn.manage".to_string(),
+            category: "VPN".to_string(),
+            description: "Manage VPN providers and assign VPN to apps".to_string(),
+        },
     ];
 
     // Add app access permissions

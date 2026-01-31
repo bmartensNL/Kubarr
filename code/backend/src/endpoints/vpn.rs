@@ -8,7 +8,7 @@ use axum::{
 use serde::Serialize;
 
 use crate::error::Result;
-use crate::middleware::permissions::{Authorized, SettingsManage, SettingsView};
+use crate::middleware::permissions::{Authorized, VpnManage, VpnView};
 use crate::services::deployment::{DeploymentManager, DeploymentRequest};
 use crate::services::vpn::{
     self, AppVpnConfigResponse, AssignVpnRequest, CreateVpnProviderRequest, SupportedProvider,
@@ -33,6 +33,10 @@ pub fn vpn_routes(state: AppState) -> Router {
         .route(
             "/apps/:app_name",
             get(get_app_config).put(assign_vpn).delete(remove_vpn),
+        )
+        .route(
+            "/apps/:app_name/forwarded-port",
+            get(get_forwarded_port),
         )
         // Supported providers
         .route("/supported-providers", get(list_supported_providers))
@@ -65,7 +69,7 @@ struct SupportedProvidersResponse {
 /// List all VPN providers
 async fn list_providers(
     State(state): State<AppState>,
-    _auth: Authorized<SettingsView>,
+    _auth: Authorized<VpnView>,
 ) -> Result<Json<ProvidersResponse>> {
     let db = state.get_db().await?;
     let providers = vpn::list_vpn_providers(&db).await?;
@@ -76,7 +80,7 @@ async fn list_providers(
 async fn get_provider(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    _auth: Authorized<SettingsView>,
+    _auth: Authorized<VpnView>,
 ) -> Result<Json<VpnProviderResponse>> {
     let db = state.get_db().await?;
     let provider = vpn::get_vpn_provider(&db, id).await?;
@@ -86,7 +90,7 @@ async fn get_provider(
 /// Create a new VPN provider
 async fn create_provider(
     State(state): State<AppState>,
-    _auth: Authorized<SettingsManage>,
+    _auth: Authorized<VpnManage>,
     Json(req): Json<CreateVpnProviderRequest>,
 ) -> Result<Json<VpnProviderResponse>> {
     let db = state.get_db().await?;
@@ -98,7 +102,7 @@ async fn create_provider(
 async fn update_provider(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    _auth: Authorized<SettingsManage>,
+    _auth: Authorized<VpnManage>,
     Json(req): Json<UpdateVpnProviderRequest>,
 ) -> Result<Json<VpnProviderResponse>> {
     let db = state.get_db().await?;
@@ -110,7 +114,7 @@ async fn update_provider(
 async fn delete_provider(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    _auth: Authorized<SettingsManage>,
+    _auth: Authorized<VpnManage>,
 ) -> Result<Json<serde_json::Value>> {
     let db = state.get_db().await?;
     let k8s = state.k8s_client.read().await;
@@ -125,7 +129,7 @@ async fn delete_provider(
 async fn test_provider(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    _auth: Authorized<SettingsManage>,
+    _auth: Authorized<VpnManage>,
 ) -> Result<Json<VpnTestResult>> {
     let db = state.get_db().await?;
     let k8s = state.k8s_client.read().await;
@@ -144,7 +148,7 @@ async fn test_provider(
 /// List all app VPN configurations
 async fn list_app_configs(
     State(state): State<AppState>,
-    _auth: Authorized<SettingsView>,
+    _auth: Authorized<VpnView>,
 ) -> Result<Json<AppConfigsResponse>> {
     let db = state.get_db().await?;
     let configs = vpn::list_app_vpn_configs(&db).await?;
@@ -155,7 +159,7 @@ async fn list_app_configs(
 async fn get_app_config(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
-    _auth: Authorized<SettingsView>,
+    _auth: Authorized<VpnView>,
 ) -> Result<Json<Option<AppVpnConfigResponse>>> {
     let db = state.get_db().await?;
     let config = vpn::get_app_vpn_config(&db, &app_name).await?;
@@ -166,7 +170,7 @@ async fn get_app_config(
 async fn assign_vpn(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
-    _auth: Authorized<SettingsManage>,
+    _auth: Authorized<VpnManage>,
     Json(req): Json<AssignVpnRequest>,
 ) -> Result<Json<AppVpnConfigResponse>> {
     let db = state.get_db().await?;
@@ -199,7 +203,7 @@ async fn assign_vpn(
 async fn remove_vpn(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
-    _auth: Authorized<SettingsManage>,
+    _auth: Authorized<VpnManage>,
 ) -> Result<Json<serde_json::Value>> {
     let db = state.get_db().await?;
     let k8s = state.k8s_client.read().await;
@@ -233,13 +237,80 @@ async fn remove_vpn(
     Ok(Json(serde_json::json!({ "success": true })))
 }
 
+/// Get the VPN forwarded port for an app (queries Gluetun control API)
+async fn get_forwarded_port(
+    State(state): State<AppState>,
+    Path(app_name): Path<String>,
+    _auth: Authorized<VpnView>,
+) -> Result<Json<serde_json::Value>> {
+    let k8s = state.k8s_client.read().await;
+    let k8s_client = k8s.as_ref().ok_or_else(|| {
+        crate::error::AppError::Internal("Kubernetes client not available".to_string())
+    })?;
+
+    // Find pods in the app's namespace with the gluetun container
+    let pods: kube::api::Api<k8s_openapi::api::core::v1::Pod> =
+        kube::api::Api::namespaced(k8s_client.client().clone(), &app_name);
+    let pod_list = pods
+        .list(&kube::api::ListParams::default())
+        .await
+        .map_err(|e| {
+            crate::error::AppError::Internal(format!("Failed to list pods: {}", e))
+        })?;
+
+    // Find a running pod with a gluetun container
+    let pod_ip = pod_list
+        .items
+        .iter()
+        .find_map(|pod| {
+            let status = pod.status.as_ref()?;
+            let phase = status.phase.as_deref()?;
+            if phase != "Running" {
+                return None;
+            }
+            // Check if pod has a gluetun container
+            let spec = pod.spec.as_ref()?;
+            let has_gluetun = spec.containers.iter().any(|c| c.name == "gluetun");
+            if !has_gluetun {
+                return None;
+            }
+            status.pod_ip.clone()
+        })
+        .ok_or_else(|| {
+            crate::error::AppError::NotFound(format!(
+                "No running pod with VPN found for app '{}'",
+                app_name
+            ))
+        })?;
+
+    // Query Gluetun control API for forwarded port
+    let url = format!("http://{}:8001/v1/openvpn/portforwarded", pod_ip);
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| {
+            crate::error::AppError::Internal(format!("Failed to create HTTP client: {}", e))
+        })?;
+
+    match client.get(&url).send().await {
+        Ok(resp) => {
+            let body: serde_json::Value = resp.json().await.unwrap_or_else(|_| {
+                serde_json::json!({ "port": 0 })
+            });
+            let port = body.get("port").and_then(|v| v.as_u64()).unwrap_or(0);
+            Ok(Json(serde_json::json!({ "port": port })))
+        }
+        Err(_) => Ok(Json(serde_json::json!({ "port": 0 }))),
+    }
+}
+
 // ============================================================================
 // Supported Providers Endpoint
 // ============================================================================
 
 /// List supported VPN service providers
 async fn list_supported_providers(
-    _auth: Authorized<SettingsView>,
+    _auth: Authorized<VpnView>,
 ) -> Result<Json<SupportedProvidersResponse>> {
     let providers = vpn::get_supported_providers();
     Ok(Json(SupportedProvidersResponse { providers }))

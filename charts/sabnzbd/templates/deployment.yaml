@@ -46,18 +46,33 @@ spec:
             {{- if .Values.vpn.killSwitch }}
             - name: FIREWALL
               value: "on"
+            - name: FIREWALL_INPUT_PORTS
+              value: "{{ .Values.sabnzbd.service.targetPort }},9999,8001"
             {{- else }}
             - name: FIREWALL
               value: "off"
             {{- end }}
             - name: HEALTH_SERVER_ADDRESS
               value: ":9999"
+            # Move control server off port 8000 to avoid conflict with exporter
+            - name: HTTP_CONTROL_SERVER_ADDRESS
+              value: ":8001"
+            {{- if .Values.vpn.portForwarding.enabled }}
+            - name: VPN_PORT_FORWARDING
+              value: "on"
+            - name: PORT_FORWARD_ONLY
+              value: "on"
+            {{- if .Values.vpn.portForwarding.upCommand }}
+            - name: VPN_PORT_FORWARDING_UP_COMMAND
+              value: {{ .Values.vpn.portForwarding.upCommand | quote }}
+            {{- end }}
+            {{- end }}
           ports:
             - name: gluetun-http
               containerPort: 8888
               protocol: TCP
             - name: gluetun-ctrl
-              containerPort: 8000
+              containerPort: 8001
               protocol: TCP
           livenessProbe:
             httpGet:

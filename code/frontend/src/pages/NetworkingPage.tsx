@@ -123,12 +123,6 @@ function TrafficNode({ data }: { data: TrafficNodeData }) {
           </div>
         </div>
 
-        {/* Pod count badge */}
-        {data.podCount > 0 && !data.vpnConfig && (
-          <div className="absolute -top-2 -right-2 bg-blue-500 text-white text-[9px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow">
-            {data.podCount}
-          </div>
-        )}
 
         {/* VPN indicator badge */}
         {data.vpnConfig && (

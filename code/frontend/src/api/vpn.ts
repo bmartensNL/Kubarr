@@ -61,6 +61,7 @@ export interface AppVpnConfig {
   vpn_provider_name: string;
   kill_switch_override: boolean | null;
   effective_kill_switch: boolean;
+  port_forwarding: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -68,6 +69,7 @@ export interface AppVpnConfig {
 export interface AssignVpnRequest {
   vpn_provider_id: number;
   kill_switch_override?: boolean;
+  port_forwarding?: boolean;
 }
 
 export interface SupportedProvider {
@@ -75,6 +77,7 @@ export interface SupportedProvider {
   name: string;
   vpn_types: VpnType[];
   description: string;
+  supports_port_forwarding: boolean;
 }
 
 export interface TestResult {
@@ -155,6 +158,12 @@ export const appVpnApi = {
   // Remove VPN from an app
   removeVpn: async (appName: string): Promise<void> => {
     await apiClient.delete(`/vpn/apps/${appName}`);
+  },
+
+  // Get the VPN forwarded port for an app
+  getForwardedPort: async (appName: string): Promise<{ port: number }> => {
+    const response = await apiClient.get<{ port: number }>(`/vpn/apps/${appName}/forwarded-port`);
+    return response.data;
   },
 };
 

@@ -153,6 +153,11 @@ vpn:
   killSwitch: true
   # Subnets to allow even when VPN is active (for cluster internal communication)
   firewallOutboundSubnets: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+  # Port forwarding via NAT-PMP (supported by ProtonVPN, PIA, AirVPN)
+  portForwarding:
+    enabled: false
+    # Command to run when a new forwarded port is assigned ({{PORT}} is replaced by Gluetun)
+    upCommand: /bin/sh -c 'wget -qO- "http://localhost:8080/api/v2/app/setPreferences?json=%7B%22listen_port%22%3A{{PORT}}%7D"'
 
 # Storage configuration (hostPath for shared data with media apps)
 storage:

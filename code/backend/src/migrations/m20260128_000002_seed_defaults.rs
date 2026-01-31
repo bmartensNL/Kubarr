@@ -99,6 +99,8 @@ async fn seed_roles(db: &SchemaManagerConnection<'_>) -> Result<(), DbErr> {
         "roles.manage",
         "settings.view",
         "settings.manage",
+        "vpn.view",
+        "vpn.manage",
         "audit.view",
         "audit.manage",
     ];

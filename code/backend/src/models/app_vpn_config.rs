@@ -11,6 +11,8 @@ pub struct Model {
     pub vpn_provider_id: i64,
     /// Override the provider's kill_switch setting (None = use provider default)
     pub kill_switch_override: Option<bool>,
+    /// Enable VPN port forwarding (NAT-PMP) for incoming connections
+    pub port_forwarding: bool,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
 }

@@ -74,6 +74,20 @@ export interface AppDetailMetrics {
   pods: PodStatusInfo[];
 }
 
+export interface ClusterNetworkHistory {
+  combined_series: TimeSeriesPoint[];
+  rx_series: TimeSeriesPoint[];
+  tx_series: TimeSeriesPoint[];
+}
+
+export interface ClusterMetricsHistory {
+  cpu_series: TimeSeriesPoint[];
+  memory_series: TimeSeriesPoint[];
+  storage_series: TimeSeriesPoint[];
+  pod_series: TimeSeriesPoint[];
+  container_series: TimeSeriesPoint[];
+}
+
 export const monitoringApi = {
   // Get pod status
   getPodStatus: async (namespace: string = 'media', app?: string): Promise<PodStatus[]> => {
@@ -134,6 +148,22 @@ export const monitoringApi = {
   // Get detailed metrics for a specific app
   getAppDetailMetrics: async (appName: string, duration: string = '1h'): Promise<AppDetailMetrics> => {
     const response = await apiClient.get<AppDetailMetrics>(`/monitoring/vm/app/${appName}`, {
+      params: { duration },
+    });
+    return response.data;
+  },
+
+  // Get cluster-wide network history for sparkline charts
+  getClusterNetworkHistory: async (duration: string = '15m'): Promise<ClusterNetworkHistory> => {
+    const response = await apiClient.get<ClusterNetworkHistory>('/monitoring/vm/cluster/network-history', {
+      params: { duration },
+    });
+    return response.data;
+  },
+
+  // Get cluster-wide metrics history for sparkline charts (CPU, Memory, Storage, Pods, Containers)
+  getClusterMetricsHistory: async (duration: string = '15m'): Promise<ClusterMetricsHistory> => {
+    const response = await apiClient.get<ClusterMetricsHistory>('/monitoring/vm/cluster/metrics-history', {
       params: { duration },
     });
     return response.data;

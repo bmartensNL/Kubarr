@@ -129,6 +129,11 @@ vpn:
       memory: 512Mi
   killSwitch: true
   firewallOutboundSubnets: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+  # Port forwarding via NAT-PMP (supported by ProtonVPN, PIA, AirVPN)
+  portForwarding:
+    enabled: false
+    # Command to run when a new forwarded port is assigned ({{PORT}} is replaced by Gluetun)
+    upCommand: transmission-remote localhost:9091 -p {{PORT}}
 
 # Network policy configuration
 networkPolicy:

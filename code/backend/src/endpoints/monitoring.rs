@@ -19,6 +19,8 @@ pub fn monitoring_routes(state: AppState) -> Router {
         .route("/vm/apps", get(get_app_metrics))
         .route("/vm/cluster", get(get_cluster_metrics))
         .route("/vm/app/:app_name", get(get_app_detail_metrics))
+        .route("/vm/cluster/network-history", get(get_cluster_network_history))
+        .route("/vm/cluster/metrics-history", get(get_cluster_metrics_history))
         .route("/vm/available", get(check_vm_available))
         .route("/pods", get(get_pods))
         .route("/metrics", get(get_metrics))
@@ -114,6 +116,27 @@ pub struct PodQuery {
 #[derive(Debug, Deserialize)]
 pub struct AppDetailQuery {
     pub duration: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NetworkHistoryQuery {
+    pub duration: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ClusterNetworkHistory {
+    pub combined_series: Vec<TimeSeriesPoint>,
+    pub rx_series: Vec<TimeSeriesPoint>,
+    pub tx_series: Vec<TimeSeriesPoint>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ClusterMetricsHistory {
+    pub cpu_series: Vec<TimeSeriesPoint>,
+    pub memory_series: Vec<TimeSeriesPoint>,
+    pub storage_series: Vec<TimeSeriesPoint>,
+    pub pod_series: Vec<TimeSeriesPoint>,
+    pub container_series: Vec<TimeSeriesPoint>,
 }
 
 // ============================================================================
@@ -429,6 +452,155 @@ async fn get_cluster_metrics(_auth: Authorized<MonitoringView>) -> Result<Json<C
         } else {
             0.0
         },
+    }))
+}
+
+/// Get cluster-wide network history for sparkline charts
+async fn get_cluster_network_history(
+    Query(query): Query<NetworkHistoryQuery>,
+    _auth: Authorized<MonitoringView>,
+) -> Result<Json<ClusterNetworkHistory>> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let duration = query.duration.unwrap_or_else(|| "15m".to_string());
+
+    let duration_seconds: i64 = match duration.as_str() {
+        "15m" => 15 * 60,
+        "1h" => 60 * 60,
+        "3h" => 3 * 60 * 60,
+        _ => 15 * 60,
+    };
+
+    let end_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs_f64();
+    let start_time = end_time - duration_seconds as f64;
+
+    let step = if duration_seconds <= 900 {
+        "15s"
+    } else if duration_seconds <= 3600 {
+        "60s"
+    } else {
+        "120s"
+    };
+
+    let rx_query = r#"sum(rate(container_network_receive_bytes_total{interface!="lo"}[5m]))"#;
+    let tx_query = r#"sum(rate(container_network_transmit_bytes_total{interface!="lo"}[5m]))"#;
+
+    let rx_results = query_vm_range(rx_query, start_time, end_time, step).await;
+    let tx_results = query_vm_range(tx_query, start_time, end_time, step).await;
+
+    let parse_series = |results: Vec<serde_json::Value>| -> Vec<TimeSeriesPoint> {
+        results
+            .first()
+            .and_then(|r| r["values"].as_array())
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(|v| {
+                        let ts = v[0].as_f64()?;
+                        let val: f64 = v[1].as_str()?.parse().ok()?;
+                        Some(TimeSeriesPoint {
+                            timestamp: ts,
+                            value: val,
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+
+    let rx_series = parse_series(rx_results);
+    let tx_series = parse_series(tx_results);
+
+    // Combine RX+TX by matching timestamps
+    let combined_series: Vec<TimeSeriesPoint> = rx_series
+        .iter()
+        .zip(tx_series.iter())
+        .map(|(rx, tx)| TimeSeriesPoint {
+            timestamp: rx.timestamp,
+            value: ((rx.value + tx.value) * 100.0).round() / 100.0,
+        })
+        .collect();
+
+    Ok(Json(ClusterNetworkHistory {
+        combined_series,
+        rx_series,
+        tx_series,
+    }))
+}
+
+/// Get cluster-wide metrics history for sparkline charts (CPU, Memory, Storage, Pods, Containers)
+async fn get_cluster_metrics_history(
+    Query(query): Query<NetworkHistoryQuery>,
+    _auth: Authorized<MonitoringView>,
+) -> Result<Json<ClusterMetricsHistory>> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let duration = query.duration.unwrap_or_else(|| "15m".to_string());
+
+    let duration_seconds: i64 = match duration.as_str() {
+        "15m" => 15 * 60,
+        "1h" => 60 * 60,
+        "3h" => 3 * 60 * 60,
+        _ => 15 * 60,
+    };
+
+    let end_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs_f64();
+    let start_time = end_time - duration_seconds as f64;
+
+    let step = if duration_seconds <= 900 {
+        "15s"
+    } else if duration_seconds <= 3600 {
+        "60s"
+    } else {
+        "120s"
+    };
+
+    let cpu_query = r#"sum(rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[5m])) / sum(machine_cpu_cores) * 100"#;
+    let memory_query = r#"sum(container_memory_working_set_bytes{container!="",container!="POD"}) / sum(machine_memory_bytes) * 100"#;
+    let storage_query = r#"max(container_fs_usage_bytes{id="/",device=~"/dev/.*"}) / max(container_fs_limit_bytes{id="/",device=~"/dev/.*"}) * 100"#;
+    let pod_query = r#"count(count by (pod, namespace) (container_last_seen{container!="",container!="POD"}))"#;
+    let container_query = r#"count(container_last_seen{container!="",container!="POD"})"#;
+
+    let (cpu_results, memory_results, storage_results, pod_results, container_results) = tokio::join!(
+        query_vm_range(cpu_query, start_time, end_time, step),
+        query_vm_range(memory_query, start_time, end_time, step),
+        query_vm_range(storage_query, start_time, end_time, step),
+        query_vm_range(pod_query, start_time, end_time, step),
+        query_vm_range(container_query, start_time, end_time, step),
+    );
+
+    let parse_series = |results: Vec<serde_json::Value>| -> Vec<TimeSeriesPoint> {
+        results
+            .first()
+            .and_then(|r| r["values"].as_array())
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(|v| {
+                        let ts = v[0].as_f64()?;
+                        let val: f64 = v[1].as_str()?.parse().ok()?;
+                        Some(TimeSeriesPoint {
+                            timestamp: ts,
+                            value: (val * 100.0).round() / 100.0,
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+
+    Ok(Json(ClusterMetricsHistory {
+        cpu_series: parse_series(cpu_results),
+        memory_series: parse_series(memory_results),
+        storage_series: parse_series(storage_results),
+        pod_series: parse_series(pod_results),
+        container_series: parse_series(container_results),
     }))
 }
 

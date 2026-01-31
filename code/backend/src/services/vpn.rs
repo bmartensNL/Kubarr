@@ -120,6 +120,9 @@ pub struct AssignVpnRequest {
     pub vpn_provider_id: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kill_switch_override: Option<bool>,
+    /// Enable VPN port forwarding (NAT-PMP) for incoming connections
+    #[serde(default)]
+    pub port_forwarding: Option<bool>,
 }
 
 /// Response for app VPN configuration
@@ -130,6 +133,7 @@ pub struct AppVpnConfigResponse {
     pub vpn_provider_name: String,
     pub kill_switch_override: Option<bool>,
     pub effective_kill_switch: bool,
+    pub port_forwarding: bool,
     pub created_at: chrono::DateTime<Utc>,
     pub updated_at: chrono::DateTime<Utc>,
 }
@@ -141,6 +145,7 @@ pub struct SupportedProvider {
     pub name: &'static str,
     pub vpn_types: Vec<&'static str>,
     pub description: &'static str,
+    pub supports_port_forwarding: bool,
 }
 
 fn default_true() -> bool {
@@ -358,6 +363,7 @@ pub async fn list_app_vpn_configs(db: &DbConn) -> Result<Vec<AppVpnConfigRespons
                 vpn_provider_name: provider.name.clone(),
                 kill_switch_override: config.kill_switch_override,
                 effective_kill_switch,
+                port_forwarding: config.port_forwarding,
                 created_at: config.created_at,
                 updated_at: config.updated_at,
             });
@@ -392,6 +398,7 @@ pub async fn get_app_vpn_config(
             vpn_provider_name: provider.name,
             kill_switch_override: config.kill_switch_override,
             effective_kill_switch,
+            port_forwarding: config.port_forwarding,
             created_at: config.created_at,
             updated_at: config.updated_at,
         }))
@@ -425,12 +432,15 @@ pub async fn assign_vpn_to_app(
     // Check if config already exists
     let existing = AppVpnConfig::find_by_id(app_name).one(db).await?;
 
+    let port_forwarding = req.port_forwarding.unwrap_or(false);
+
     let config = if let Some(_existing) = existing {
         // Update existing
         let mut active_model = app_vpn_config::ActiveModel {
             app_name: Set(app_name.to_string()),
             vpn_provider_id: Set(req.vpn_provider_id),
             kill_switch_override: Set(req.kill_switch_override),
+            port_forwarding: Set(port_forwarding),
             updated_at: Set(now),
             ..Default::default()
         };
@@ -442,6 +452,7 @@ pub async fn assign_vpn_to_app(
             app_name: Set(app_name.to_string()),
             vpn_provider_id: Set(req.vpn_provider_id),
             kill_switch_override: Set(req.kill_switch_override),
+            port_forwarding: Set(port_forwarding),
             created_at: Set(now),
             updated_at: Set(now),
         };
@@ -455,6 +466,7 @@ pub async fn assign_vpn_to_app(
         vpn_provider_name: provider.name,
         kill_switch_override: config.kill_switch_override,
         effective_kill_switch,
+        port_forwarding: config.port_forwarding,
         created_at: config.created_at,
         updated_at: config.updated_at,
     })
@@ -608,6 +620,7 @@ pub async fn get_vpn_deployment_config(
             secret_name: format!("vpn-{}", app_name),
             kill_switch,
             firewall_outbound_subnets: provider.firewall_outbound_subnets,
+            port_forwarding: config.port_forwarding,
         }))
     } else {
         Ok(None)
@@ -621,6 +634,7 @@ pub struct VpnDeploymentConfig {
     pub secret_name: String,
     pub kill_switch: bool,
     pub firewall_outbound_subnets: String,
+    pub port_forwarding: bool,
 }
 
 /// VPN connection test result
@@ -1154,60 +1168,70 @@ pub fn get_supported_providers() -> Vec<SupportedProvider> {
             name: "Custom",
             vpn_types: vec!["wireguard", "openvpn"],
             description: "Custom WireGuard or OpenVPN configuration",
+            supports_port_forwarding: true,
         },
         SupportedProvider {
             id: "airvpn",
             name: "AirVPN",
             vpn_types: vec!["wireguard", "openvpn"],
             description: "Privacy-focused VPN with WireGuard and OpenVPN",
+            supports_port_forwarding: true,
         },
         SupportedProvider {
             id: "expressvpn",
             name: "ExpressVPN",
             vpn_types: vec!["openvpn"],
             description: "Fast VPN with servers in 94 countries",
+            supports_port_forwarding: false,
         },
         SupportedProvider {
             id: "ipvanish",
             name: "IPVanish",
             vpn_types: vec!["openvpn"],
             description: "VPN with configurable encryption",
+            supports_port_forwarding: false,
         },
         SupportedProvider {
             id: "mullvad",
             name: "Mullvad",
             vpn_types: vec!["wireguard", "openvpn"],
             description: "Privacy-first VPN, no email required",
+            supports_port_forwarding: false,
         },
         SupportedProvider {
             id: "nordvpn",
             name: "NordVPN",
             vpn_types: vec!["wireguard", "openvpn"],
             description: "Popular VPN with NordLynx (WireGuard)",
+            supports_port_forwarding: false,
         },
         SupportedProvider {
             id: "private_internet_access",
             name: "Private Internet Access (PIA)",
             vpn_types: vec!["wireguard", "openvpn"],
             description: "Proven no-logs VPN",
+            supports_port_forwarding: true,
         },
         SupportedProvider {
             id: "protonvpn",
             name: "ProtonVPN",
             vpn_types: vec!["wireguard", "openvpn"],
             description: "Swiss-based privacy VPN",
+            supports_port_forwarding: true,
         },
         SupportedProvider {
             id: "surfshark",
             name: "Surfshark",
             vpn_types: vec!["wireguard", "openvpn"],
             description: "Unlimited device connections",
+            supports_port_forwarding: false,
         },
         SupportedProvider {
             id: "windscribe",
             name: "Windscribe",
             vpn_types: vec!["wireguard", "openvpn"],
             description: "VPN with built-in ad blocker",
+            supports_port_forwarding: false,
         },
     ]
 }

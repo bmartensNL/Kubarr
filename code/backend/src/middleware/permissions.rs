@@ -108,6 +108,12 @@ define_permissions! {
     // Networking
     /// View network topology
     NetworkingView => "networking.view",
+
+    // VPN
+    /// View VPN providers and app VPN configurations
+    VpnView => "vpn.view",
+    /// Manage VPN providers and assign VPN to apps
+    VpnManage => "vpn.manage",
 }
 
 /// Extractor that requires a specific permission

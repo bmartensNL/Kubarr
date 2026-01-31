@@ -123,6 +123,7 @@ impl<'a> DeploymentManager<'a> {
 
         // Collect --set arguments
         let mut set_args: Vec<String> = Vec::new();
+        let mut set_string_args: Vec<String> = Vec::new();
 
         // Add storage configuration
         if let Some(path) = storage_path {
@@ -146,7 +147,13 @@ impl<'a> DeploymentManager<'a> {
                         set_args.push("vpn.enabled=true".to_string());
                         set_args.push(format!("vpn.secretName={}", secret_name));
                         set_args.push(format!("vpn.killSwitch={}", vpn_config.kill_switch));
-                        set_args.push(format!(
+                        if vpn_config.port_forwarding {
+                            set_args
+                                .push("vpn.portForwarding.enabled=true".to_string());
+                        }
+                        // Use --set-string for subnets since CIDR notation contains
+                        // commas and slashes that Helm's --set parser misinterprets
+                        set_string_args.push(format!(
                             "vpn.firewallOutboundSubnets={}",
                             vpn_config.firewall_outbound_subnets
                         ));
@@ -170,6 +177,12 @@ impl<'a> DeploymentManager<'a> {
         // Add --set arguments
         for arg in &set_args {
             helm_args.push("--set");
+            helm_args.push(arg);
+        }
+
+        // Add --set-string arguments (for values containing special chars like commas/slashes)
+        for arg in &set_string_args {
+            helm_args.push("--set-string");
             helm_args.push(arg);
         }
 

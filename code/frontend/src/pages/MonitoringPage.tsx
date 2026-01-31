@@ -58,6 +58,14 @@ function formatTime(timestamp: number): string {
   })
 }
 
+function formatPercent(value: number): string {
+  return `${value.toFixed(1)}%`
+}
+
+function formatCount(value: number): string {
+  return String(Math.round(value))
+}
+
 // Progress bar component
 function ProgressBar({ value, max, color = 'blue' }: { value: number; max: number; color?: string }) {
   const percentage = max > 0 ? Math.min((value / max) * 100, 100) : 0
@@ -308,35 +316,224 @@ function SimpleChart({
   )
 }
 
+// Mini sparkline chart for inline card use
+export function MiniSparkline({
+  data,
+  color = 'green',
+  height = 40,
+  interactive = false,
+  secondaryData,
+  secondaryColor,
+  formatValue,
+}: {
+  data: TimeSeriesPoint[];
+  color?: string;
+  height?: number;
+  interactive?: boolean;
+  secondaryData?: TimeSeriesPoint[];
+  secondaryColor?: string;
+  formatValue?: (v: number) => string;
+}) {
+  const [hoverInfo, setHoverInfo] = useState<{ x: number; primaryY: number; primaryVal: number; secondaryY?: number; secondaryVal?: number; time: string; pxX: number } | null>(null)
+  const containerRef = React.useRef<HTMLDivElement>(null)
+
+  if (!data || data.length < 2) return null
+
+  const colorMap: Record<string, { stroke: string; fill: string }> = {
+    blue: { stroke: '#3b82f6', fill: 'rgba(59, 130, 246, 0.15)' },
+    green: { stroke: '#22c55e', fill: 'rgba(34, 197, 94, 0.15)' },
+    purple: { stroke: '#a855f7', fill: 'rgba(168, 85, 247, 0.15)' },
+    red: { stroke: '#ef4444', fill: 'rgba(239, 68, 68, 0.15)' },
+    cyan: { stroke: '#06b6d4', fill: 'rgba(6, 182, 212, 0.15)' },
+    yellow: { stroke: '#eab308', fill: 'rgba(234, 179, 8, 0.15)' },
+  }
+  const colors = colorMap[color] || colorMap.green
+  const secColors = secondaryColor ? (colorMap[secondaryColor] || colorMap.red) : null
+
+  // Compute shared scale across both series
+  const allValues = [...data.map(d => d.value), ...(secondaryData || []).map(d => d.value)]
+  const maxVal = Math.max(...allValues)
+  const minVal = Math.min(...allValues)
+  const range = maxVal - minVal || maxVal * 0.1 || 1
+  const paddedMin = minVal - range * 0.1
+  const paddedMax = maxVal + range * 0.1
+
+  const width = 100
+  const chartHeight = height
+
+  const buildSeries = (series: TimeSeriesPoint[]) => {
+    const pts = series.map((d, i) => {
+      const x = (i / (series.length - 1)) * width
+      const y = chartHeight - ((d.value - paddedMin) / (paddedMax - paddedMin)) * chartHeight
+      return { x, y, value: d.value, timestamp: d.timestamp }
+    })
+    let line = `M ${pts[0].x},${pts[0].y}`
+    for (let i = 1; i < pts.length; i++) {
+      const prev = pts[i - 1]
+      const curr = pts[i]
+      const tension = 0.3
+      const cp1x = prev.x + (curr.x - prev.x) * tension
+      const cp2x = curr.x - (curr.x - prev.x) * tension
+      line += ` C ${cp1x},${prev.y} ${cp2x},${curr.y} ${curr.x},${curr.y}`
+    }
+    const area = `${line} L ${width},${chartHeight} L 0,${chartHeight} Z`
+    return { pts, line, area }
+  }
+
+  const primary = buildSeries(data)
+  const secondary = secondaryData && secondaryData.length >= 2 ? buildSeries(secondaryData) : null
+
+  const handleMouseMove = interactive ? (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!containerRef.current) return
+    const rect = containerRef.current.getBoundingClientRect()
+    const relativeX = (e.clientX - rect.left) / rect.width
+    const idx = Math.max(0, Math.min(Math.round(relativeX * (primary.pts.length - 1)), primary.pts.length - 1))
+    const pt = primary.pts[idx]
+    const secPt = secondary ? secondary.pts[Math.max(0, Math.min(idx, secondary.pts.length - 1))] : undefined
+    setHoverInfo({
+      x: pt.x,
+      primaryY: pt.y,
+      primaryVal: pt.value,
+      secondaryY: secPt?.y,
+      secondaryVal: secPt?.value,
+      time: formatTime(pt.timestamp),
+      pxX: e.clientX - rect.left,
+    })
+  } : undefined
+
+  return (
+    <div
+      ref={containerRef}
+      className={`relative ${interactive ? 'cursor-crosshair' : ''}`}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={interactive ? () => setHoverInfo(null) : undefined}
+    >
+      <svg
+        viewBox={`0 0 ${width} ${chartHeight}`}
+        preserveAspectRatio="none"
+        className="w-full"
+        style={{ height }}
+      >
+        <defs>
+          <linearGradient id={`sparkline-grad-${color}`} x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor={colors.fill.replace('0.15', '0.3')} />
+            <stop offset="100%" stopColor={colors.fill.replace('0.15', '0.02')} />
+          </linearGradient>
+          {secColors && (
+            <linearGradient id={`sparkline-grad-${secondaryColor}`} x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor={secColors.fill.replace('0.15', '0.3')} />
+              <stop offset="100%" stopColor={secColors.fill.replace('0.15', '0.02')} />
+            </linearGradient>
+          )}
+        </defs>
+        <path d={primary.area} fill={`url(#sparkline-grad-${color})`} />
+        <path d={primary.line} stroke={colors.stroke} fill="none" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+        {secondary && secColors && (
+          <>
+            <path d={secondary.area} fill={`url(#sparkline-grad-${secondaryColor})`} />
+            <path d={secondary.line} stroke={secColors.stroke} fill="none" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+          </>
+        )}
+        {hoverInfo && (
+          <>
+            <line x1={hoverInfo.x} y1="0" x2={hoverInfo.x} y2={chartHeight} stroke="rgba(156,163,175,0.5)" strokeWidth="0.5" strokeDasharray="2,2" />
+            <circle cx={hoverInfo.x} cy={hoverInfo.primaryY} r="1" fill={colors.stroke} />
+            {hoverInfo.secondaryY !== undefined && secColors && (
+              <circle cx={hoverInfo.x} cy={hoverInfo.secondaryY} r="1" fill={secColors.stroke} />
+            )}
+          </>
+        )}
+      </svg>
+      {hoverInfo && (
+        <div
+          className="absolute z-50 bg-gray-900 dark:bg-gray-800 border border-gray-600 rounded px-2 py-1 text-[10px] pointer-events-none shadow-lg whitespace-nowrap"
+          style={{
+            left: Math.min(hoverInfo.pxX + 8, (containerRef.current?.offsetWidth || 200) - 120),
+            top: -38,
+          }}
+        >
+          <div className="text-gray-400">{hoverInfo.time}</div>
+          <div className="flex items-center gap-2">
+            <span className="font-medium" style={{ color: colors.stroke }}>{secondaryData ? '↓ ' : ''}{(formatValue || formatBandwidth)(hoverInfo.primaryVal)}</span>
+            {hoverInfo.secondaryVal !== undefined && secColors && (
+              <span className="font-medium" style={{ color: secColors.stroke }}>↑ {(formatValue || formatBandwidth)(hoverInfo.secondaryVal)}</span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Cluster stats card
 function ClusterStatsCard({
   icon: Icon,
   label,
   value,
-  subValue,
-  color = 'blue'
+  detailValue,
+  detailSub,
+  color = 'blue',
+  sparklineData,
+  sparklineFormatValue,
 }: {
   icon: React.ElementType;
   label: string;
   value: string;
-  subValue?: string;
+  detailValue?: string;
+  detailSub?: string;
   color?: string;
+  sparklineData?: TimeSeriesPoint[];
+  sparklineFormatValue?: (v: number) => string;
 }) {
-  const colorClasses: Record<string, string> = {
+  const iconBgClasses: Record<string, string> = {
+    blue: 'from-blue-500/20 to-blue-600/10',
+    green: 'from-green-500/20 to-green-600/10',
+    yellow: 'from-yellow-500/20 to-yellow-600/10',
+    purple: 'from-purple-500/20 to-purple-600/10',
+    cyan: 'from-cyan-500/20 to-cyan-600/10',
+  }
+  const iconColorClasses: Record<string, string> = {
     blue: 'text-blue-500 dark:text-blue-400',
     green: 'text-green-500 dark:text-green-400',
     yellow: 'text-yellow-500 dark:text-yellow-400',
     purple: 'text-purple-500 dark:text-purple-400',
+    cyan: 'text-cyan-500 dark:text-cyan-400',
   }
+  const detailColorClasses: Record<string, string> = {
+    blue: 'text-blue-500 dark:text-blue-400',
+    green: 'text-green-500 dark:text-green-400',
+    yellow: 'text-yellow-500 dark:text-yellow-400',
+    purple: 'text-purple-500 dark:text-purple-400',
+    cyan: 'text-cyan-500 dark:text-cyan-400',
+  }
+  const hasSparkline = sparklineData && sparklineData.length >= 2
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
-      <div className="flex items-center gap-3 mb-2">
-        <Icon className={colorClasses[color]} size={24} />
-        <span className="text-gray-500 dark:text-gray-400 text-sm">{label}</span>
+    <div className="relative bg-gradient-to-br from-white to-gray-50 dark:from-gray-800 dark:to-gray-850 rounded-xl p-5 h-[125px] border border-gray-200/60 dark:border-gray-700/60 shadow-[0_4px_12px_rgba(0,0,0,0.05),0_1px_3px_rgba(0,0,0,0.1)] dark:shadow-[0_4px_12px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.05)] overflow-hidden flex flex-col justify-between">
+      <div className="relative flex items-center gap-3">
+        <div className={`p-2.5 bg-gradient-to-br ${iconBgClasses[color] || iconBgClasses.blue} rounded-xl shadow-inner`}>
+          <Icon className={`w-5 h-5 ${iconColorClasses[color] || iconColorClasses.blue}`} />
+        </div>
+        <div className="flex-1">
+          <div className="text-gray-500 dark:text-gray-400 text-sm font-medium">{label}</div>
+          <div className="text-xl font-bold text-gray-900 dark:text-white">{value}</div>
+        </div>
+        {detailValue && (
+          <div className="text-right">
+            <div className={`text-lg font-bold ${detailColorClasses[color] || detailColorClasses.blue}`}>
+              {detailValue}
+            </div>
+            {detailSub && (
+              <div className="text-xs text-gray-500 dark:text-gray-500">{detailSub}</div>
+            )}
+          </div>
+        )}
       </div>
-      <div className="text-2xl font-bold text-gray-900 dark:text-white">{value}</div>
-      {subValue && <div className="text-sm text-gray-500 mt-1">{subValue}</div>}
+      {hasSparkline && (
+        <div className="relative -mx-5 -mb-5">
+          <MiniSparkline data={sparklineData} color={color} height={45} interactive formatValue={sparklineFormatValue} />
+        </div>
+      )}
     </div>
   )
 }
@@ -742,9 +939,33 @@ export default function MonitoringPage() {
     enabled: metricsStatus?.available,
   })
 
+  // Get cluster network history for sparkline
+  const {
+    data: networkHistory,
+    refetch: refetchNetworkHistory,
+  } = useQuery({
+    queryKey: ['monitoring', 'vm', 'cluster', 'network-history'],
+    queryFn: () => monitoringApi.getClusterNetworkHistory('15m'),
+    refetchInterval: autoRefresh ? 10000 : false,
+    enabled: metricsStatus?.available,
+  })
+
+  // Get cluster metrics history for sparklines on all KPI cards
+  const {
+    data: metricsHistory,
+    refetch: refetchMetricsHistory,
+  } = useQuery({
+    queryKey: ['monitoring', 'vm', 'cluster', 'metrics-history'],
+    queryFn: () => monitoringApi.getClusterMetricsHistory('15m'),
+    refetchInterval: autoRefresh ? 10000 : false,
+    enabled: metricsStatus?.available,
+  })
+
   const handleRefresh = () => {
     refetchCluster()
     refetchApps()
+    refetchNetworkHistory()
+    refetchMetricsHistory()
   }
 
   // Sort apps by memory usage (descending) - backend already returns only relevant apps
@@ -822,68 +1043,60 @@ export default function MonitoringPage() {
           <Server size={20} />
           Cluster Overview
         </h2>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
           <ClusterStatsCard
             icon={Cpu}
             label="CPU Usage"
             value={`${clusterMetrics?.cpu_usage_percent?.toFixed(1) || 0}%`}
-            subValue={`${formatCpu(clusterMetrics?.used_cpu_cores || 0)} / ${clusterMetrics?.total_cpu_cores || 0} cores`}
+            detailValue={formatCpu(clusterMetrics?.used_cpu_cores || 0)}
+            detailSub={`/ ${clusterMetrics?.total_cpu_cores || 0} cores`}
             color="blue"
+            sparklineData={metricsHistory?.cpu_series}
+            sparklineFormatValue={formatPercent}
           />
           <ClusterStatsCard
             icon={HardDrive}
             label="Memory Usage"
             value={`${clusterMetrics?.memory_usage_percent?.toFixed(1) || 0}%`}
-            subValue={`${formatBytes(clusterMetrics?.used_memory_bytes || 0)} / ${formatBytes(clusterMetrics?.total_memory_bytes || 0)}`}
-            color="green"
-          />
-          <ClusterStatsCard
-            icon={Network}
-            label="Network I/O"
-            value={formatBandwidth((clusterMetrics?.network_receive_bytes_per_sec || 0) + (clusterMetrics?.network_transmit_bytes_per_sec || 0))}
-            subValue={`↓ ${formatBandwidth(clusterMetrics?.network_receive_bytes_per_sec || 0)} ↑ ${formatBandwidth(clusterMetrics?.network_transmit_bytes_per_sec || 0)}`}
+            detailValue={formatBytes(clusterMetrics?.used_memory_bytes || 0)}
+            detailSub={`/ ${formatBytes(clusterMetrics?.total_memory_bytes || 0)}`}
             color="purple"
+            sparklineData={metricsHistory?.memory_series}
+            sparklineFormatValue={formatPercent}
           />
+          <div className="relative bg-gradient-to-br from-white to-gray-50 dark:from-gray-800 dark:to-gray-850 rounded-xl p-5 h-[125px] border border-gray-200/60 dark:border-gray-700/60 shadow-[0_4px_12px_rgba(0,0,0,0.05),0_1px_3px_rgba(0,0,0,0.1)] dark:shadow-[0_4px_12px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.05)] overflow-hidden flex flex-col justify-between">
+            <div className="relative flex items-center gap-3">
+              <div className="p-2.5 bg-gradient-to-br from-green-500/20 to-green-600/10 rounded-xl shadow-inner">
+                <Network className="w-5 h-5 text-green-500 dark:text-green-400" />
+              </div>
+              <div className="flex-1">
+                <div className="text-gray-500 dark:text-gray-400 text-sm font-medium">Network I/O</div>
+              </div>
+              <div className="text-right">
+                <div className="text-sm font-bold text-green-500 dark:text-green-400">↓ {formatBandwidth(clusterMetrics?.network_receive_bytes_per_sec || 0)}</div>
+                <div className="text-sm font-bold text-red-500 dark:text-red-400">↑ {formatBandwidth(clusterMetrics?.network_transmit_bytes_per_sec || 0)}</div>
+              </div>
+            </div>
+            <div className="relative -mx-5 -mb-5">
+              <MiniSparkline data={networkHistory?.rx_series || []} color="green" secondaryData={networkHistory?.tx_series} secondaryColor="red" height={45} interactive />
+            </div>
+          </div>
           <ClusterStatsCard
             icon={Box}
             label="Containers"
             value={String(clusterMetrics?.container_count || 0)}
-            subValue="Running containers"
             color="yellow"
+            sparklineData={metricsHistory?.container_series}
+            sparklineFormatValue={formatCount}
           />
           <ClusterStatsCard
             icon={Server}
             label="Pods"
             value={String(clusterMetrics?.pod_count || 0)}
-            subValue="Active pods"
-            color="blue"
+            color="cyan"
+            sparklineData={metricsHistory?.pod_series}
+            sparklineFormatValue={formatCount}
           />
-        </div>
-
-        {/* Cluster usage bars */}
-        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-            <div className="flex justify-between mb-2">
-              <span className="text-sm text-gray-500 dark:text-gray-400">CPU</span>
-              <span className="text-sm text-gray-900 dark:text-white">{clusterMetrics?.cpu_usage_percent?.toFixed(1) || 0}%</span>
-            </div>
-            <ProgressBar
-              value={clusterMetrics?.used_cpu_cores || 0}
-              max={clusterMetrics?.total_cpu_cores || 1}
-              color="blue"
-            />
-          </div>
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-            <div className="flex justify-between mb-2">
-              <span className="text-sm text-gray-500 dark:text-gray-400">Memory</span>
-              <span className="text-sm text-gray-900 dark:text-white">{clusterMetrics?.memory_usage_percent?.toFixed(1) || 0}%</span>
-            </div>
-            <ProgressBar
-              value={clusterMetrics?.used_memory_bytes || 0}
-              max={clusterMetrics?.total_memory_bytes || 1}
-              color="green"
-            />
-          </div>
         </div>
       </div>
 

@@ -1,8 +1,12 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { appsApi } from '../api/apps'
+import { vpnApi, appVpnApi } from '../api/vpn'
+import type { VpnProvider } from '../api/vpn'
+import { VpnProviderForm } from '../components/vpn/VpnProviderForm'
 import { AppIcon, useIconColors } from '../components/AppIcon'
+import { useAuth } from '../contexts/AuthContext'
 import { useMonitoring } from '../contexts/MonitoringContext'
 import type { AppConfig } from '../types'
 
@@ -368,6 +372,71 @@ function AppDetailPanel({
   isOperationPending
 }: AppDetailPanelProps) {
   const colors = useIconColors(app?.name || '')
+  const { hasPermission } = useAuth()
+  const canViewVpn = hasPermission('vpn.view')
+  const canManageVpn = hasPermission('vpn.manage')
+  const queryClient = useQueryClient()
+  const [selectedProviderId, setSelectedProviderId] = useState<number | null>(null)
+  const [killSwitchOverride, setKillSwitchOverride] = useState<boolean | null>(null)
+  const [portForwarding, setPortForwarding] = useState(false)
+  const [showVpnForm, setShowVpnForm] = useState(false)
+
+  // VPN queries (only fetch if user has vpn.view permission)
+  const { data: vpnProviders } = useQuery({
+    queryKey: ['vpn-providers'],
+    queryFn: vpnApi.listProviders,
+    staleTime: 30000,
+    enabled: canViewVpn,
+  })
+
+  const { data: appVpnConfig, isLoading: vpnConfigLoading } = useQuery({
+    queryKey: ['app-vpn-config', app?.name],
+    queryFn: () => appVpnApi.getConfig(app!.name),
+    enabled: canViewVpn && !!app && isInstalled && !app.is_system,
+    staleTime: 10000,
+  })
+
+  // Query forwarded port when VPN is active with port forwarding enabled
+  const { data: forwardedPortData } = useQuery({
+    queryKey: ['vpn-forwarded-port', app?.name],
+    queryFn: () => appVpnApi.getForwardedPort(app!.name),
+    enabled: canViewVpn && !!app && !!appVpnConfig?.port_forwarding,
+    refetchInterval: 10000,
+    staleTime: 5000,
+  })
+
+  // Sync local state when config changes
+  useEffect(() => {
+    if (appVpnConfig) {
+      setSelectedProviderId(appVpnConfig.vpn_provider_id)
+      setKillSwitchOverride(appVpnConfig.kill_switch_override)
+      setPortForwarding(appVpnConfig.port_forwarding)
+    } else {
+      setSelectedProviderId(null)
+      setKillSwitchOverride(null)
+      setPortForwarding(false)
+    }
+  }, [appVpnConfig])
+
+  const assignVpnMutation = useMutation({
+    mutationFn: ({ appName, providerId, killSwitch, portFwd }: { appName: string; providerId: number; killSwitch?: boolean; portFwd?: boolean }) =>
+      appVpnApi.assignVpn(appName, { vpn_provider_id: providerId, kill_switch_override: killSwitch, port_forwarding: portFwd }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['app-vpn-config', app?.name] })
+    },
+  })
+
+  const removeVpnMutation = useMutation({
+    mutationFn: (appName: string) => appVpnApi.removeVpn(appName),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['app-vpn-config', app?.name] })
+      setSelectedProviderId(null)
+      setKillSwitchOverride(null)
+      setPortForwarding(false)
+    },
+  })
+
+  const enabledProviders = useMemo(() => vpnProviders?.filter((p: VpnProvider) => p.enabled) || [], [vpnProviders])
 
   if (!app) return null
 
@@ -383,7 +452,7 @@ function AppDetailPanel({
 
   return (
     <div
-      className="w-[480px] flex-shrink-0 sticky top-0 self-start h-[calc(100vh-4rem)] overflow-y-auto bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 shadow-xl -mr-4 sm:-mr-6 lg:-mr-8 xl:-mr-12 2xl:-mr-16 -mt-8 -mb-10"
+      className="w-[480px] flex-shrink-0 overflow-y-auto bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 shadow-xl"
       style={{ background: bgGradient }}
     >
         {/* Status bar */}
@@ -416,17 +485,69 @@ function AppDetailPanel({
             </div>
 
             <div className="flex-1 min-w-0 pt-1">
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{app.display_name}</h2>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{app.display_name}</h2>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
+                      {categoryIcon}
+                      {categoryLabel}
+                    </span>
+                  </div>
+                </div>
 
-              <div className="flex items-center gap-2 mt-2">
-                <span className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
-                  {categoryIcon}
-                  {categoryLabel}
-                </span>
+                {/* Action buttons */}
+                <div className="flex flex-col gap-2 flex-shrink-0">
+                  {app.is_browseable && (isInstalled || app.is_system) && !app.is_hidden && (
+                    <button
+                      onClick={onOpen}
+                      className="bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold py-2 px-4 rounded-xl transition-colors flex items-center gap-1.5"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                      Open
+                    </button>
+                  )}
+                  {!app.is_system && isInstalled && effectiveState === 'installed' && (
+                    <button
+                      onClick={onDelete}
+                      disabled={isOperationPending}
+                      className="bg-gray-100 dark:bg-gray-800 hover:bg-red-600 disabled:cursor-not-allowed text-gray-600 dark:text-gray-300 hover:text-white text-sm font-semibold py-2 px-4 rounded-xl transition-colors flex items-center gap-1.5"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                      Uninstall
+                    </button>
+                  )}
+                  {!app.is_system && !isInstalled && (effectiveState === 'idle' || effectiveState === 'error') && (
+                    <button
+                      onClick={onInstall}
+                      className="bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold py-2 px-4 rounded-xl transition-colors flex items-center gap-1.5"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                      {effectiveState === 'error' ? 'Retry' : 'Install'}
+                    </button>
+                  )}
+                  {(effectiveState === 'installing' || effectiveState === 'deleting') && (
+                    <button
+                      disabled
+                      className="bg-gray-100 dark:bg-gray-800 cursor-not-allowed text-gray-500 dark:text-gray-400 text-sm font-semibold py-2 px-4 rounded-xl flex items-center gap-1.5"
+                    >
+                      <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      {effectiveState === 'installing' ? 'Installing...' : 'Removing...'}
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Status */}
-              <div className="flex items-center gap-2 mt-3">
+              <div className="flex items-center gap-2 mt-2">
                 {app.is_system && (
                   <span className="inline-flex items-center gap-1.5 bg-purple-500/20 text-purple-600 dark:text-purple-400 text-sm px-3 py-1 rounded-full">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -448,18 +569,6 @@ function AppDetailPanel({
                 {!app.is_system && !isInstalled && effectiveState === 'idle' && (
                   <span className="inline-flex items-center gap-1.5 bg-gray-500/20 text-gray-600 dark:text-gray-400 text-sm px-3 py-1 rounded-full">
                     Not Installed
-                  </span>
-                )}
-                {effectiveState === 'installing' && (
-                  <span className="inline-flex items-center gap-1.5 bg-blue-500/20 text-blue-600 dark:text-blue-400 text-sm px-3 py-1 rounded-full animate-pulse">
-                    <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
-                    Installing...
-                  </span>
-                )}
-                {effectiveState === 'deleting' && (
-                  <span className="inline-flex items-center gap-1.5 bg-red-500/20 text-red-600 dark:text-red-400 text-sm px-3 py-1 rounded-full animate-pulse">
-                    <span className="w-2 h-2 bg-red-500 rounded-full"></span>
-                    Removing...
                   </span>
                 )}
               </div>
@@ -486,69 +595,196 @@ function AppDetailPanel({
             </div>
           </div>
 
-          {/* Actions */}
-          <div className="mt-6 flex gap-3">
-            {app.is_system && app.is_hidden ? (
-              <div className="w-full bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-sm font-medium py-3 px-4 rounded-xl text-center">
-                Background Service
-              </div>
-            ) : app.is_system ? (
-              <button
-                onClick={onOpen}
-                className="w-full bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold py-3 px-4 rounded-xl transition-colors flex items-center justify-center gap-2"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+          {/* VPN Configuration */}
+          {canViewVpn && !app.is_system && isInstalled && (
+            <div className="mt-6">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                 </svg>
-                Open App
-              </button>
-            ) : effectiveState === 'installed' ? (
-              <>
-                {app.is_browseable && (
-                  <button
-                    onClick={onOpen}
-                    className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold py-3 px-4 rounded-xl transition-colors flex items-center justify-center gap-2"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                    </svg>
-                    Open App
-                  </button>
-                )}
-                <button
-                  onClick={onDelete}
-                  disabled={isOperationPending}
-                  className={`${!app.is_browseable ? 'flex-1' : ''} bg-gray-100 dark:bg-gray-800 hover:bg-red-600 disabled:cursor-not-allowed text-gray-600 dark:text-gray-300 hover:text-white text-sm font-semibold py-3 px-4 rounded-xl transition-colors flex items-center justify-center gap-2`}
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                  Uninstall
-                </button>
-              </>
-            ) : effectiveState === 'idle' || effectiveState === 'error' ? (
-              <button
-                onClick={onInstall}
-                className="w-full bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold py-3 px-4 rounded-xl transition-colors flex items-center justify-center gap-2"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-                {effectiveState === 'error' ? 'Retry Installation' : 'Install App'}
-              </button>
-            ) : (
-              <button
-                disabled
-                className="w-full bg-gray-100 dark:bg-gray-800 cursor-not-allowed text-gray-500 dark:text-gray-400 text-sm font-semibold py-3 px-4 rounded-xl flex items-center justify-center gap-2"
-              >
-                <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                {effectiveState === 'installing' ? 'Installing...' : 'Removing...'}
-              </button>
-            )}
-          </div>
+                VPN
+              </h3>
+
+              {vpnConfigLoading ? (
+                <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4 animate-pulse">
+                  <div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded" />
+                </div>
+              ) : enabledProviders.length === 0 ? (
+                <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4 space-y-3">
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    No VPN providers configured.
+                  </p>
+                  {canManageVpn && (
+                    <button
+                      onClick={() => setShowVpnForm(true)}
+                      className="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold py-2 px-3 rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                      </svg>
+                      Add VPN Provider
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4 space-y-3">
+                  {/* Provider selector */}
+                  <div>
+                    <label className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Provider</label>
+                    <div className="flex gap-2 mt-1">
+                      <select
+                        value={selectedProviderId ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setSelectedProviderId(val ? Number(val) : null)
+                        }}
+                        disabled={!canManageVpn}
+                        className="flex-1 min-w-0 px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        <option value="">No VPN</option>
+                        {enabledProviders.map((p: VpnProvider) => (
+                          <option key={p.id} value={p.id}>{p.name} ({p.vpn_type === 'wireguard' ? 'WireGuard' : 'OpenVPN'})</option>
+                        ))}
+                      </select>
+                      {canManageVpn && (
+                        <button
+                          onClick={() => setShowVpnForm(true)}
+                          className="flex-shrink-0 p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-500 hover:text-blue-600 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                          title="Add VPN provider"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Kill switch override */}
+                  {canManageVpn && selectedProviderId && (
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <label className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Kill Switch</label>
+                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                          {killSwitchOverride === null ? 'Using provider default' : killSwitchOverride ? 'Forced on' : 'Forced off'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {[
+                          { label: 'Default', value: null },
+                          { label: 'On', value: true },
+                          { label: 'Off', value: false },
+                        ].map((opt) => (
+                          <button
+                            key={String(opt.value)}
+                            onClick={() => setKillSwitchOverride(opt.value as boolean | null)}
+                            className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                              killSwitchOverride === opt.value
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Port forwarding toggle */}
+                  {canManageVpn && selectedProviderId && (
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <label className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Port Forwarding</label>
+                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                          {portForwarding ? 'NAT-PMP enabled' : 'Disabled'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {[
+                          { label: 'Off', value: false },
+                          { label: 'On', value: true },
+                        ].map((opt) => (
+                          <button
+                            key={String(opt.value)}
+                            onClick={() => setPortForwarding(opt.value)}
+                            className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                              portForwarding === opt.value
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Action buttons */}
+                  {canManageVpn && (
+                    <div className="flex gap-2 pt-1">
+                      {selectedProviderId && (
+                        <button
+                          onClick={() => assignVpnMutation.mutate({
+                            appName: app.name,
+                            providerId: selectedProviderId,
+                            killSwitch: killSwitchOverride ?? undefined,
+                            portFwd: portForwarding,
+                          })}
+                          disabled={assignVpnMutation.isPending || (appVpnConfig?.vpn_provider_id === selectedProviderId && appVpnConfig?.kill_switch_override === killSwitchOverride && appVpnConfig?.port_forwarding === portForwarding)}
+                          className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 disabled:cursor-not-allowed text-white text-xs font-semibold py-2 px-3 rounded-lg transition-colors"
+                        >
+                          {assignVpnMutation.isPending ? 'Saving...' : appVpnConfig ? 'Update VPN' : 'Enable VPN'}
+                        </button>
+                      )}
+                      {appVpnConfig && (
+                        <button
+                          onClick={() => removeVpnMutation.mutate(app.name)}
+                          disabled={removeVpnMutation.isPending}
+                          className="bg-gray-200 dark:bg-gray-700 hover:bg-red-600 disabled:cursor-not-allowed text-gray-600 dark:text-gray-300 hover:text-white text-xs font-semibold py-2 px-3 rounded-lg transition-colors"
+                        >
+                          {removeVpnMutation.isPending ? 'Removing...' : 'Remove VPN'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Current status */}
+                  {appVpnConfig && (
+                    <div className="space-y-1 pt-1">
+                      <div className="flex items-center gap-2 text-xs text-green-600 dark:text-green-400">
+                        <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>
+                        VPN active via {appVpnConfig.vpn_provider_name}
+                        {appVpnConfig.effective_kill_switch && ' (kill switch on)'}
+                      </div>
+                      {appVpnConfig.port_forwarding && (
+                        <div className="flex items-center gap-2 text-xs text-blue-600 dark:text-blue-400">
+                          <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
+                          {forwardedPortData?.port
+                            ? `Forwarded port: ${forwardedPortData.port}`
+                            : 'Port forwarding: negotiating...'}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
         </div>
+
+      {/* VPN Provider Form Modal */}
+      {showVpnForm && (
+        <VpnProviderForm
+          onClose={() => setShowVpnForm(false)}
+          onSave={() => {
+            setShowVpnForm(false)
+            queryClient.invalidateQueries({ queryKey: ['vpn-providers'] })
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -791,7 +1027,7 @@ export default function AppsPage() {
   }
 
   return (
-    <div className="space-y-8 pb-8">
+    <div className="flex h-[calc(100vh-4rem-2.5rem)] -mt-8 -mx-4 sm:-mx-6 lg:-mx-8 xl:-mx-12 2xl:-mx-16">
       {/* Toast Notification */}
       {toast && (
         <div className={`fixed top-4 right-4 z-50 px-6 py-4 rounded-xl shadow-lg border backdrop-blur-sm ${
@@ -824,37 +1060,38 @@ export default function AppsPage() {
         </div>
       )}
 
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-800 pb-6">
-        <div>
-          <h1 className="text-3xl font-bold">Apps</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-2">Browse and install applications for your media server</p>
+      {/* Left: Header + Content */}
+      <div className="flex-1 min-w-0 flex flex-col">
+        {/* Header */}
+        <div className="flex-shrink-0 flex items-center justify-between border-b border-gray-200 dark:border-gray-800 px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16 py-4">
+          <div>
+            <h1 className="text-3xl font-bold">Apps</h1>
+            <p className="text-gray-500 dark:text-gray-400 mt-2">Browse and install applications for your media server</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <select
+              value={filter}
+              onChange={(e) => {
+                const newFilter = e.target.value as FilterType
+                if (newFilter === 'all') {
+                  setSearchParams({})
+                } else {
+                  setSearchParams({ filter: newFilter })
+                }
+              }}
+              className="px-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer shadow-sm"
+            >
+              <option value="all">All Apps</option>
+              <option value="installed">Installed</option>
+              <option value="healthy">Healthy</option>
+              <option value="unhealthy">Unhealthy</option>
+              <option value="available">Available</option>
+            </select>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <select
-            value={filter}
-            onChange={(e) => {
-              const newFilter = e.target.value as FilterType
-              if (newFilter === 'all') {
-                setSearchParams({})
-              } else {
-                setSearchParams({ filter: newFilter })
-              }
-            }}
-            className="px-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer shadow-sm"
-          >
-            <option value="all">All Apps</option>
-            <option value="installed">Installed</option>
-            <option value="healthy">Healthy</option>
-            <option value="unhealthy">Unhealthy</option>
-            <option value="available">Available</option>
-          </select>
-        </div>
-      </div>
 
-      <div className="flex gap-6">
         {/* Main content */}
-        <div className="flex-1 min-w-0 space-y-8">
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16 py-8 space-y-8">
           {/* Empty State */}
           {sortedCategories.length === 0 && filter !== 'all' && (
             <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -929,24 +1166,24 @@ export default function AppsPage() {
             )
           })}
         </div>
-
-        {/* App Detail Panel */}
-        {selectedApp && (() => {
-          const { isInstalled, isHealthy, effectiveState } = getAppState(selectedApp)
-          return (
-            <AppDetailPanel
-              app={selectedApp}
-              isInstalled={isInstalled}
-              isHealthy={isHealthy}
-              effectiveState={effectiveState}
-              onInstall={() => installMutation.mutate(selectedApp.name)}
-              onDelete={() => deleteMutation.mutate(selectedApp.name)}
-              onOpen={() => handleOpen(selectedApp)}
-              isOperationPending={installMutation.isPending || deleteMutation.isPending}
-            />
-          )
-        })()}
       </div>
+
+      {/* App Detail Panel (right sidebar) */}
+      {selectedApp && (() => {
+        const { isInstalled, isHealthy, effectiveState } = getAppState(selectedApp)
+        return (
+          <AppDetailPanel
+            app={selectedApp}
+            isInstalled={isInstalled}
+            isHealthy={isHealthy}
+            effectiveState={effectiveState}
+            onInstall={() => installMutation.mutate(selectedApp.name)}
+            onDelete={() => deleteMutation.mutate(selectedApp.name)}
+            onOpen={() => handleOpen(selectedApp)}
+            isOperationPending={installMutation.isPending || deleteMutation.isPending}
+          />
+        )
+      })()}
     </div>
   )
 }

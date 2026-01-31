@@ -15,7 +15,7 @@ import NotFoundPage from './pages/NotFoundPage'
 import AppErrorPage from './pages/AppErrorPage'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ThemeProvider, useTheme } from './contexts/ThemeContext'
-import { MonitoringProvider } from './contexts/MonitoringContext'
+import { MonitoringProvider, useMonitoring } from './contexts/MonitoringContext'
 import { VersionFooter } from './components/VersionFooter'
 import { PageTransition } from './components/PageTransition'
 import { setupApi } from './api/setup'
@@ -417,12 +417,21 @@ function UserMenu() {
   )
 }
 
+function formatNavBandwidth(bytesPerSec: number): string {
+  if (bytesPerSec === 0) return '0 B/s'
+  const k = 1024
+  const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s']
+  const i = Math.floor(Math.log(bytesPerSec) / Math.log(k))
+  return parseFloat((bytesPerSec / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+}
+
 function Navigation() {
   const { hasPermission, logout } = useAuth()
   const location = useLocation()
   const [systemDropdownOpen, setSystemDropdownOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [mobileSystemOpen, setMobileSystemOpen] = useState(false)
+  const { clusterMetrics } = useMonitoring()
 
   const isActive = (path: string) => location.pathname === path
 
@@ -502,12 +511,27 @@ function Navigation() {
     <nav className="sticky top-0 z-40 bg-white/60 dark:bg-gray-900/60 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-700/60 shadow-[0_1px_3px_rgba(0,0,0,0.05)] dark:shadow-[0_1px_3px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.05)]">
       <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16">
         <div className="flex items-center justify-between h-16">
-          {/* Logo */}
-          <div className="flex items-center">
+          {/* Logo + Metrics */}
+          <div className="flex items-center gap-5">
             <Link to="/" className="flex items-center space-x-2 text-xl font-bold text-gray-900 dark:text-white hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
               <Ship size={28} className="text-blue-500 dark:text-blue-400" strokeWidth={2} />
               <span>Kubarr</span>
             </Link>
+            {clusterMetrics ? (
+              <Link to="/resources" className="hidden lg:grid grid-cols-[auto_auto] gap-x-2 gap-y-0 text-[10px] leading-[14px] pl-5 border-l border-gray-200/60 dark:border-gray-700/60 w-fit" title="View resources">
+                <span className="text-blue-500 dark:text-blue-400 font-medium tabular-nums">CPU {clusterMetrics.cpu_usage_percent.toFixed(1)}%</span>
+                <span className="text-green-500 dark:text-green-400 font-medium tabular-nums">NET ↓ {formatNavBandwidth(clusterMetrics.network_receive_bytes_per_sec)}</span>
+                <span className="text-purple-500 dark:text-purple-400 font-medium tabular-nums">RAM {clusterMetrics.memory_usage_percent.toFixed(1)}%</span>
+                <span className="text-orange-500 dark:text-orange-400 font-medium tabular-nums">NET ↑ {formatNavBandwidth(clusterMetrics.network_transmit_bytes_per_sec)}</span>
+              </Link>
+            ) : (
+              <div className="hidden lg:grid grid-cols-[auto_auto] gap-x-2 gap-y-0.5 text-[10px] leading-[14px] pl-5 border-l border-gray-200/60 dark:border-gray-700/60 w-fit animate-pulse">
+                <div className="h-3 w-14 bg-gray-200 dark:bg-gray-700 rounded" />
+                <div className="h-3 w-16 bg-gray-200 dark:bg-gray-700 rounded" />
+                <div className="h-3 w-14 bg-gray-200 dark:bg-gray-700 rounded" />
+                <div className="h-3 w-16 bg-gray-200 dark:bg-gray-700 rounded" />
+              </div>
+            )}
           </div>
 
           {/* Desktop Navigation */}
