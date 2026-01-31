@@ -10,7 +10,7 @@ on:
 jobs:
   test:
     runs-on: self-hosted
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       KIND_CLUSTER: kubarr-e2e-${{ github.run_id }}-${{ github.run_attempt }}
       TAG: ${{ inputs.image-tag }}
@@ -32,10 +32,39 @@ jobs:
         working-directory: code/frontend
         run: npx playwright install --with-deps chromium
 
+      - name: Cleanup stale Kind resources
+        run: |
+          # Remove any leftover Kind clusters from previous runs to free resources
+          for cluster in $(kind get clusters 2>/dev/null); do
+            if [[ "$cluster" == kubarr-e2e-* && "$cluster" != "$KIND_CLUSTER" ]]; then
+              echo "Removing stale cluster: $cluster"
+              kind delete cluster --name "$cluster" 2>/dev/null || true
+            fi
+          done
+          # Prune stopped containers and unused images to free disk/memory
+          docker container prune -f 2>/dev/null || true
+
       - name: Create Kind cluster
         run: |
-          kind create cluster --name "$KIND_CLUSTER" --wait 120s
-          kubectl cluster-info --context "kind-${KIND_CLUSTER}"
+          # Retry Kind cluster creation up to 3 times to handle transient
+          # infrastructure issues on self-hosted runners (API server may fail
+          # to start due to resource pressure or Docker networking).
+          for attempt in 1 2 3; do
+            echo "=== Kind cluster creation attempt ${attempt}/3 ==="
+            if kind create cluster --name "$KIND_CLUSTER" --image kindest/node:v1.29.2 --wait 180s 2>&1; then
+              echo "Cluster created successfully on attempt ${attempt}"
+              kubectl cluster-info --context "kind-${KIND_CLUSTER}"
+              exit 0
+            fi
+            echo "Attempt ${attempt} failed"
+            kind delete cluster --name "$KIND_CLUSTER" 2>/dev/null || true
+            if [ "$attempt" -lt 3 ]; then
+              echo "Waiting 10s before retry..."
+              sleep 10
+            fi
+          done
+          echo "ERROR: Failed to create Kind cluster after 3 attempts"
+          exit 1
 
       - name: Pull images
         run: |
@@ -129,6 +158,12 @@ jobs:
       - name: Debug logs
         if: failure()
         run: |
+          echo "=== Kind version ==="
+          kind version 2>/dev/null || true
+          echo "=== Docker info ==="
+          docker info --format '{{.MemTotal}} memory, {{.NCPU}} CPUs, {{.ContainersRunning}} running' 2>/dev/null || true
+          echo "=== Kind clusters ==="
+          kind get clusters 2>/dev/null || true
           echo "=== Pod status ==="
           kubectl get pods -A -o wide 2>/dev/null || true
           echo "=== Backend logs ==="

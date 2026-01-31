@@ -667,7 +667,8 @@ pub async fn test_vpn_connection(
     );
 
     // Create test secret
-    let secret_name = create_test_vpn_secret(k8s, db, &test_pod_name, namespace, provider_id).await?;
+    let secret_name =
+        create_test_vpn_secret(k8s, db, &test_pod_name, namespace, provider_id).await?;
 
     // Create test pod
     match create_gluetun_test_pod(k8s, &test_pod_name, namespace, &secret_name).await {
@@ -784,10 +785,7 @@ async fn create_test_vpn_secret(
                     "app.kubernetes.io/managed-by".to_string(),
                     "kubarr".to_string(),
                 ),
-                (
-                    "kubarr.io/vpn-test".to_string(),
-                    "true".to_string(),
-                ),
+                ("kubarr.io/vpn-test".to_string(), "true".to_string()),
             ])),
             ..Default::default()
         },
@@ -831,13 +829,11 @@ async fn create_gluetun_test_pod(
     let pods: Api<Pod> = Api::namespaced(k8s.client().clone(), namespace);
 
     // Build environment variables from secret
-    let env_vars = vec![
-        EnvVar {
-            name: "HEALTH_SERVER_ADDRESS".to_string(),
-            value: Some(":9999".to_string()),
-            ..Default::default()
-        },
-    ];
+    let env_vars = vec![EnvVar {
+        name: "HEALTH_SERVER_ADDRESS".to_string(),
+        value: Some(":9999".to_string()),
+        ..Default::default()
+    }];
 
     // Build pod spec
     let pod = Pod {
@@ -845,8 +841,14 @@ async fn create_gluetun_test_pod(
             name: Some(pod_name.to_string()),
             namespace: Some(namespace.to_string()),
             labels: Some(BTreeMap::from([
-                ("app.kubernetes.io/name".to_string(), "gluetun-test".to_string()),
-                ("app.kubernetes.io/managed-by".to_string(), "kubarr".to_string()),
+                (
+                    "app.kubernetes.io/name".to_string(),
+                    "gluetun-test".to_string(),
+                ),
+                (
+                    "app.kubernetes.io/managed-by".to_string(),
+                    "kubarr".to_string(),
+                ),
                 ("kubarr.io/vpn-test".to_string(), "true".to_string()),
             ])),
             ..Default::default()
@@ -950,7 +952,11 @@ async fn wait_for_pod_ready(k8s: &K8sClient, pod_name: &str, namespace: &str) ->
 }
 
 /// Query Gluetun API for public IP
-async fn query_gluetun_public_ip(k8s: &K8sClient, pod_name: &str, namespace: &str) -> Result<String> {
+async fn query_gluetun_public_ip(
+    k8s: &K8sClient,
+    pod_name: &str,
+    namespace: &str,
+) -> Result<String> {
     use std::time::Duration;
     use tokio::time::timeout;
 
@@ -969,16 +975,12 @@ async fn query_gluetun_public_ip(k8s: &K8sClient, pod_name: &str, namespace: &st
 
     let query_result = timeout(timeout_duration, async {
         let client = reqwest::Client::new();
-        let response = client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| {
-                AppError::Internal(format!(
-                    "Failed to connect to VPN: {}. The VPN connection may not be established yet.",
-                    e
-                ))
-            })?;
+        let response = client.get(&url).send().await.map_err(|e| {
+            AppError::Internal(format!(
+                "Failed to connect to VPN: {}. The VPN connection may not be established yet.",
+                e
+            ))
+        })?;
 
         if !response.status().is_success() {
             return Err(AppError::Internal(format!(
@@ -987,9 +989,10 @@ async fn query_gluetun_public_ip(k8s: &K8sClient, pod_name: &str, namespace: &st
             )));
         }
 
-        let json: serde_json::Value = response.json().await.map_err(|e| {
-            AppError::Internal(format!("Failed to parse VPN response: {}", e))
-        })?;
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to parse VPN response: {}", e)))?;
 
         // Extract public IP from response
         let public_ip = json
@@ -1007,7 +1010,8 @@ async fn query_gluetun_public_ip(k8s: &K8sClient, pod_name: &str, namespace: &st
         Ok(Ok(ip)) => Ok(ip),
         Ok(Err(e)) => Err(e),
         Err(_) => Err(AppError::Internal(
-            "VPN API query timed out after 30 seconds. The VPN connection may be slow or unstable.".to_string(),
+            "VPN API query timed out after 30 seconds. The VPN connection may be slow or unstable."
+                .to_string(),
         )),
     }
 }

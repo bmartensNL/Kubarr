@@ -21,27 +21,43 @@ setup('bootstrap', async ({ page }) => {
   await page.getByRole('button', { name: /continue/i }).click();
 
   // Step 2: Server Configuration
-  await expect(page.locator('input[name="name"], input[placeholder*="name" i]').first()).toBeVisible({ timeout: 10000 });
-  await page.locator('input[name="name"], input[placeholder*="name" i]').first().fill('e2e-test');
+  // The actual inputs use id="serverName" and id="storagePath" with no name attributes
+  const serverNameInput = page.locator('input#serverName, input[placeholder*="Server" i]').first();
+  await expect(serverNameInput).toBeVisible({ timeout: 30000 });
+  await serverNameInput.fill('e2e-test');
 
-  // Fill storage path
-  const storageInput = page.locator('input[name="storage_path"], input[placeholder*="storage" i], input[placeholder*="path" i]').first();
-  await storageInput.fill('/data');
+  // Fill storage path - use /tmp which exists and is writable in all containers
+  const storageInput = page.locator('input#storagePath, input[placeholder*="kubarr" i]').first();
+  await storageInput.fill('/tmp');
+
+  // Click the Validate button to explicitly validate the path before proceeding.
+  // This avoids a race condition where onBlur fires simultaneously with the Next click,
+  // potentially disabling the button mid-click.
+  const validateButton = page.getByRole('button', { name: /validate/i });
+  await validateButton.click();
+
+  // Wait for validation to complete (green check or error message appears)
+  await expect(page.locator('.text-green-400, .text-red-400')).toBeVisible({ timeout: 15000 });
 
   // Click next/continue
-  const nextButton = page.getByRole('button', { name: /next|continue|save/i });
-  await expect(nextButton).toBeEnabled({ timeout: 5000 });
+  const nextButton = page.getByRole('button', { name: /^next$/i });
+  await expect(nextButton).toBeEnabled({ timeout: 10000 });
   await nextButton.click();
 
-  // Step 3: Admin User Creation
-  await expect(page.locator('input[name="username"], input[placeholder*="username" i]').first()).toBeVisible({ timeout: 10000 });
+  // Wait for the server configuration API call to complete
+  await page.waitForTimeout(2000);
 
-  await page.locator('input[name="username"], input[placeholder*="username" i]').first().fill('admin');
-  await page.locator('input[name="email"], input[type="email"]').first().fill('admin@test.local');
-  await page.locator('input[name="password"], input[type="password"]').first().fill('adminadmin');
+  // Step 3: Admin User Creation
+  // Inputs use id-based selectors: adminUsername, adminEmail, adminPassword, confirmPassword
+  const usernameInput = page.locator('input#adminUsername, input[placeholder*="username" i]').first();
+  await expect(usernameInput).toBeVisible({ timeout: 30000 });
+
+  await usernameInput.fill('admin');
+  await page.locator('input#adminEmail, input[type="email"]').first().fill('admin@test.local');
+  await page.locator('input#adminPassword, input[type="password"]').first().fill('adminadmin');
 
   // Fill confirm password if present
-  const confirmPassword = page.locator('input[name="confirmPassword"], input[name="confirm_password"], input[placeholder*="confirm" i]');
+  const confirmPassword = page.locator('input#confirmPassword, input[placeholder*="confirm" i]');
   if (await confirmPassword.isVisible({ timeout: 1000 }).catch(() => false)) {
     await confirmPassword.fill('adminadmin');
   }
