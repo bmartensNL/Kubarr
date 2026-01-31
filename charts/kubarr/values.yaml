@@ -131,27 +131,6 @@ rbac:
     - nonResourceURLs: ["/metrics", "/metrics/cadvisor"]
       verbs: ["get"]
 
-# Ingress configuration
-ingress:
-  enabled: false
-  className: "nginx"
-  annotations:
-    # kubernetes.io/ingress.class: nginx
-    # cert-manager.io/cluster-issuer: letsencrypt-prod
-  hosts:
-    - host: kubarr.local
-      paths:
-        - path: /
-          pathType: Prefix
-          backend: frontend
-        - path: /api
-          pathType: Prefix
-          backend: backend
-  tls: []
-  #  - secretName: kubarr-tls
-  #    hosts:
-  #      - kubarr.local
-
 # Pod Security Context
 podSecurityContext:
   runAsNonRoot: true

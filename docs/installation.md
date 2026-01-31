@@ -255,47 +255,6 @@ kubectl apply -f k8s/
 kubectl get pods -n kubarr
 ```
 
-#### Enable Traefik Ingress (k3s Built-in)
-
-k3s includes Traefik ingress controller by default:
-
-```bash
-# Create an ingress for Kubarr
-cat <<EOF | kubectl apply -f -
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: kubarr
-  namespace: kubarr
-  annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: web
-spec:
-  rules:
-  - host: kubarr.local
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: kubarr-frontend
-            port:
-              number: 80
-      - path: /api
-        pathType: Prefix
-        backend:
-          service:
-            name: kubarr-backend
-            port:
-              number: 8000
-EOF
-
-# Add to /etc/hosts for local access
-echo "127.0.0.1 kubarr.local" | sudo tee -a /etc/hosts
-
-# Access at http://kubarr.local
-```
-
 ---
 
 ### Managed Kubernetes (GKE, EKS, AKS)
@@ -322,14 +281,8 @@ gcloud container clusters get-credentials kubarr-cluster --zone us-central1-a
 # 3. Install Kubarr with Helm
 helm install kubarr ./charts/kubarr -n kubarr --create-namespace
 
-# 4. Set up ingress with cert-manager
-kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
-
-helm upgrade kubarr ./charts/kubarr -n kubarr \
-  --set ingress.enabled=true \
-  --set ingress.className=gce \
-  --set ingress.hosts[0].host=kubarr.example.com \
-  --set ingress.annotations."cert-manager\.io/cluster-issuer"=letsencrypt-prod
+# 4. Access the dashboard
+kubectl port-forward -n kubarr svc/kubarr-frontend 8080:80
 ```
 
 #### Amazon Elastic Kubernetes Service (EKS)
@@ -359,12 +312,8 @@ helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
 # 4. Install Kubarr with Helm
 helm install kubarr ./charts/kubarr -n kubarr --create-namespace
 
-# 5. Set up ingress
-helm upgrade kubarr ./charts/kubarr -n kubarr \
-  --set ingress.enabled=true \
-  --set ingress.className=alb \
-  --set ingress.hosts[0].host=kubarr.example.com \
-  --set ingress.annotations."alb\.ingress\.kubernetes\.io/scheme"=internet-facing
+# 5. Access the dashboard
+kubectl port-forward -n kubarr svc/kubarr-frontend 8080:80
 ```
 
 #### Azure Kubernetes Service (AKS)
@@ -390,14 +339,6 @@ az aks get-credentials --resource-group kubarr-rg --name kubarr-cluster
 # 4. Install Kubarr with Helm
 helm install kubarr ./charts/kubarr -n kubarr --create-namespace
 
-# 5. Set up ingress with nginx
-helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
-helm install nginx-ingress ingress-nginx/ingress-nginx
-
-helm upgrade kubarr ./charts/kubarr -n kubarr \
-  --set ingress.enabled=true \
-  --set ingress.className=nginx \
-  --set ingress.hosts[0].host=kubarr.example.com
 ```
 
 ---
@@ -452,24 +393,6 @@ frontend:
       cpu: 100m
       memory: 256Mi
 
-ingress:
-  enabled: true
-  className: nginx
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-  hosts:
-    - host: kubarr.example.com
-      paths:
-        - path: /
-          pathType: Prefix
-          backend: frontend
-        - path: /api
-          pathType: Prefix
-          backend: backend
-  tls:
-    - secretName: kubarr-tls
-      hosts:
-        - kubarr.example.com
 ```
 
 Install with custom values:
@@ -588,63 +511,6 @@ pkill -f "port-forward.*kubarr"
 
 # Restart port-forward
 kubectl port-forward -n kubarr svc/kubarr-frontend 8080:80 &
-```
-
-### Ingress (Production)
-
-For production deployments, use an ingress controller:
-
-#### nginx Ingress Controller
-
-```bash
-# 1. Install nginx ingress controller
-helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
-helm install nginx-ingress ingress-nginx/ingress-nginx
-
-# 2. Enable ingress in Kubarr
-helm upgrade kubarr ./charts/kubarr -n kubarr \
-  --set ingress.enabled=true \
-  --set ingress.className=nginx \
-  --set ingress.hosts[0].host=kubarr.yourdomain.com
-
-# 3. Get the ingress external IP
-kubectl get ingress -n kubarr
-
-# 4. Configure your DNS to point to the external IP
-```
-
-#### cert-manager for TLS
-
-```bash
-# 1. Install cert-manager
-kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
-
-# 2. Create a ClusterIssuer
-cat <<EOF | kubectl apply -f -
-apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
-metadata:
-  name: letsencrypt-prod
-spec:
-  acme:
-    server: https://acme-v02.api.letsencrypt.org/directory
-    email: admin@yourdomain.com
-    privateKeySecretRef:
-      name: letsencrypt-prod
-    solvers:
-    - http01:
-        ingress:
-          class: nginx
-EOF
-
-# 3. Update Kubarr with TLS
-helm upgrade kubarr ./charts/kubarr -n kubarr \
-  --set ingress.enabled=true \
-  --set ingress.className=nginx \
-  --set ingress.hosts[0].host=kubarr.yourdomain.com \
-  --set ingress.annotations."cert-manager\.io/cluster-issuer"=letsencrypt-prod \
-  --set ingress.tls[0].secretName=kubarr-tls \
-  --set ingress.tls[0].hosts[0]=kubarr.yourdomain.com
 ```
 
 ### NodePort (For Testing)
@@ -817,29 +683,6 @@ helm upgrade kubarr ./charts/kubarr -n kubarr \
   --set backend.resources.requests.cpu=200m
 ```
 
-#### Ingress Not Working
-
-**Symptom:** Cannot access Kubarr via domain name
-
-**Solutions:**
-
-```bash
-# 1. Verify ingress controller is running
-kubectl get pods -n ingress-nginx
-
-# 2. Check ingress resource
-kubectl describe ingress -n kubarr kubarr
-
-# 3. Verify DNS resolution
-nslookup kubarr.yourdomain.com
-
-# 4. Check ingress logs
-kubectl logs -n ingress-nginx -l app.kubernetes.io/name=ingress-nginx
-
-# 5. Test backend service directly
-kubectl port-forward -n kubarr svc/kubarr-frontend 8080:80
-```
-
 #### TLS Certificate Issues
 
 **Symptom:** Browser shows "Not Secure" or certificate errors
@@ -877,7 +720,7 @@ If you encounter issues not covered here:
    ```bash
    kubectl describe pod -n kubarr <pod-name>
    kubectl describe svc -n kubarr
-   kubectl describe ingress -n kubarr
+   kubectl describe svc -n kubarr kubarr-backend
    ```
 
 3. **Check Events:**

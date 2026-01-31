@@ -299,7 +299,7 @@ async fn discover_service_connections(
     }
 
     // Look for common patterns in service names that indicate dependencies
-    // e.g., nginx upstream configs, proxy configs, etc.
+    // e.g., proxy configs, ingress annotations, etc.
     for ns in namespaces {
         let services: Api<Service> = Api::namespaced(k8s.client().clone(), ns);
         if let Ok(svc_list) = services.list(&ListParams::default()).await {

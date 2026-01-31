@@ -81,12 +81,10 @@ export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 # 2. Install with Helm
 helm install kubarr ./charts/kubarr -n kubarr --create-namespace
 
-# 3. Set up ingress (optional)
-helm upgrade kubarr ./charts/kubarr -n kubarr \
-  --set ingress.enabled=true \
-  --set ingress.hosts[0].host=kubarr.yourdomain.com
+# 3. Access the dashboard
+kubectl port-forward -n kubarr svc/kubarr-frontend 8080:80
 
-# Access via http://kubarr.yourdomain.com
+# Visit http://localhost:8080
 ```
 
 ## 📖 Documentation
@@ -147,15 +145,6 @@ backend:
         secretKeyRef:
           name: kubarr-secrets
           key: jwt-secret
-
-ingress:
-  enabled: true
-  className: nginx
-  hosts:
-    - host: kubarr.example.com
-      paths:
-        - path: /
-          pathType: Prefix
 ```
 
 See [Configuration Reference](./docs/configuration.md) for the complete list of options.

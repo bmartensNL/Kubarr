@@ -403,7 +403,7 @@ async fn list_all_permissions(_auth: Authorized<RolesView>) -> Result<Json<Vec<P
     ];
 
     // Add app access permissions
-    // These are the apps that nginx can route to
+    // These are the apps that the backend can proxy to
     let app_permissions = vec![
         ("sonarr", "Access Sonarr TV show manager"),
         ("radarr", "Access Radarr movie manager"),

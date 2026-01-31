@@ -68,14 +68,6 @@ The following table lists the configurable parameters of the qBittorrent chart a
 | `persistence.downloads.size` | Downloads volume size | `200Gi` |
 | `persistence.downloads.storageClass` | Storage class | `""` (default) |
 
-### Ingress
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `ingress.enabled` | Enable ingress | `false` |
-| `ingress.className` | Ingress class name | `nginx` |
-| `ingress.hosts` | Ingress hosts | `[{host: qbittorrent.local, paths: [{path: /, pathType: Prefix}]}]` |
-
 ## Accessing qBittorrent
 
 ### Default Credentials
@@ -93,25 +85,6 @@ kubectl port-forward -n media svc/qbittorrent 8080:8080
 ```
 
 Then access qBittorrent at: http://localhost:8080
-
-### Ingress (External Access)
-
-Enable ingress in `values.yaml` and configure your hostname:
-
-```yaml
-ingress:
-  enabled: true
-  className: "nginx"
-  hosts:
-    - host: qbittorrent.yourdomain.com
-      paths:
-        - path: /
-          pathType: Prefix
-  tls:
-    - secretName: qbittorrent-tls
-      hosts:
-        - qbittorrent.yourdomain.com
-```
 
 ## Upgrading
 
@@ -146,10 +119,9 @@ Both volumes use PersistentVolumeClaims and will persist data across pod restart
 ## Security Considerations
 
 1. Change the default admin password immediately
-2. Consider using an Ingress with TLS for external access
-3. Use strong passwords for the web UI
-4. Consider network policies to restrict access
-5. Keep the qBittorrent image updated
+2. Use strong passwords for the web UI
+3. Consider network policies to restrict access
+4. Keep the qBittorrent image updated
 
 ## Troubleshooting
 

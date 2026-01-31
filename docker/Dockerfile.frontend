@@ -39,5 +39,5 @@ COPY --from=built /app/dist /var/www
 EXPOSE 80
 
 # Run BusyBox httpd in foreground
-# SPA routing handled by nginx proxy (intercepts 404s and serves index.html)
+# SPA routing handled by the backend proxy (intercepts 404s and serves index.html)
 CMD ["httpd", "-f", "-v", "-p", "80", "-h", "/var/www"]

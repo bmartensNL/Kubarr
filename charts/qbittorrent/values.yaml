@@ -114,23 +114,6 @@ serviceAccount:
   name: qbittorrent
   annotations: {}
 
-# Ingress configuration
-ingress:
-  enabled: false
-  className: "nginx"
-  annotations: {}
-    # kubernetes.io/ingress.class: nginx
-    # cert-manager.io/cluster-issuer: letsencrypt-prod
-  hosts:
-    - host: qbittorrent.local
-      paths:
-        - path: /
-          pathType: Prefix
-  tls: []
-  #  - secretName: qbittorrent-tls
-  #    hosts:
-  #      - qbittorrent.local
-
 # Node selector
 nodeSelector: {}
 
@@ -184,7 +167,6 @@ networkPolicy:
   enabled: true
   ingressFrom:
     - kubarr         # kubarr dashboard proxy
-    - nginx  # nginx reverse proxy
     - sonarr         # arr apps connecting to download client
     - radarr
     - victoriametrics  # metrics scraping

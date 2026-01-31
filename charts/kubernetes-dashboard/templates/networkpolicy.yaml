@@ -15,7 +15,7 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Allow traffic from nginx
+    # Allow traffic from specified namespaces
     {{- range .Values.networkPolicy.ingressFrom }}
     - from:
         - namespaceSelector:

@@ -281,7 +281,7 @@ Try deploying more complex applications:
 - **PostgreSQL Database:** Persistent storage with StatefulSets
 - **Redis Cache:** In-memory data store
 - **Monitoring Stack:** Prometheus + Grafana
-- **Ingress Controller:** Expose services to the internet
+- **Load Balancer / Port Forwarding:** Expose services externally
 
 ---
 

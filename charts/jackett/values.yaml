@@ -89,18 +89,6 @@ serviceAccount:
   name: jackett
   annotations: {}
 
-# Ingress configuration
-ingress:
-  enabled: false
-  className: "nginx"
-  annotations: {}
-  hosts:
-    - host: jackett.local
-      paths:
-        - path: /
-          pathType: Prefix
-  tls: []
-
 # Node selector
 nodeSelector: {}
 
@@ -141,7 +129,6 @@ networkPolicy:
   enabled: true
   ingressFrom:
     - kubarr         # kubarr dashboard proxy
-    - nginx  # nginx reverse proxy
     - sonarr
     - radarr
   egressTo: []

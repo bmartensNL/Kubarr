@@ -73,38 +73,7 @@ The following table lists the configurable parameters of the Kubarr Dashboard ch
 | `serviceAccount.create` | Create service account | `true` |
 | `serviceAccount.name` | Service account name | `kubarr` |
 
-### Ingress Parameters
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `ingress.enabled` | Enable ingress | `false` |
-| `ingress.className` | Ingress class name | `nginx` |
-| `ingress.hosts` | Ingress hosts | `[kubarr.local]` |
-
 ## Example Configurations
-
-### With Ingress
-
-```yaml
-ingress:
-  enabled: true
-  className: nginx
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-  hosts:
-    - host: kubarr.example.com
-      paths:
-        - path: /
-          pathType: Prefix
-          backend: frontend
-        - path: /api
-          pathType: Prefix
-          backend: backend
-  tls:
-    - secretName: kubarr-tls
-      hosts:
-        - kubarr.example.com
-```
 
 ### With Custom Resources
 
@@ -150,10 +119,6 @@ kubectl port-forward -n kubarr svc/kubarr 8080:80
 ```
 
 Then visit: http://localhost:8080
-
-### Ingress (Production)
-
-Configure ingress as shown above and access via your domain.
 
 ## Permissions
 

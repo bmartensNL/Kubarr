@@ -35,7 +35,6 @@ fluentbit:
     - jackett
     - sabnzbd
     - kubarr
-    - nginx
     - victoriametrics
     - victorialogs
     - fluent-bit

@@ -97,18 +97,6 @@ serviceAccount:
   name: jellyseerr
   annotations: {}
 
-# Ingress configuration
-ingress:
-  enabled: false
-  className: "nginx"
-  annotations: {}
-  hosts:
-    - host: jellyseerr.local
-      paths:
-        - path: /
-          pathType: Prefix
-  tls: []
-
 # Node selector
 nodeSelector: {}
 
@@ -156,7 +144,6 @@ networkPolicy:
   enabled: true
   ingressFrom:
     - kubarr         # kubarr dashboard proxy
-    - nginx  # nginx reverse proxy
   egressTo:
     - jellyfin
     - sonarr

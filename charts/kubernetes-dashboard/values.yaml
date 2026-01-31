@@ -38,7 +38,7 @@ kubernetes-dashboard:
       cpu: 500m
       memory: 512Mi
 
-  # Run in insecure mode (HTTP) since nginx handles TLS termination
+  # Run in insecure mode (HTTP) since TLS termination is handled externally
   insecure: true
   insecurePort: 9090
 
@@ -84,5 +84,4 @@ networkPolicy:
   enabled: true
   ingressFrom:
     - kubarr         # kubarr dashboard proxy
-    - nginx  # nginx reverse proxy
   egressTo: []  # Dashboard needs to talk to kube-apiserver (allowed by default)

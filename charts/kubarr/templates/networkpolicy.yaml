@@ -14,15 +14,8 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Allow traffic from nginx reverse proxy (port 8000 is the actual container port)
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: nginx
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: nginx
-      ports:
+    # Allow inbound traffic on backend port (NodePort, port-forward, or any ingress)
+    - ports:
         - protocol: TCP
           port: 8000
   egress:

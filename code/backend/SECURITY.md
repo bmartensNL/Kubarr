@@ -874,22 +874,7 @@ CREATE TABLE audit_log (
 
 **Implementation Options**:
 - **Application-Level**: Use `tower-governor` middleware
-- **Reverse Proxy Level**: Configure nginx/traefik rate limiting (recommended for production)
-- **Kubernetes Level**: Use Ingress rate limiting annotations
-
-**Example Configuration** (nginx):
-```nginx
-limit_req_zone $binary_remote_addr zone=auth:10m rate=5r/m;
-limit_req_zone $binary_remote_addr zone=api:10m rate=100r/m;
-
-location /auth/login {
-    limit_req zone=auth burst=10 nodelay;
-}
-
-location /api/ {
-    limit_req zone=api burst=200 nodelay;
-}
-```
+- **Reverse Proxy Level**: Configure rate limiting at your reverse proxy (recommended for production)
 
 ---
 
@@ -1296,7 +1281,7 @@ Add `require_setup(&state).await?;` to the handler.
    - Enforce HTTPS redirects at reverse proxy level
 
 2. **Configure rate limiting**
-   - **Recommended**: Implement at reverse proxy level (nginx, traefik)
+   - **Recommended**: Implement at reverse proxy level
    - **Auth endpoints**: 5 req/min per IP for `/auth/login`
    - **API endpoints**: 100 req/min per IP for `/api/*`
    - **Setup endpoints**: 10 req/min per IP for `/api/setup/*` (disable after setup)
@@ -1327,7 +1312,7 @@ Add `require_setup(&state).await?;` to the handler.
 
 7. **Network security**
    - Run backend in private network/namespace
-   - Expose only via reverse proxy/ingress
+   - Expose only via reverse proxy or NodePort
    - Use Kubernetes NetworkPolicies to restrict pod communication
    - Enable TLS for internal service communication
 

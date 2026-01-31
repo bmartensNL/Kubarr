@@ -135,7 +135,6 @@ networkPolicy:
   # Namespaces allowed to send traffic to this app
   ingressFrom:
     - kubarr         # kubarr dashboard proxy
-    - nginx  # nginx reverse proxy
     - victoriametrics  # metrics scraping
   # Namespaces this app can send traffic to
   egressTo:

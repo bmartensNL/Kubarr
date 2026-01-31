@@ -134,7 +134,6 @@ networkPolicy:
   enabled: true
   ingressFrom:
     - kubarr         # kubarr dashboard proxy
-    - nginx  # nginx reverse proxy
     - victoriametrics  # metrics scraping
   egressTo:
     - qbittorrent

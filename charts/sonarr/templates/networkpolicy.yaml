@@ -15,7 +15,7 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Allow traffic from specified namespaces (nginx, victoriametrics)
+    # Allow traffic from specified namespaces (kubarr, victoriametrics)
     {{- range .Values.networkPolicy.ingressFrom }}
     - from:
         - namespaceSelector:
