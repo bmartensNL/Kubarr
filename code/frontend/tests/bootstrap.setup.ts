@@ -21,11 +21,13 @@ setup('bootstrap', async ({ page }) => {
   await page.getByRole('button', { name: /continue/i }).click();
 
   // Step 2: Server Configuration
-  await expect(page.locator('input[name="name"], input[placeholder*="name" i]').first()).toBeVisible({ timeout: 10000 });
-  await page.locator('input[name="name"], input[placeholder*="name" i]').first().fill('e2e-test');
+  // The actual inputs use id="serverName" and id="storagePath" with no name attributes
+  const serverNameInput = page.locator('input#serverName, input[placeholder*="Server" i]').first();
+  await expect(serverNameInput).toBeVisible({ timeout: 30000 });
+  await serverNameInput.fill('e2e-test');
 
   // Fill storage path
-  const storageInput = page.locator('input[name="storage_path"], input[placeholder*="storage" i], input[placeholder*="path" i]').first();
+  const storageInput = page.locator('input#storagePath, input[placeholder*="kubarr" i]').first();
   await storageInput.fill('/data');
 
   // Click next/continue
@@ -34,14 +36,16 @@ setup('bootstrap', async ({ page }) => {
   await nextButton.click();
 
   // Step 3: Admin User Creation
-  await expect(page.locator('input[name="username"], input[placeholder*="username" i]').first()).toBeVisible({ timeout: 10000 });
+  // Inputs use id-based selectors: adminUsername, adminEmail, adminPassword, confirmPassword
+  const usernameInput = page.locator('input#adminUsername, input[placeholder*="username" i]').first();
+  await expect(usernameInput).toBeVisible({ timeout: 10000 });
 
-  await page.locator('input[name="username"], input[placeholder*="username" i]').first().fill('admin');
-  await page.locator('input[name="email"], input[type="email"]').first().fill('admin@test.local');
-  await page.locator('input[name="password"], input[type="password"]').first().fill('adminadmin');
+  await usernameInput.fill('admin');
+  await page.locator('input#adminEmail, input[type="email"]').first().fill('admin@test.local');
+  await page.locator('input#adminPassword, input[type="password"]').first().fill('adminadmin');
 
   // Fill confirm password if present
-  const confirmPassword = page.locator('input[name="confirmPassword"], input[name="confirm_password"], input[placeholder*="confirm" i]');
+  const confirmPassword = page.locator('input#confirmPassword, input[placeholder*="confirm" i]');
   if (await confirmPassword.isVisible({ timeout: 1000 }).catch(() => false)) {
     await confirmPassword.fill('adminadmin');
   }
