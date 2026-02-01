@@ -47,6 +47,7 @@ pub fn setup_routes(state: AppState) -> Router {
 #[derive(Debug, Serialize)]
 struct SetupRequiredResponse {
     setup_required: bool,
+    database_pending: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -103,13 +104,51 @@ async fn require_setup(state: &AppState) -> Result<()> {
 }
 
 /// Check if setup is required (no admin user exists)
+///
+/// When the database is unavailable, we check Kubernetes to determine whether
+/// PostgreSQL was previously installed. If it was, the system was already set up
+/// and the DB is just not ready yet — we return `database_pending: true` instead
+/// of incorrectly claiming setup is required.
 async fn check_setup_required(
     State(state): State<AppState>,
 ) -> Result<Json<SetupRequiredResponse>> {
+    // Check if DB is connected
+    let db_connected = state.is_db_connected().await;
+
+    if !db_connected {
+        // DB not available — check if PostgreSQL was previously installed
+        let postgresql_exists = {
+            let k8s_guard = state.k8s_client.read().await;
+            if let Some(ref k8s) = *k8s_guard {
+                use k8s_openapi::api::core::v1::Namespace;
+                use kube::api::Api;
+                let namespaces: Api<Namespace> = Api::all(k8s.client().clone());
+                namespaces.get("postgresql").await.is_ok()
+            } else {
+                false
+            }
+        };
+
+        if postgresql_exists {
+            // PostgreSQL exists but DB not connected yet — not a fresh install
+            return Ok(Json(SetupRequiredResponse {
+                setup_required: false,
+                database_pending: true,
+            }));
+        }
+
+        // No PostgreSQL namespace — genuine first-time setup
+        return Ok(Json(SetupRequiredResponse {
+            setup_required: true,
+            database_pending: false,
+        }));
+    }
+
     let admin_exists = admin_user_exists(&state).await?;
 
     Ok(Json(SetupRequiredResponse {
         setup_required: !admin_exists,
+        database_pending: false,
     }))
 }
 

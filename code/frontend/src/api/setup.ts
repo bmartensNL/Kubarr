@@ -85,7 +85,7 @@ export interface ServerConfigResponse {
 
 export const setupApi = {
   // Check if setup is required (accessible without auth)
-  checkRequired: async (): Promise<{ setup_required: boolean }> => {
+  checkRequired: async (): Promise<{ setup_required: boolean; database_pending: boolean }> => {
     const response = await setupClient.get('/setup/required');
     return response.data;
   },

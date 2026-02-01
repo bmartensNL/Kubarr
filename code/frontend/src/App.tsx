@@ -884,6 +884,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function AppContent() {
   const location = useLocation()
   const [setupRequired, setSetupRequired] = useState<boolean | null>(null)
+  const [databasePending, setDatabasePending] = useState(false)
   const [setupCheckLoading, setSetupCheckLoading] = useState(true)
 
   const isSettingsPage = location.pathname === '/settings'
@@ -892,20 +893,40 @@ function AppContent() {
   const isSetupPage = location.pathname === '/setup'
   const isLoginPage = location.pathname === '/login'
 
-  // Check if setup is required on mount
+  // Check if setup is required on mount, with polling when database is pending
   useEffect(() => {
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+
     const checkSetup = async () => {
       try {
-        const { setup_required } = await setupApi.checkRequired()
-        setSetupRequired(setup_required)
+        const { setup_required, database_pending } = await setupApi.checkRequired()
+        if (cancelled) return
+
+        if (database_pending) {
+          setDatabasePending(true)
+          setSetupRequired(false)
+          setSetupCheckLoading(false)
+          // Retry in 3 seconds
+          timer = setTimeout(checkSetup, 3000)
+        } else {
+          setDatabasePending(false)
+          setSetupRequired(setup_required)
+          setSetupCheckLoading(false)
+        }
       } catch (err) {
+        if (cancelled) return
         // If we can't check, assume setup is not required
         setSetupRequired(false)
-      } finally {
         setSetupCheckLoading(false)
       }
     }
     checkSetup()
+
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
   }, [])
 
   // Show loading while checking setup
@@ -913,6 +934,18 @@ function AppContent() {
     return (
       <div className="h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white flex items-center justify-center">
         <div className="text-xl">Loading...</div>
+      </div>
+    )
+  }
+
+  // Show waiting screen while database is coming up
+  if (databasePending) {
+    return (
+      <div className="h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-xl font-semibold mb-2">Waiting for database...</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">PostgreSQL is starting up. This page will refresh automatically.</div>
+        </div>
       </div>
     )
   }
