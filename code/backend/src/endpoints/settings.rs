@@ -46,19 +46,19 @@ pub fn settings_routes(state: AppState) -> Router {
 // Request/Response Types
 // ============================================================================
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct SettingResponse {
     pub key: String,
     pub value: String,
     pub description: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct SettingUpdate {
     pub value: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct SettingsResponse {
     pub settings: HashMap<String, SettingResponse>,
 }
@@ -68,6 +68,14 @@ pub struct SettingsResponse {
 // ============================================================================
 
 /// List all system settings (requires settings.view permission)
+#[utoipa::path(
+    get,
+    path = "/api/settings",
+    tag = "Settings",
+    responses(
+        (status = 200, body = SettingsResponse)
+    )
+)]
 async fn list_settings(
     State(state): State<AppState>,
     _auth: Authorized<SettingsView>,
@@ -107,6 +115,17 @@ async fn list_settings(
 }
 
 /// Get a specific setting (requires settings.view permission)
+#[utoipa::path(
+    get,
+    path = "/api/settings/{key}",
+    tag = "Settings",
+    params(
+        ("key" = String, Path, description = "Setting key"),
+    ),
+    responses(
+        (status = 200, body = SettingResponse)
+    )
+)]
 async fn get_setting(
     State(state): State<AppState>,
     Path(key): Path<String>,
@@ -136,6 +155,18 @@ async fn get_setting(
 }
 
 /// Update a system setting (requires settings.manage permission)
+#[utoipa::path(
+    put,
+    path = "/api/settings/{key}",
+    tag = "Settings",
+    params(
+        ("key" = String, Path, description = "Setting key"),
+    ),
+    request_body = SettingUpdate,
+    responses(
+        (status = 200, body = SettingResponse)
+    )
+)]
 async fn update_setting(
     State(state): State<AppState>,
     Path(key): Path<String>,

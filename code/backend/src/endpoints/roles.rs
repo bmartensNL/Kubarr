@@ -34,7 +34,7 @@ pub fn roles_routes(state: AppState) -> Router {
 // Request/Response Types
 // ============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct CreateRoleRequest {
     pub name: String,
     pub description: Option<String>,
@@ -44,19 +44,19 @@ pub struct CreateRoleRequest {
     pub requires_2fa: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct UpdateRoleRequest {
     pub name: Option<String>,
     pub description: Option<String>,
     pub requires_2fa: Option<bool>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct SetRoleApps {
     pub app_names: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct RoleWithAppsResponse {
     pub id: i64,
     pub name: String,
@@ -68,12 +68,12 @@ pub struct RoleWithAppsResponse {
     pub permissions: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct SetRolePermissions {
     pub permissions: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct PermissionInfo {
     pub key: String,
     pub category: String,
@@ -127,6 +127,12 @@ async fn get_role_with_apps(state: &AppState, role_id: i64) -> Result<RoleWithAp
 // ============================================================================
 
 /// List all roles (requires roles.view permission)
+#[utoipa::path(
+    get,
+    path = "/api/roles",
+    tag = "Roles",
+    responses((status = 200, body = Vec<RoleWithAppsResponse>))
+)]
 async fn list_roles(
     State(state): State<AppState>,
     _auth: Authorized<RolesView>,
@@ -143,6 +149,13 @@ async fn list_roles(
 }
 
 /// Get role by ID (requires roles.view permission)
+#[utoipa::path(
+    get,
+    path = "/api/roles/{role_id}",
+    tag = "Roles",
+    params(("role_id" = i64, Path, description = "Role ID")),
+    responses((status = 200, body = RoleWithAppsResponse))
+)]
 async fn get_role(
     State(state): State<AppState>,
     Path(role_id): Path<i64>,
@@ -153,6 +166,13 @@ async fn get_role(
 }
 
 /// Create a new role (requires roles.manage permission)
+#[utoipa::path(
+    post,
+    path = "/api/roles",
+    tag = "Roles",
+    request_body = CreateRoleRequest,
+    responses((status = 200, body = RoleWithAppsResponse))
+)]
 async fn create_role(
     State(state): State<AppState>,
     _auth: Authorized<RolesManage>,
@@ -198,6 +218,14 @@ async fn create_role(
 }
 
 /// Update role (requires roles.manage permission)
+#[utoipa::path(
+    patch,
+    path = "/api/roles/{role_id}",
+    tag = "Roles",
+    params(("role_id" = i64, Path, description = "Role ID")),
+    request_body = UpdateRoleRequest,
+    responses((status = 200, body = RoleWithAppsResponse))
+)]
 async fn update_role(
     State(state): State<AppState>,
     Path(role_id): Path<i64>,
@@ -254,6 +282,13 @@ async fn update_role(
 }
 
 /// Delete a role (requires roles.manage permission)
+#[utoipa::path(
+    delete,
+    path = "/api/roles/{role_id}",
+    tag = "Roles",
+    params(("role_id" = i64, Path, description = "Role ID")),
+    responses((status = 200, body = serde_json::Value))
+)]
 async fn delete_role(
     State(state): State<AppState>,
     Path(role_id): Path<i64>,
@@ -277,6 +312,14 @@ async fn delete_role(
 }
 
 /// Set app permissions for a role (requires roles.manage permission)
+#[utoipa::path(
+    put,
+    path = "/api/roles/{role_id}/apps",
+    tag = "Roles",
+    params(("role_id" = i64, Path, description = "Role ID")),
+    request_body = SetRoleApps,
+    responses((status = 200, body = RoleWithAppsResponse))
+)]
 async fn set_role_apps(
     State(state): State<AppState>,
     Path(role_id): Path<i64>,
@@ -311,6 +354,12 @@ async fn set_role_apps(
 }
 
 /// Get all available permissions with descriptions
+#[utoipa::path(
+    get,
+    path = "/api/roles/permissions",
+    tag = "Roles",
+    responses((status = 200, body = Vec<PermissionInfo>))
+)]
 async fn list_all_permissions(_auth: Authorized<RolesView>) -> Result<Json<Vec<PermissionInfo>>> {
     let mut permissions = vec![
         // Apps permissions
@@ -445,6 +494,13 @@ async fn list_all_permissions(_auth: Authorized<RolesView>) -> Result<Json<Vec<P
 }
 
 /// Get permissions for a specific role
+#[utoipa::path(
+    get,
+    path = "/api/roles/{role_id}/permissions",
+    tag = "Roles",
+    params(("role_id" = i64, Path, description = "Role ID")),
+    responses((status = 200, body = Vec<String>))
+)]
 async fn get_role_permissions(
     State(state): State<AppState>,
     Path(role_id): Path<i64>,
@@ -469,6 +525,14 @@ async fn get_role_permissions(
 /// Set permissions for a role (requires roles.manage permission)
 /// Handles both regular permissions and app.* permissions
 /// App permissions (app.sonarr, app.radarr, etc.) are synced with role_app_permissions table
+#[utoipa::path(
+    put,
+    path = "/api/roles/{role_id}/permissions",
+    tag = "Roles",
+    params(("role_id" = i64, Path, description = "Role ID")),
+    request_body = SetRolePermissions,
+    responses((status = 200, body = RoleWithAppsResponse))
+)]
 async fn set_role_permissions(
     State(state): State<AppState>,
     Path(role_id): Path<i64>,

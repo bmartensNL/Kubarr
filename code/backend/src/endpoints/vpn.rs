@@ -47,19 +47,19 @@ pub fn vpn_routes(state: AppState) -> Router {
 // Response Types
 // ============================================================================
 
-#[derive(Debug, Serialize)]
-struct ProvidersResponse {
-    providers: Vec<VpnProviderResponse>,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ProvidersResponse {
+    pub providers: Vec<VpnProviderResponse>,
 }
 
-#[derive(Debug, Serialize)]
-struct AppConfigsResponse {
-    configs: Vec<AppVpnConfigResponse>,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct AppConfigsResponse {
+    pub configs: Vec<AppVpnConfigResponse>,
 }
 
-#[derive(Debug, Serialize)]
-struct SupportedProvidersResponse {
-    providers: Vec<SupportedProvider>,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct SupportedProvidersResponse {
+    pub providers: Vec<SupportedProvider>,
 }
 
 // ============================================================================
@@ -67,6 +67,14 @@ struct SupportedProvidersResponse {
 // ============================================================================
 
 /// List all VPN providers
+#[utoipa::path(
+    get,
+    path = "/api/vpn/providers",
+    tag = "VPN",
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn list_providers(
     State(state): State<AppState>,
     _auth: Authorized<VpnView>,
@@ -77,6 +85,17 @@ async fn list_providers(
 }
 
 /// Get a VPN provider by ID
+#[utoipa::path(
+    get,
+    path = "/api/vpn/providers/{id}",
+    tag = "VPN",
+    params(
+        ("id" = i64, Path, description = "VPN provider ID")
+    ),
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn get_provider(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -88,6 +107,15 @@ async fn get_provider(
 }
 
 /// Create a new VPN provider
+#[utoipa::path(
+    post,
+    path = "/api/vpn/providers",
+    tag = "VPN",
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn create_provider(
     State(state): State<AppState>,
     _auth: Authorized<VpnManage>,
@@ -99,6 +127,18 @@ async fn create_provider(
 }
 
 /// Update a VPN provider
+#[utoipa::path(
+    put,
+    path = "/api/vpn/providers/{id}",
+    tag = "VPN",
+    params(
+        ("id" = i64, Path, description = "VPN provider ID")
+    ),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn update_provider(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -111,6 +151,17 @@ async fn update_provider(
 }
 
 /// Delete a VPN provider
+#[utoipa::path(
+    delete,
+    path = "/api/vpn/providers/{id}",
+    tag = "VPN",
+    params(
+        ("id" = i64, Path, description = "VPN provider ID")
+    ),
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn delete_provider(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -126,6 +177,17 @@ async fn delete_provider(
 }
 
 /// Test VPN provider connection
+#[utoipa::path(
+    post,
+    path = "/api/vpn/providers/{id}/test",
+    tag = "VPN",
+    params(
+        ("id" = i64, Path, description = "VPN provider ID")
+    ),
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn test_provider(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -146,6 +208,14 @@ async fn test_provider(
 // ============================================================================
 
 /// List all app VPN configurations
+#[utoipa::path(
+    get,
+    path = "/api/vpn/apps",
+    tag = "VPN",
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn list_app_configs(
     State(state): State<AppState>,
     _auth: Authorized<VpnView>,
@@ -156,6 +226,17 @@ async fn list_app_configs(
 }
 
 /// Get app VPN configuration
+#[utoipa::path(
+    get,
+    path = "/api/vpn/apps/{app_name}",
+    tag = "VPN",
+    params(
+        ("app_name" = String, Path, description = "Application name")
+    ),
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn get_app_config(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
@@ -167,6 +248,18 @@ async fn get_app_config(
 }
 
 /// Assign VPN to an app and redeploy
+#[utoipa::path(
+    put,
+    path = "/api/vpn/apps/{app_name}",
+    tag = "VPN",
+    params(
+        ("app_name" = String, Path, description = "Application name")
+    ),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn assign_vpn(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
@@ -200,6 +293,17 @@ async fn assign_vpn(
 }
 
 /// Remove VPN from an app and redeploy
+#[utoipa::path(
+    delete,
+    path = "/api/vpn/apps/{app_name}",
+    tag = "VPN",
+    params(
+        ("app_name" = String, Path, description = "Application name")
+    ),
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn remove_vpn(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
@@ -238,6 +342,17 @@ async fn remove_vpn(
 }
 
 /// Get the VPN forwarded port for an app (queries Gluetun control API)
+#[utoipa::path(
+    get,
+    path = "/api/vpn/apps/{app_name}/forwarded-port",
+    tag = "VPN",
+    params(
+        ("app_name" = String, Path, description = "Application name")
+    ),
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn get_forwarded_port(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
@@ -309,6 +424,14 @@ async fn get_forwarded_port(
 // ============================================================================
 
 /// List supported VPN service providers
+#[utoipa::path(
+    get,
+    path = "/api/vpn/supported-providers",
+    tag = "VPN",
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn list_supported_providers(
     _auth: Authorized<VpnView>,
 ) -> Result<Json<SupportedProvidersResponse>> {

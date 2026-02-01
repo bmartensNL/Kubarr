@@ -66,7 +66,7 @@ pub enum VpnCredentials {
 // ============================================================================
 
 /// Request to create a VPN provider
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
 pub struct CreateVpnProviderRequest {
     pub name: String,
     pub vpn_type: vpn_provider::VpnType,
@@ -82,7 +82,7 @@ pub struct CreateVpnProviderRequest {
 }
 
 /// Request to update a VPN provider
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
 pub struct UpdateVpnProviderRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -99,7 +99,7 @@ pub struct UpdateVpnProviderRequest {
 }
 
 /// Response for a VPN provider (without credentials)
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct VpnProviderResponse {
     pub id: i64,
     pub name: String,
@@ -115,7 +115,7 @@ pub struct VpnProviderResponse {
 }
 
 /// Request to assign VPN to an app
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
 pub struct AssignVpnRequest {
     pub vpn_provider_id: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -126,7 +126,7 @@ pub struct AssignVpnRequest {
 }
 
 /// Response for app VPN configuration
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct AppVpnConfigResponse {
     pub app_name: String,
     pub vpn_provider_id: i64,
@@ -139,7 +139,7 @@ pub struct AppVpnConfigResponse {
 }
 
 /// Supported VPN service provider info
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct SupportedProvider {
     pub id: &'static str,
     pub name: &'static str,
@@ -638,7 +638,7 @@ pub struct VpnDeploymentConfig {
 }
 
 /// VPN connection test result
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct VpnTestResult {
     pub success: bool,
     pub message: String,

@@ -2,7 +2,7 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// VPN provider type (WireGuard or OpenVPN)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize, utoipa::ToSchema)]
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(16))")]
 pub enum VpnType {
     #[sea_orm(string_value = "wireguard")]

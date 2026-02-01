@@ -56,13 +56,13 @@ pub fn users_routes(state: AppState) -> Router {
 // Request/Response Types
 // ============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct ListParams {
     pub skip: Option<u64>,
     pub limit: Option<u64>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct CreateUserRequest {
     pub username: String,
     pub email: String,
@@ -71,7 +71,7 @@ pub struct CreateUserRequest {
     pub role_ids: Vec<i64>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct UpdateUserRequest {
     pub email: Option<String>,
     pub is_active: Option<bool>,
@@ -79,69 +79,69 @@ pub struct UpdateUserRequest {
     pub role_ids: Option<Vec<i64>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct RoleInfo {
     pub id: i64,
     pub name: String,
     pub description: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct PreferencesResponse {
     pub theme: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct UpdatePreferences {
     pub theme: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct ChangeOwnPasswordRequest {
     pub current_password: String,
     pub new_password: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct UpdateOwnProfileRequest {
     pub username: Option<String>,
     pub email: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct AdminResetPasswordRequest {
     pub new_password: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct TwoFactorSetupResponse {
     pub secret: String,
     pub provisioning_uri: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct Enable2FARequest {
     pub code: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct Disable2FARequest {
     pub password: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct DeleteOwnAccountRequest {
     pub password: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct TwoFactorStatusResponse {
     pub enabled: bool,
     pub verified_at: Option<chrono::DateTime<chrono::Utc>>,
     pub required_by_role: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct UserResponse {
     pub id: i64,
     pub username: String,
@@ -156,7 +156,7 @@ pub struct UserResponse {
     pub allowed_apps: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct CreateInviteRequest {
     #[serde(default = "default_invite_days")]
     pub expires_in_days: i32,
@@ -166,7 +166,7 @@ fn default_invite_days() -> i32 {
     7
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct InviteResponse {
     pub id: i64,
     pub code: String,
@@ -235,6 +235,14 @@ async fn get_user_with_roles(state: &AppState, user_id: i64) -> Result<UserRespo
 
 /// List all users
 #[doc = "Requires: users.view"]
+#[utoipa::path(
+    get,
+    path = "/api/users",
+    tag = "Users",
+    responses(
+        (status = 200, body = Vec<UserResponse>)
+    )
+)]
 async fn list_users(
     State(state): State<AppState>,
     Query(params): Query<ListParams>,
@@ -255,6 +263,14 @@ async fn list_users(
 }
 
 /// Get current user info
+#[utoipa::path(
+    get,
+    path = "/api/users/me",
+    tag = "Users",
+    responses(
+        (status = 200, body = UserResponse)
+    )
+)]
 async fn get_current_user_info(
     State(state): State<AppState>,
     auth: Authenticated,
@@ -264,6 +280,15 @@ async fn get_current_user_info(
 }
 
 /// Update current user's own profile (username, email)
+#[utoipa::path(
+    patch,
+    path = "/api/users/me",
+    tag = "Users",
+    request_body = UpdateOwnProfileRequest,
+    responses(
+        (status = 200, body = UserResponse)
+    )
+)]
 async fn update_own_profile(
     State(state): State<AppState>,
     auth: Authenticated,
@@ -341,6 +366,15 @@ async fn update_own_profile(
 }
 
 /// Delete own account (requires password confirmation)
+#[utoipa::path(
+    delete,
+    path = "/api/users/me",
+    tag = "Users",
+    request_body = DeleteOwnAccountRequest,
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn delete_own_account(
     State(state): State<AppState>,
     auth: Authenticated,
@@ -399,6 +433,14 @@ async fn delete_own_account(
 }
 
 /// Get current user's preferences
+#[utoipa::path(
+    get,
+    path = "/api/users/me/preferences",
+    tag = "Users",
+    responses(
+        (status = 200, body = PreferencesResponse)
+    )
+)]
 async fn get_my_preferences(
     State(state): State<AppState>,
     auth: Authenticated,
@@ -414,6 +456,15 @@ async fn get_my_preferences(
 }
 
 /// Update current user's preferences
+#[utoipa::path(
+    patch,
+    path = "/api/users/me/preferences",
+    tag = "Users",
+    request_body = UpdatePreferences,
+    responses(
+        (status = 200, body = PreferencesResponse)
+    )
+)]
 async fn update_my_preferences(
     State(state): State<AppState>,
     auth: Authenticated,
@@ -466,6 +517,14 @@ async fn update_my_preferences(
 
 /// List pending users
 #[doc = "Requires: users.view"]
+#[utoipa::path(
+    get,
+    path = "/api/users/pending",
+    tag = "Users",
+    responses(
+        (status = 200, body = Vec<UserResponse>)
+    )
+)]
 async fn list_pending_users(
     State(state): State<AppState>,
     _auth: Authorized<UsersView>,
@@ -486,6 +545,15 @@ async fn list_pending_users(
 
 /// Create a new user
 #[doc = "Requires: users.manage"]
+#[utoipa::path(
+    post,
+    path = "/api/users",
+    tag = "Users",
+    request_body = CreateUserRequest,
+    responses(
+        (status = 200, body = UserResponse)
+    )
+)]
 async fn create_user(
     State(state): State<AppState>,
     _auth: Authorized<UsersManage>,
@@ -544,6 +612,15 @@ async fn create_user(
 
 /// Get user by ID
 #[doc = "Requires: users.view"]
+#[utoipa::path(
+    get,
+    path = "/api/users/{user_id}",
+    tag = "Users",
+    params(("user_id" = i64, Path, description = "User ID")),
+    responses(
+        (status = 200, body = UserResponse)
+    )
+)]
 async fn get_user(
     State(state): State<AppState>,
     Path(user_id): Path<i64>,
@@ -555,6 +632,16 @@ async fn get_user(
 
 /// Update user
 #[doc = "Requires: users.manage"]
+#[utoipa::path(
+    patch,
+    path = "/api/users/{user_id}",
+    tag = "Users",
+    params(("user_id" = i64, Path, description = "User ID")),
+    request_body = UpdateUserRequest,
+    responses(
+        (status = 200, body = UserResponse)
+    )
+)]
 async fn update_user(
     State(state): State<AppState>,
     Path(user_id): Path<i64>,
@@ -609,6 +696,15 @@ async fn update_user(
 
 /// Approve a user registration
 #[doc = "Requires: users.manage"]
+#[utoipa::path(
+    post,
+    path = "/api/users/{user_id}/approve",
+    tag = "Users",
+    params(("user_id" = i64, Path, description = "User ID")),
+    responses(
+        (status = 200, body = UserResponse)
+    )
+)]
 async fn approve_user(
     State(state): State<AppState>,
     Path(user_id): Path<i64>,
@@ -634,6 +730,15 @@ async fn approve_user(
 
 /// Reject a user registration
 #[doc = "Requires: users.manage"]
+#[utoipa::path(
+    post,
+    path = "/api/users/{user_id}/reject",
+    tag = "Users",
+    params(("user_id" = i64, Path, description = "User ID")),
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn reject_user(
     State(state): State<AppState>,
     Path(user_id): Path<i64>,
@@ -654,6 +759,15 @@ async fn reject_user(
 
 /// Delete a user
 #[doc = "Requires: users.manage"]
+#[utoipa::path(
+    delete,
+    path = "/api/users/{user_id}",
+    tag = "Users",
+    params(("user_id" = i64, Path, description = "User ID")),
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn delete_user(
     State(state): State<AppState>,
     Path(user_id): Path<i64>,
@@ -676,6 +790,14 @@ async fn delete_user(
 
 /// List all invites
 #[doc = "Requires: users.manage"]
+#[utoipa::path(
+    get,
+    path = "/api/users/invites",
+    tag = "Users",
+    responses(
+        (status = 200, body = Vec<InviteResponse>)
+    )
+)]
 async fn list_invites(
     State(state): State<AppState>,
     _auth: Authorized<UsersManage>,
@@ -715,6 +837,15 @@ async fn list_invites(
 
 /// Create an invite
 #[doc = "Requires: users.manage"]
+#[utoipa::path(
+    post,
+    path = "/api/users/invites",
+    tag = "Users",
+    request_body = CreateInviteRequest,
+    responses(
+        (status = 200, body = InviteResponse)
+    )
+)]
 async fn create_invite(
     State(state): State<AppState>,
     auth: Authorized<UsersManage>,
@@ -756,6 +887,15 @@ async fn create_invite(
 
 /// Delete an invite
 #[doc = "Requires: users.manage"]
+#[utoipa::path(
+    delete,
+    path = "/api/users/invites/{invite_id}",
+    tag = "Users",
+    params(("invite_id" = i64, Path, description = "Invite ID")),
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn delete_invite(
     State(state): State<AppState>,
     Path(invite_id): Path<i64>,
@@ -777,6 +917,15 @@ async fn delete_invite(
 // ============================================================================
 
 /// Change own password (requires current password)
+#[utoipa::path(
+    patch,
+    path = "/api/users/me/password",
+    tag = "Users",
+    request_body = ChangeOwnPasswordRequest,
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn change_own_password(
     State(state): State<AppState>,
     auth: Authenticated,
@@ -819,6 +968,16 @@ async fn change_own_password(
 
 /// Admin reset password for another user
 #[doc = "Requires: users.reset_password"]
+#[utoipa::path(
+    patch,
+    path = "/api/users/{user_id}/password",
+    tag = "Users",
+    params(("user_id" = i64, Path, description = "User ID")),
+    request_body = AdminResetPasswordRequest,
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn admin_reset_password(
     State(state): State<AppState>,
     Path(user_id): Path<i64>,
@@ -878,6 +1037,14 @@ async fn user_requires_2fa(db: &sea_orm::DatabaseConnection, user_id: i64) -> bo
 }
 
 /// Set up 2FA - generate secret and QR code
+#[utoipa::path(
+    post,
+    path = "/api/users/me/2fa/setup",
+    tag = "Users",
+    responses(
+        (status = 200, body = TwoFactorSetupResponse)
+    )
+)]
 async fn setup_2fa(
     State(state): State<AppState>,
     auth: Authenticated,
@@ -917,6 +1084,15 @@ async fn setup_2fa(
 }
 
 /// Enable 2FA - verify the code and activate
+#[utoipa::path(
+    post,
+    path = "/api/users/me/2fa/enable",
+    tag = "Users",
+    request_body = Enable2FARequest,
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn enable_2fa(
     State(state): State<AppState>,
     auth: Authenticated,
@@ -962,6 +1138,15 @@ async fn enable_2fa(
 }
 
 /// Disable 2FA (requires password confirmation)
+#[utoipa::path(
+    post,
+    path = "/api/users/me/2fa/disable",
+    tag = "Users",
+    request_body = Disable2FARequest,
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn disable_2fa(
     State(state): State<AppState>,
     auth: Authenticated,
@@ -1008,6 +1193,14 @@ async fn disable_2fa(
 }
 
 /// Get 2FA status
+#[utoipa::path(
+    get,
+    path = "/api/users/me/2fa/status",
+    tag = "Users",
+    responses(
+        (status = 200, body = TwoFactorStatusResponse)
+    )
+)]
 async fn get_2fa_status(
     State(state): State<AppState>,
     auth: Authenticated,

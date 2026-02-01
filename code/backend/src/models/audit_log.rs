@@ -1,11 +1,12 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize, utoipa::ToSchema)]
 #[sea_orm(table_name = "audit_logs")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
+    #[schema(value_type = String)]
     pub timestamp: DateTimeUtc,
     pub user_id: Option<i64>,
     pub username: Option<String>,

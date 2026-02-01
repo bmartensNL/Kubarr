@@ -42,7 +42,7 @@ pub fn oauth_routes(state: AppState) -> Router {
 // Request/Response Types
 // ============================================================================
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ProviderResponse {
     pub id: String,
     pub name: String,
@@ -51,14 +51,14 @@ pub struct ProviderResponse {
     pub has_secret: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct UpdateProviderRequest {
     pub enabled: Option<bool>,
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct OAuthCallbackQuery {
     pub code: Option<String>,
     pub state: Option<String>,
@@ -66,7 +66,7 @@ pub struct OAuthCallbackQuery {
     pub error_description: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct LinkedAccountResponse {
     pub provider: String,
     pub email: Option<String>,
@@ -78,13 +78,21 @@ pub struct LinkedAccountResponse {
 // Public Endpoints
 // ============================================================================
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct AvailableProvider {
     pub id: String,
     pub name: String,
 }
 
 /// List available (enabled) OAuth providers - public endpoint for login page
+#[utoipa::path(
+    get,
+    path = "/api/oauth/available",
+    tag = "OAuth",
+    responses(
+        (status = 200, body = Vec<AvailableProvider>)
+    )
+)]
 async fn list_available_providers(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<AvailableProvider>>> {
@@ -111,6 +119,14 @@ async fn list_available_providers(
 // ============================================================================
 
 /// List all OAuth providers
+#[utoipa::path(
+    get,
+    path = "/api/oauth/providers",
+    tag = "OAuth",
+    responses(
+        (status = 200, body = Vec<ProviderResponse>)
+    )
+)]
 async fn list_providers(
     State(state): State<AppState>,
     _auth: Authorized<SettingsView>,
@@ -133,6 +149,17 @@ async fn list_providers(
 }
 
 /// Get a specific OAuth provider
+#[utoipa::path(
+    get,
+    path = "/api/oauth/providers/{provider}",
+    tag = "OAuth",
+    params(
+        ("provider" = String, Path, description = "Provider ID")
+    ),
+    responses(
+        (status = 200, body = ProviderResponse)
+    )
+)]
 async fn get_provider(
     State(state): State<AppState>,
     Path(provider): Path<String>,
@@ -154,6 +181,18 @@ async fn get_provider(
 }
 
 /// Update OAuth provider settings
+#[utoipa::path(
+    put,
+    path = "/api/oauth/providers/{provider}",
+    tag = "OAuth",
+    params(
+        ("provider" = String, Path, description = "Provider ID")
+    ),
+    request_body = UpdateProviderRequest,
+    responses(
+        (status = 200, body = ProviderResponse)
+    )
+)]
 async fn update_provider(
     State(state): State<AppState>,
     Path(provider): Path<String>,
@@ -210,12 +249,23 @@ async fn update_provider(
 // OAuth Flow
 // ============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct OAuthLoginQuery {
     pub link: Option<String>, // If set, this is a linking flow (value is user_id)
 }
 
 /// Initiate OAuth login flow
+#[utoipa::path(
+    get,
+    path = "/api/oauth/{provider}/login",
+    tag = "OAuth",
+    params(
+        ("provider" = String, Path, description = "OAuth provider ID")
+    ),
+    responses(
+        (status = 302, description = "Redirect")
+    )
+)]
 async fn oauth_login(
     State(state): State<AppState>,
     Path(provider): Path<String>,
@@ -281,6 +331,17 @@ async fn oauth_login(
 }
 
 /// OAuth callback handler
+#[utoipa::path(
+    get,
+    path = "/api/oauth/{provider}/callback",
+    tag = "OAuth",
+    params(
+        ("provider" = String, Path, description = "OAuth provider ID")
+    ),
+    responses(
+        (status = 302, description = "Redirect")
+    )
+)]
 async fn oauth_callback(
     State(state): State<AppState>,
     Path(provider): Path<String>,
@@ -599,6 +660,14 @@ async fn oauth_callback(
 // ============================================================================
 
 /// List OAuth accounts linked to current user
+#[utoipa::path(
+    get,
+    path = "/api/oauth/accounts",
+    tag = "OAuth",
+    responses(
+        (status = 200, body = Vec<LinkedAccountResponse>)
+    )
+)]
 async fn list_linked_accounts(
     State(state): State<AppState>,
     auth: Authenticated,
@@ -623,6 +692,17 @@ async fn list_linked_accounts(
 }
 
 /// Unlink an OAuth account
+#[utoipa::path(
+    delete,
+    path = "/api/oauth/accounts/{provider}",
+    tag = "OAuth",
+    params(
+        ("provider" = String, Path, description = "OAuth provider ID")
+    ),
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn unlink_account(
     State(state): State<AppState>,
     Path(provider): Path<String>,
@@ -645,6 +725,17 @@ async fn unlink_account(
 }
 
 /// Start OAuth linking flow for current user
+#[utoipa::path(
+    get,
+    path = "/api/oauth/link/{provider}",
+    tag = "OAuth",
+    params(
+        ("provider" = String, Path, description = "OAuth provider ID")
+    ),
+    responses(
+        (status = 302, description = "Redirect")
+    )
+)]
 async fn link_account_start(
     State(state): State<AppState>,
     Path(provider): Path<String>,

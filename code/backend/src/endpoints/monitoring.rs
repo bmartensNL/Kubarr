@@ -34,7 +34,7 @@ pub fn monitoring_routes(state: AppState) -> Router {
 // Request/Response Types
 // ============================================================================
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct AppMetrics {
     pub app_name: String,
     pub namespace: String,
@@ -49,7 +49,7 @@ pub struct AppMetrics {
     pub network_transmit_bytes_per_sec: f64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ClusterMetrics {
     pub total_cpu_cores: f64,
     pub total_memory_bytes: i64,
@@ -66,13 +66,13 @@ pub struct ClusterMetrics {
     pub storage_usage_percent: f64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct TimeSeriesPoint {
     pub timestamp: f64,
     pub value: f64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct AppHistoricalMetrics {
     pub app_name: String,
     pub namespace: String,
@@ -87,7 +87,7 @@ pub struct AppHistoricalMetrics {
     pub network_transmit_bytes_per_sec: f64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct AppDetailMetrics {
     pub app_name: String,
     pub namespace: String,
@@ -95,7 +95,7 @@ pub struct AppDetailMetrics {
     pub pods: Vec<PodStatus>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct AppHealth {
     pub app_name: String,
     pub namespace: String,
@@ -107,30 +107,30 @@ pub struct AppHealth {
     pub message: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
 pub struct PodQuery {
     pub namespace: Option<String>,
     pub app: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
 pub struct AppDetailQuery {
     pub duration: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
 pub struct NetworkHistoryQuery {
     pub duration: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ClusterNetworkHistory {
     pub combined_series: Vec<TimeSeriesPoint>,
     pub rx_series: Vec<TimeSeriesPoint>,
     pub tx_series: Vec<TimeSeriesPoint>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ClusterMetricsHistory {
     pub cpu_series: Vec<TimeSeriesPoint>,
     pub memory_series: Vec<TimeSeriesPoint>,
@@ -205,6 +205,14 @@ async fn query_vm_range(query: &str, start: f64, end: f64, step: &str) -> Vec<se
 // ============================================================================
 
 /// Get resource metrics for all installed apps from VictoriaMetrics
+#[utoipa::path(
+    get,
+    path = "/api/monitoring/vm/apps",
+    tag = "Monitoring",
+    responses(
+        (status = 200, body = Vec<AppMetrics>)
+    )
+)]
 async fn get_app_metrics(
     State(state): State<AppState>,
     _auth: Authorized<MonitoringView>,
@@ -339,6 +347,14 @@ async fn get_app_metrics(
 }
 
 /// Get overall cluster resource metrics from VictoriaMetrics
+#[utoipa::path(
+    get,
+    path = "/api/monitoring/vm/cluster",
+    tag = "Monitoring",
+    responses(
+        (status = 200, body = ClusterMetrics)
+    )
+)]
 async fn get_cluster_metrics(_auth: Authorized<MonitoringView>) -> Result<Json<ClusterMetrics>> {
     // Total CPU cores
     let total_cpu = query_vm("sum(machine_cpu_cores)")
@@ -456,6 +472,15 @@ async fn get_cluster_metrics(_auth: Authorized<MonitoringView>) -> Result<Json<C
 }
 
 /// Get cluster-wide network history for sparkline charts
+#[utoipa::path(
+    get,
+    path = "/api/monitoring/vm/cluster/network-history",
+    tag = "Monitoring",
+    params(NetworkHistoryQuery),
+    responses(
+        (status = 200, body = ClusterNetworkHistory)
+    )
+)]
 async fn get_cluster_network_history(
     Query(query): Query<NetworkHistoryQuery>,
     _auth: Authorized<MonitoringView>,
@@ -532,6 +557,15 @@ async fn get_cluster_network_history(
 }
 
 /// Get cluster-wide metrics history for sparkline charts (CPU, Memory, Storage, Pods, Containers)
+#[utoipa::path(
+    get,
+    path = "/api/monitoring/vm/cluster/metrics-history",
+    tag = "Monitoring",
+    params(NetworkHistoryQuery),
+    responses(
+        (status = 200, body = ClusterMetricsHistory)
+    )
+)]
 async fn get_cluster_metrics_history(
     Query(query): Query<NetworkHistoryQuery>,
     _auth: Authorized<MonitoringView>,
@@ -605,6 +639,18 @@ async fn get_cluster_metrics_history(
 }
 
 /// Get detailed metrics for a specific app
+#[utoipa::path(
+    get,
+    path = "/api/monitoring/vm/app/{app_name}",
+    tag = "Monitoring",
+    params(
+        ("app_name" = String, Path, description = "Application name"),
+        AppDetailQuery,
+    ),
+    responses(
+        (status = 200, body = AppDetailMetrics)
+    )
+)]
 async fn get_app_detail_metrics(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
@@ -830,6 +876,14 @@ async fn get_app_detail_metrics(
 }
 
 /// Check if VictoriaMetrics is available
+#[utoipa::path(
+    get,
+    path = "/api/monitoring/vm/available",
+    tag = "Monitoring",
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn check_vm_available(_auth: Authorized<MonitoringView>) -> Result<Json<serde_json::Value>> {
     let client = reqwest::Client::new();
     // VictoriaMetrics uses /health endpoint for health checks
@@ -850,6 +904,15 @@ async fn check_vm_available(_auth: Authorized<MonitoringView>) -> Result<Json<se
 }
 
 /// Get pod status
+#[utoipa::path(
+    get,
+    path = "/api/monitoring/pods",
+    tag = "Monitoring",
+    params(PodQuery),
+    responses(
+        (status = 200, body = Vec<PodStatus>)
+    )
+)]
 async fn get_pods(
     State(state): State<AppState>,
     Query(query): Query<PodQuery>,
@@ -870,6 +933,15 @@ async fn get_pods(
 }
 
 /// Get pod metrics
+#[utoipa::path(
+    get,
+    path = "/api/monitoring/metrics",
+    tag = "Monitoring",
+    params(PodQuery),
+    responses(
+        (status = 200, body = Vec<PodMetrics>)
+    )
+)]
 async fn get_metrics(
     State(state): State<AppState>,
     Query(query): Query<PodQuery>,
@@ -890,6 +962,18 @@ async fn get_metrics(
 }
 
 /// Get app health
+#[utoipa::path(
+    get,
+    path = "/api/monitoring/health/{app_name}",
+    tag = "Monitoring",
+    params(
+        ("app_name" = String, Path, description = "Application name"),
+        PodQuery,
+    ),
+    responses(
+        (status = 200, body = AppHealth)
+    )
+)]
 async fn get_app_health(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
@@ -952,6 +1036,18 @@ async fn get_app_health(
 }
 
 /// Get service endpoints
+#[utoipa::path(
+    get,
+    path = "/api/monitoring/endpoints/{app_name}",
+    tag = "Monitoring",
+    params(
+        ("app_name" = String, Path, description = "Application name"),
+        PodQuery,
+    ),
+    responses(
+        (status = 200, body = Vec<ServiceEndpoint>)
+    )
+)]
 async fn get_endpoints(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
@@ -973,6 +1069,14 @@ async fn get_endpoints(
 }
 
 /// Check if metrics-server is available
+#[utoipa::path(
+    get,
+    path = "/api/monitoring/metrics-available",
+    tag = "Monitoring",
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn check_metrics_available(
     State(state): State<AppState>,
     _auth: Authorized<MonitoringView>,

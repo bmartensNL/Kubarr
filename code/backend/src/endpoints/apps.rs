@@ -41,7 +41,7 @@ pub fn apps_routes(state: AppState) -> Router {
 // Request/Response Types
 // ============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct NamespaceQuery {
     pub namespace: Option<String>,
 }
@@ -51,6 +51,12 @@ pub struct NamespaceQuery {
 // ============================================================================
 
 /// List all apps in the catalog (excludes hidden apps)
+#[utoipa::path(
+    get,
+    path = "/api/apps/catalog",
+    tag = "Apps",
+    responses((status = 200, body = serde_json::Value))
+)]
 async fn list_catalog(
     State(state): State<AppState>,
     _auth: Authorized<AppsView>,
@@ -66,6 +72,13 @@ async fn list_catalog(
 }
 
 /// Get a specific app from the catalog
+#[utoipa::path(
+    get,
+    path = "/api/apps/catalog/{app_name}",
+    tag = "Apps",
+    params(("app_name" = String, Path, description = "App name")),
+    responses((status = 200, body = serde_json::Value))
+)]
 async fn get_app_from_catalog(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
@@ -80,6 +93,13 @@ async fn get_app_from_catalog(
 }
 
 /// Get the icon for an app (SVG)
+#[utoipa::path(
+    get,
+    path = "/api/apps/catalog/{app_name}/icon",
+    tag = "Apps",
+    params(("app_name" = String, Path, description = "App name")),
+    responses((status = 200, description = "SVG icon content", content_type = "image/svg+xml"))
+)]
 async fn get_app_icon(Path(app_name): Path<String>) -> Result<Response> {
     // Validate app name to prevent path traversal
     if app_name.contains("..") || app_name.contains('/') || app_name.contains('\\') {
@@ -109,6 +129,12 @@ async fn get_app_icon(Path(app_name): Path<String>) -> Result<Response> {
 }
 
 /// List installed apps
+#[utoipa::path(
+    get,
+    path = "/api/apps/installed",
+    tag = "Apps",
+    responses((status = 200, body = Vec<String>))
+)]
 async fn list_installed_apps(
     State(state): State<AppState>,
     _auth: Authorized<AppsView>,
@@ -127,6 +153,13 @@ async fn list_installed_apps(
 }
 
 /// Install an app
+#[utoipa::path(
+    post,
+    path = "/api/apps/install",
+    tag = "Apps",
+    request_body = serde_json::Value,
+    responses((status = 200, body = serde_json::Value))
+)]
 async fn install_app(
     State(state): State<AppState>,
     _auth: Authorized<AppsInstall>,
@@ -157,6 +190,13 @@ async fn install_app(
 }
 
 /// Delete an app
+#[utoipa::path(
+    delete,
+    path = "/api/apps/{app_name}",
+    tag = "Apps",
+    params(("app_name" = String, Path, description = "App name")),
+    responses((status = 200, body = serde_json::Value))
+)]
 async fn delete_app(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
@@ -193,6 +233,16 @@ async fn delete_app(
 }
 
 /// Restart an app
+#[utoipa::path(
+    post,
+    path = "/api/apps/{app_name}/restart",
+    tag = "Apps",
+    params(
+        ("app_name" = String, Path, description = "App name"),
+        ("namespace" = Option<String>, Query, description = "Namespace override")
+    ),
+    responses((status = 200, body = serde_json::Value))
+)]
 async fn restart_app(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
@@ -236,6 +286,12 @@ async fn restart_app(
 }
 
 /// List all categories
+#[utoipa::path(
+    get,
+    path = "/api/apps/categories",
+    tag = "Apps",
+    responses((status = 200, body = Vec<String>))
+)]
 async fn list_categories(
     State(state): State<AppState>,
     _auth: Authorized<AppsView>,
@@ -245,6 +301,13 @@ async fn list_categories(
 }
 
 /// Get apps by category
+#[utoipa::path(
+    get,
+    path = "/api/apps/category/{category}",
+    tag = "Apps",
+    params(("category" = String, Path, description = "Category name")),
+    responses((status = 200, body = serde_json::Value))
+)]
 async fn get_apps_by_category(
     State(state): State<AppState>,
     Path(category): Path<String>,
@@ -260,6 +323,13 @@ async fn get_apps_by_category(
 }
 
 /// Check app health
+#[utoipa::path(
+    get,
+    path = "/api/apps/{app_name}/health",
+    tag = "Apps",
+    params(("app_name" = String, Path, description = "App name")),
+    responses((status = 200, body = serde_json::Value))
+)]
 async fn check_app_health(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
@@ -279,6 +349,13 @@ async fn check_app_health(
 }
 
 /// Check if app exists
+#[utoipa::path(
+    get,
+    path = "/api/apps/{app_name}/exists",
+    tag = "Apps",
+    params(("app_name" = String, Path, description = "App name")),
+    responses((status = 200, body = serde_json::Value))
+)]
 async fn check_app_exists(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
@@ -298,6 +375,13 @@ async fn check_app_exists(
 }
 
 /// Get app status
+#[utoipa::path(
+    get,
+    path = "/api/apps/{app_name}/status",
+    tag = "Apps",
+    params(("app_name" = String, Path, description = "App name")),
+    responses((status = 200, body = serde_json::Value))
+)]
 async fn get_app_status(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
@@ -353,6 +437,13 @@ async fn get_app_status(
 }
 
 /// Log app access - called when user opens an app
+#[utoipa::path(
+    post,
+    path = "/api/apps/{app_name}/access",
+    tag = "Apps",
+    params(("app_name" = String, Path, description = "App name")),
+    responses((status = 200, body = serde_json::Value))
+)]
 async fn log_app_access(
     State(state): State<AppState>,
     Path(app_name): Path<String>,

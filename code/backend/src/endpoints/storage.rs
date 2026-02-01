@@ -37,18 +37,18 @@ pub fn storage_routes(state: AppState) -> Router {
 // Request/Response Types
 // ============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct BrowseQuery {
     #[serde(default)]
     pub path: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct PathQuery {
     pub path: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct FileInfo {
     pub name: String,
     pub path: String,
@@ -59,7 +59,7 @@ pub struct FileInfo {
     pub permissions: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct DirectoryListing {
     pub path: String,
     pub parent: Option<String>,
@@ -67,7 +67,7 @@ pub struct DirectoryListing {
     pub total_items: usize,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct StorageStats {
     pub total_bytes: u64,
     pub used_bytes: u64,
@@ -75,7 +75,7 @@ pub struct StorageStats {
     pub usage_percent: f64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct CreateDirectoryRequest {
     pub path: String,
 }
@@ -197,6 +197,17 @@ fn get_file_info_internal(file_path: &PathBuf, base_path: &PathBuf) -> Result<Fi
 // ============================================================================
 
 /// Browse a directory in the shared storage
+#[utoipa::path(
+    get,
+    path = "/api/storage/browse",
+    tag = "Storage",
+    params(
+        ("path" = String, Query, description = "Directory path to browse"),
+    ),
+    responses(
+        (status = 200, body = DirectoryListing)
+    )
+)]
 async fn browse_directory(
     State(state): State<AppState>,
     Query(query): Query<BrowseQuery>,
@@ -294,6 +305,14 @@ async fn browse_directory(
 }
 
 /// Get storage usage statistics
+#[utoipa::path(
+    get,
+    path = "/api/storage/stats",
+    tag = "Storage",
+    responses(
+        (status = 200, body = StorageStats)
+    )
+)]
 async fn get_storage_stats(
     State(state): State<AppState>,
     _auth: Authorized<StorageView>,
@@ -358,6 +377,17 @@ async fn get_storage_stats(
 }
 
 /// Get detailed information about a specific file or directory
+#[utoipa::path(
+    get,
+    path = "/api/storage/file-info",
+    tag = "Storage",
+    params(
+        ("path" = String, Query, description = "File or directory path"),
+    ),
+    responses(
+        (status = 200, body = FileInfo)
+    )
+)]
 async fn get_file_info(
     State(state): State<AppState>,
     Query(query): Query<PathQuery>,
@@ -383,6 +413,15 @@ async fn get_file_info(
 }
 
 /// Create a new directory (requires storage.write permission)
+#[utoipa::path(
+    post,
+    path = "/api/storage/mkdir",
+    tag = "Storage",
+    request_body = CreateDirectoryRequest,
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn create_directory(
     State(state): State<AppState>,
     _auth: Authorized<StorageWrite>,
@@ -429,6 +468,17 @@ async fn create_directory(
 }
 
 /// Delete a file or empty directory (requires storage.delete permission)
+#[utoipa::path(
+    delete,
+    path = "/api/storage/delete",
+    tag = "Storage",
+    params(
+        ("path" = String, Query, description = "Path to delete"),
+    ),
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn delete_path(
     State(state): State<AppState>,
     Query(query): Query<PathQuery>,
@@ -500,6 +550,17 @@ async fn delete_path(
 }
 
 /// Download a file from storage
+#[utoipa::path(
+    get,
+    path = "/api/storage/download",
+    tag = "Storage",
+    params(
+        ("path" = String, Query, description = "File path to download"),
+    ),
+    responses(
+        (status = 200, description = "File download")
+    )
+)]
 async fn download_file(
     State(state): State<AppState>,
     Query(query): Query<PathQuery>,

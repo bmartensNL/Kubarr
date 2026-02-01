@@ -341,7 +341,7 @@ impl K8sClient {
 // Helper Types
 // ============================================================================
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct PodStatus {
     pub name: String,
     pub app: String,
@@ -359,7 +359,7 @@ pub struct PodStatus {
     pub memory_usage: Option<i64>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct PodMetrics {
     pub name: String,
     pub namespace: String,
@@ -367,7 +367,7 @@ pub struct PodMetrics {
     pub memory_usage: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct ServiceEndpoint {
     pub name: String,
     pub namespace: String,

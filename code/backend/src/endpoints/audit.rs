@@ -20,6 +20,14 @@ pub fn audit_routes(state: AppState) -> Router {
         .with_state(state)
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/audit",
+    tag = "Audit",
+    responses(
+        (status = 200, description = "Audit logs with pagination", body = serde_json::Value)
+    )
+)]
 /// List audit logs with filtering and pagination
 async fn list_audit_logs(
     State(state): State<AppState>,
@@ -31,6 +39,14 @@ async fn list_audit_logs(
     Ok(Json(logs))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/audit/stats",
+    tag = "Audit",
+    responses(
+        (status = 200, description = "Audit log statistics", body = serde_json::Value)
+    )
+)]
 /// Get audit statistics
 async fn audit_stats(
     State(state): State<AppState>,
@@ -42,17 +58,26 @@ async fn audit_stats(
 }
 
 /// Clear old audit logs (admin only)
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, utoipa::ToSchema)]
 pub struct ClearLogsRequest {
     pub days: Option<i64>,
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, utoipa::ToSchema)]
 pub struct ClearLogsResponse {
     pub deleted: u64,
     pub message: String,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/audit/clear",
+    tag = "Audit",
+    request_body = ClearLogsRequest,
+    responses(
+        (status = 200, description = "Result of clearing old audit logs", body = ClearLogsResponse)
+    )
+)]
 async fn clear_audit_logs(
     State(state): State<AppState>,
     _auth: Authorized<AuditManage>,

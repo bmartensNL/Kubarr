@@ -30,7 +30,7 @@ pub fn networking_routes(state: AppState) -> Router {
 // Request/Response Types
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct NetworkNode {
     pub id: String,
     pub name: String,
@@ -43,7 +43,7 @@ pub struct NetworkNode {
     pub color: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct NetworkEdge {
     pub source: String,
     pub target: String,
@@ -56,13 +56,13 @@ pub struct NetworkEdge {
     pub label: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct NetworkTopology {
     pub nodes: Vec<NetworkNode>,
     pub edges: Vec<NetworkEdge>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct NetworkStats {
     pub namespace: String,
     pub app_name: String,
@@ -94,6 +94,14 @@ fn is_excluded_namespace(namespace: &str) -> bool {
 // Endpoint Handlers
 // ============================================================================
 
+#[utoipa::path(
+    get,
+    path = "/api/networking/topology",
+    tag = "Networking",
+    responses(
+        (status = 200, description = "Network topology with nodes and edges", body = NetworkTopology)
+    )
+)]
 /// Get network topology with nodes and edges
 /// Uses direct cAdvisor metrics for real-time network data
 async fn get_network_topology(
@@ -498,6 +506,14 @@ async fn discover_service_connections(
     edges
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/networking/stats",
+    tag = "Networking",
+    responses(
+        (status = 200, description = "Network statistics per app", body = Vec<NetworkStats>)
+    )
+)]
 /// Get detailed network statistics per app
 /// Uses direct cAdvisor metrics for real-time network data
 async fn get_network_stats(

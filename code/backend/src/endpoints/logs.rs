@@ -33,21 +33,21 @@ pub fn logs_routes(state: AppState) -> Router {
         .with_state(state)
 }
 
-#[derive(Debug, Serialize)]
-struct LogEntry {
-    timestamp: String,
-    line: String,
-    pod_name: String,
-    container: Option<String>,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct LogEntry {
+    pub timestamp: String,
+    pub line: String,
+    pub pod_name: String,
+    pub container: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct PodLogsQuery {
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct PodLogsQuery {
     #[serde(default = "default_namespace")]
-    namespace: String,
-    container: Option<String>,
+    pub namespace: String,
+    pub container: Option<String>,
     #[serde(default = "default_tail")]
-    tail: i32,
+    pub tail: i32,
 }
 
 fn default_namespace() -> String {
@@ -58,14 +58,14 @@ fn default_tail() -> i32 {
     100
 }
 
-#[derive(Debug, Deserialize)]
-struct VLogsQueryParams {
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct VLogsQueryParams {
     #[serde(default = "default_vlogs_query")]
-    query: String,
-    start: Option<String>,
-    end: Option<String>,
+    pub query: String,
+    pub start: Option<String>,
+    pub end: Option<String>,
     #[serde(default = "default_limit")]
-    limit: i32,
+    pub limit: i32,
 }
 
 fn default_vlogs_query() -> String {
@@ -76,26 +76,37 @@ fn default_limit() -> i32 {
     1000
 }
 
-#[derive(Debug, Serialize)]
-struct VLogsQueryResponse {
-    streams: Vec<VLogsStream>,
-    total_entries: i32,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct VLogsQueryResponse {
+    pub streams: Vec<VLogsStream>,
+    pub total_entries: i32,
 }
 
-#[derive(Debug, Serialize)]
-struct VLogsStream {
-    labels: HashMap<String, String>,
-    entries: Vec<VLogsEntry>,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct VLogsStream {
+    pub labels: HashMap<String, String>,
+    pub entries: Vec<VLogsEntry>,
 }
 
-#[derive(Debug, Serialize)]
-struct VLogsEntry {
-    timestamp: String,
-    line: String,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct VLogsEntry {
+    pub timestamp: String,
+    pub line: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    level: Option<String>,
+    pub level: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/logs/{pod_name}",
+    tag = "Logs",
+    params(
+        ("pod_name" = String, Path, description = "Name of the pod")
+    ),
+    responses(
+        (status = 200, description = "Pod log entries", body = Vec<LogEntry>)
+    )
+)]
 /// Get logs from a specific pod
 async fn get_pod_logs(
     State(state): State<AppState>,
@@ -130,6 +141,17 @@ async fn get_pod_logs(
     Ok(Json(entries))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/logs/app/{app_name}",
+    tag = "Logs",
+    params(
+        ("app_name" = String, Path, description = "Name of the application")
+    ),
+    responses(
+        (status = 200, description = "Application log entries from all pods", body = Vec<LogEntry>)
+    )
+)]
 /// Get logs from all pods of an app
 async fn get_app_logs(
     State(state): State<AppState>,
@@ -178,6 +200,17 @@ async fn get_app_logs(
     Ok(Json(all_entries))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/logs/raw/{pod_name}",
+    tag = "Logs",
+    params(
+        ("pod_name" = String, Path, description = "Name of the pod")
+    ),
+    responses(
+        (status = 200, description = "Raw pod logs as plain text", body = String)
+    )
+)]
 /// Get raw logs from a pod as plain text
 async fn get_raw_pod_logs(
     State(state): State<AppState>,
@@ -204,6 +237,14 @@ async fn get_raw_pod_logs(
 
 // ============== VictoriaLogs Endpoints ==============
 
+#[utoipa::path(
+    get,
+    path = "/api/logs/vlogs/namespaces",
+    tag = "Logs",
+    responses(
+        (status = 200, description = "List of namespaces with logs", body = Vec<String>)
+    )
+)]
 /// Get all namespaces that have logs in VictoriaLogs
 async fn get_vlogs_namespaces(_auth: Authorized<LogsView>) -> Result<Json<Vec<String>>> {
     let client = reqwest::Client::builder()
@@ -250,6 +291,14 @@ async fn get_vlogs_namespaces(_auth: Authorized<LogsView>) -> Result<Json<Vec<St
     Ok(Json(namespaces))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/logs/vlogs/labels",
+    tag = "Logs",
+    responses(
+        (status = 200, description = "List of available log labels", body = Vec<String>)
+    )
+)]
 /// Get all available labels (field names) from VictoriaLogs
 async fn get_vlogs_labels(_auth: Authorized<LogsView>) -> Result<Json<Vec<String>>> {
     let client = reqwest::Client::builder()
@@ -295,6 +344,17 @@ async fn get_vlogs_labels(_auth: Authorized<LogsView>) -> Result<Json<Vec<String
     Ok(Json(labels))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/logs/vlogs/label/{label}/values",
+    tag = "Logs",
+    params(
+        ("label" = String, Path, description = "Label name to get values for")
+    ),
+    responses(
+        (status = 200, description = "List of values for the specified label", body = Vec<String>)
+    )
+)]
 /// Get all values for a specific field from VictoriaLogs
 async fn get_vlogs_label_values(
     Path(label): Path<String>,
@@ -342,6 +402,14 @@ async fn get_vlogs_label_values(
     Ok(Json(values))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/logs/vlogs/query",
+    tag = "Logs",
+    responses(
+        (status = 200, description = "VictoriaLogs query results", body = VLogsQueryResponse)
+    )
+)]
 /// Query logs from VictoriaLogs using LogsQL
 async fn query_vlogs(
     Query(params): Query<VLogsQueryParams>,

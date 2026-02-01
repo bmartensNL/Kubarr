@@ -7,7 +7,7 @@ use crate::config::CONFIG;
 use crate::error::Result;
 
 /// App configuration from Helm chart
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AppConfig {
     pub name: String,
     pub display_name: String,
@@ -24,7 +24,7 @@ pub struct AppConfig {
     pub is_browseable: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ResourceRequirements {
     pub cpu_request: String,
     pub cpu_limit: String,
@@ -32,7 +32,7 @@ pub struct ResourceRequirements {
     pub memory_limit: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct VolumeConfig {
     pub name: String,
     pub mount_path: String,

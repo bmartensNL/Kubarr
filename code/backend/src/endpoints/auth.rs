@@ -35,14 +35,14 @@ pub fn auth_routes(state: AppState) -> Router {
 // Request/Response Types
 // ============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
     pub totp_code: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct LoginResponse {
     pub user_id: i64,
     pub username: String,
@@ -50,7 +50,7 @@ pub struct LoginResponse {
     pub session_slot: usize,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct AccountInfo {
     pub slot: usize,
     pub user_id: i64,
@@ -59,7 +59,7 @@ pub struct AccountInfo {
     pub is_active: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct SessionInfo {
     pub id: String,
     pub user_agent: Option<String>,
@@ -193,6 +193,15 @@ fn find_available_slot(existing: &[(usize, i64, String)], user_id: i64) -> usize
 // ============================================================================
 
 /// Login with username and password, returns session cookie
+#[utoipa::path(
+    post,
+    path = "/auth/login",
+    tag = "Auth",
+    request_body = LoginRequest,
+    responses(
+        (status = 200, body = LoginResponse)
+    )
+)]
 async fn login(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -316,6 +325,14 @@ async fn login(
 }
 
 /// Logout - revokes the session and clears the cookie
+#[utoipa::path(
+    post,
+    path = "/auth/logout",
+    tag = "Auth",
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Result<Response> {
     // Try to get and revoke the current session
     if let Some(token) = extract_session_token(&headers) {
@@ -336,6 +353,14 @@ async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Result<Res
 }
 
 /// List all active sessions for the current user
+#[utoipa::path(
+    get,
+    path = "/auth/sessions",
+    tag = "Auth",
+    responses(
+        (status = 200, body = Vec<SessionInfo>)
+    )
+)]
 async fn list_sessions(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -379,6 +404,17 @@ async fn list_sessions(
 }
 
 /// Revoke a specific session (must belong to current user)
+#[utoipa::path(
+    delete,
+    path = "/auth/sessions/{session_id}",
+    tag = "Auth",
+    params(
+        ("session_id" = String, Path, description = "Session ID to revoke")
+    ),
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn revoke_session(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -464,6 +500,17 @@ fn extract_session_token(headers: &HeaderMap) -> Option<String> {
 }
 
 /// Switch to a different session slot
+#[utoipa::path(
+    post,
+    path = "/auth/sessions/{session_id}/switch",
+    tag = "Auth",
+    params(
+        ("session_id" = usize, Path, description = "Session slot to switch to")
+    ),
+    responses(
+        (status = 200, body = LoginResponse)
+    )
+)]
 async fn switch_session(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -499,6 +546,14 @@ async fn switch_session(
 }
 
 /// List all signed-in accounts
+#[utoipa::path(
+    get,
+    path = "/auth/accounts",
+    tag = "Auth",
+    responses(
+        (status = 200, body = Vec<AccountInfo>)
+    )
+)]
 async fn list_accounts(
     State(state): State<AppState>,
     headers: HeaderMap,

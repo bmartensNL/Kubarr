@@ -14,7 +14,7 @@ use crate::services::k8s::K8sClient;
 use crate::state::SharedDbConn;
 
 /// Component status for bootstrap
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ComponentStatus {
     pub component: String,
     pub display_name: String,

@@ -130,7 +130,7 @@ impl AuditService {
 }
 
 /// Query parameters for fetching audit logs
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
 pub struct AuditLogQuery {
     pub page: Option<u64>,
     pub per_page: Option<u64>,
@@ -144,7 +144,7 @@ pub struct AuditLogQuery {
 }
 
 /// Paginated audit log response
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct AuditLogResponse {
     pub logs: Vec<audit_log::Model>,
     pub total: u64,
@@ -220,7 +220,7 @@ pub async fn get_audit_logs(db: &DbConn, query: AuditLogQuery) -> Result<AuditLo
 }
 
 /// Get audit log statistics
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct AuditStats {
     pub total_events: u64,
     pub successful_events: u64,
@@ -231,7 +231,7 @@ pub struct AuditStats {
     pub recent_failures: Vec<audit_log::Model>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct ActionCount {
     pub action: String,
     pub count: u64,

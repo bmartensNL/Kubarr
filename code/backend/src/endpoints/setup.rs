@@ -44,33 +44,33 @@ pub fn setup_routes(state: AppState) -> Router {
         .with_state(state)
 }
 
-#[derive(Debug, Serialize)]
-struct SetupRequiredResponse {
-    setup_required: bool,
-    database_pending: bool,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct SetupRequiredResponse {
+    pub setup_required: bool,
+    pub database_pending: bool,
 }
 
-#[derive(Debug, Serialize)]
-struct SetupStatusResponse {
-    setup_required: bool,
-    bootstrap_complete: bool,
-    server_configured: bool,
-    admin_user_exists: bool,
-    storage_configured: bool,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct SetupStatusResponse {
+    pub setup_required: bool,
+    pub bootstrap_complete: bool,
+    pub server_configured: bool,
+    pub admin_user_exists: bool,
+    pub storage_configured: bool,
 }
 
-#[derive(Debug, Deserialize)]
-struct SetupRequest {
-    admin_username: String,
-    admin_email: String,
-    admin_password: String,
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct SetupRequest {
+    pub admin_username: String,
+    pub admin_email: String,
+    pub admin_password: String,
 }
 
-#[derive(Debug, Serialize)]
-struct GeneratedCredentialsResponse {
-    admin_username: String,
-    admin_email: String,
-    admin_password: String,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct GeneratedCredentialsResponse {
+    pub admin_username: String,
+    pub admin_email: String,
+    pub admin_password: String,
 }
 
 /// Check if any user with admin role exists (requires database)
@@ -109,6 +109,14 @@ async fn require_setup(state: &AppState) -> Result<()> {
 /// PostgreSQL was previously installed. If it was, the system was already set up
 /// and the DB is just not ready yet — we return `database_pending: true` instead
 /// of incorrectly claiming setup is required.
+#[utoipa::path(
+    get,
+    path = "/api/setup/required",
+    tag = "Setup",
+    responses(
+        (status = 200, body = SetupRequiredResponse)
+    )
+)]
 async fn check_setup_required(
     State(state): State<AppState>,
 ) -> Result<Json<SetupRequiredResponse>> {
@@ -153,6 +161,14 @@ async fn check_setup_required(
 }
 
 /// Get detailed setup status
+#[utoipa::path(
+    get,
+    path = "/api/setup/status",
+    tag = "Setup",
+    responses(
+        (status = 200, body = SetupStatusResponse)
+    )
+)]
 async fn get_setup_status(State(state): State<AppState>) -> Result<Json<SetupStatusResponse>> {
     // Check for admin user (user with admin role)
     let admin_exists = admin_user_exists(&state).await?;
@@ -207,6 +223,15 @@ async fn get_setup_status(State(state): State<AppState>) -> Result<Json<SetupSta
 }
 
 /// Initialize the dashboard (create admin user)
+#[utoipa::path(
+    post,
+    path = "/api/setup/initialize",
+    tag = "Setup",
+    request_body = SetupRequest,
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn initialize_setup(
     State(state): State<AppState>,
     Json(request): Json<SetupRequest>,
@@ -310,6 +335,14 @@ async fn initialize_setup(
 }
 
 /// Generate random credentials for setup
+#[utoipa::path(
+    get,
+    path = "/api/setup/generate-credentials",
+    tag = "Setup",
+    responses(
+        (status = 200, body = GeneratedCredentialsResponse)
+    )
+)]
 async fn generate_credentials(
     State(state): State<AppState>,
 ) -> Result<Json<GeneratedCredentialsResponse>> {
@@ -329,20 +362,29 @@ async fn generate_credentials(
     }))
 }
 
-#[derive(Debug, Deserialize)]
-struct ValidatePathQuery {
-    path: String,
+#[derive(Debug, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
+pub struct ValidatePathQuery {
+    pub path: String,
 }
 
-#[derive(Debug, Serialize)]
-struct ValidatePathResponse {
-    valid: bool,
-    exists: bool,
-    writable: bool,
-    message: String,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ValidatePathResponse {
+    pub valid: bool,
+    pub exists: bool,
+    pub writable: bool,
+    pub message: String,
 }
 
 /// Validate a storage path
+#[utoipa::path(
+    post,
+    path = "/api/setup/validate-path",
+    tag = "Setup",
+    params(ValidatePathQuery),
+    responses(
+        (status = 200, body = ValidatePathResponse)
+    )
+)]
 async fn validate_path(
     Query(query): Query<ValidatePathQuery>,
 ) -> Result<Json<ValidatePathResponse>> {
@@ -399,11 +441,12 @@ async fn validate_path(
 // Bootstrap Endpoints
 // ============================================================================
 
-#[derive(Debug, Serialize)]
-struct BootstrapStatusResponse {
-    components: Vec<ComponentStatus>,
-    complete: bool,
-    started: bool,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct BootstrapStatusResponse {
+    #[schema(inline)]
+    pub components: Vec<ComponentStatus>,
+    pub complete: bool,
+    pub started: bool,
 }
 
 /// Get bootstrap status
@@ -411,6 +454,14 @@ struct BootstrapStatusResponse {
 /// Returns the current status of bootstrap components during initial setup.
 /// Protected by require_setup() to prevent information disclosure after
 /// admin user creation.
+#[utoipa::path(
+    get,
+    path = "/api/setup/bootstrap/status",
+    tag = "Setup",
+    responses(
+        (status = 200, body = BootstrapStatusResponse)
+    )
+)]
 async fn get_bootstrap_status(
     State(state): State<AppState>,
 ) -> Result<Json<BootstrapStatusResponse>> {
@@ -435,13 +486,21 @@ async fn get_bootstrap_status(
     }))
 }
 
-#[derive(Debug, Serialize)]
-struct BootstrapStartResponse {
-    message: String,
-    started: bool,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct BootstrapStartResponse {
+    pub message: String,
+    pub started: bool,
 }
 
 /// Start the bootstrap process
+#[utoipa::path(
+    post,
+    path = "/api/setup/bootstrap/start",
+    tag = "Setup",
+    responses(
+        (status = 200, body = BootstrapStartResponse)
+    )
+)]
 async fn start_bootstrap(State(state): State<AppState>) -> Result<Json<BootstrapStartResponse>> {
     let bootstrap_service = Arc::new(RwLock::new(BootstrapService::new(
         state.db.clone(),
@@ -481,6 +540,17 @@ async fn start_bootstrap(State(state): State<AppState>) -> Result<Json<Bootstrap
 /// This endpoint allows retrying individual bootstrap steps if they fail during
 /// the initial setup process. Protected by require_setup() to ensure it's only
 /// accessible before admin user creation.
+#[utoipa::path(
+    post,
+    path = "/api/setup/bootstrap/retry/{component}",
+    tag = "Setup",
+    params(
+        ("component" = String, Path, description = "Component name to retry")
+    ),
+    responses(
+        (status = 200, body = BootstrapStartResponse)
+    )
+)]
 async fn retry_bootstrap_component(
     State(state): State<AppState>,
     axum::extract::Path(component): axum::extract::Path<String>,
@@ -593,19 +663,27 @@ async fn handle_bootstrap_socket(socket: WebSocket, state: AppState) {
 // Server Config Endpoints
 // ============================================================================
 
-#[derive(Debug, Deserialize)]
-struct ServerConfigRequest {
-    name: String,
-    storage_path: String,
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct ServerConfigRequest {
+    pub name: String,
+    pub storage_path: String,
 }
 
-#[derive(Debug, Serialize)]
-struct ServerConfigResponse {
-    name: String,
-    storage_path: String,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ServerConfigResponse {
+    pub name: String,
+    pub storage_path: String,
 }
 
 /// Get server configuration
+#[utoipa::path(
+    get,
+    path = "/api/setup/server",
+    tag = "Setup",
+    responses(
+        (status = 200, body = Option<ServerConfigResponse>)
+    )
+)]
 async fn get_server_config(
     State(state): State<AppState>,
 ) -> Result<Json<Option<ServerConfigResponse>>> {
@@ -623,6 +701,15 @@ async fn get_server_config(
 }
 
 /// Configure server (name and storage path)
+#[utoipa::path(
+    post,
+    path = "/api/setup/server",
+    tag = "Setup",
+    request_body = ServerConfigRequest,
+    responses(
+        (status = 200, body = ServerConfigResponse)
+    )
+)]
 async fn configure_server(
     State(state): State<AppState>,
     Json(request): Json<ServerConfigRequest>,

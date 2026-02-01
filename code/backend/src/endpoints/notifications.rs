@@ -47,30 +47,42 @@ pub fn notifications_routes(state: AppState) -> Router {
 // User Inbox Endpoints
 // ============================================================================
 
-#[derive(Serialize)]
-struct InboxResponse {
-    notifications: Vec<NotificationDto>,
-    total: u64,
-    unread: u64,
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct InboxResponse {
+    pub notifications: Vec<NotificationDto>,
+    pub total: u64,
+    pub unread: u64,
 }
 
-#[derive(Serialize)]
-struct NotificationDto {
-    id: i64,
-    title: String,
-    message: String,
-    event_type: Option<String>,
-    severity: String,
-    read: bool,
-    created_at: String,
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct NotificationDto {
+    pub id: i64,
+    pub title: String,
+    pub message: String,
+    pub event_type: Option<String>,
+    pub severity: String,
+    pub read: bool,
+    pub created_at: String,
 }
 
-#[derive(Deserialize)]
-struct InboxQuery {
-    limit: Option<u64>,
-    offset: Option<u64>,
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct InboxQuery {
+    pub limit: Option<u64>,
+    pub offset: Option<u64>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/notifications/inbox",
+    tag = "Notifications",
+    params(
+        ("limit" = Option<u64>, Query, description = "Number of notifications to return"),
+        ("offset" = Option<u64>, Query, description = "Offset for pagination"),
+    ),
+    responses(
+        (status = 200, body = InboxResponse)
+    )
+)]
 async fn get_inbox(
     State(state): State<AppState>,
     auth: Authenticated,
@@ -112,11 +124,19 @@ async fn get_inbox(
     }))
 }
 
-#[derive(Serialize)]
-struct UnreadCountResponse {
-    count: u64,
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct UnreadCountResponse {
+    pub count: u64,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/notifications/inbox/count",
+    tag = "Notifications",
+    responses(
+        (status = 200, body = UnreadCountResponse)
+    )
+)]
 async fn get_unread_count(
     State(state): State<AppState>,
     auth: Authenticated,
@@ -125,6 +145,17 @@ async fn get_unread_count(
     Ok(Json(UnreadCountResponse { count }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/notifications/inbox/{id}/read",
+    tag = "Notifications",
+    params(
+        ("id" = i64, Path, description = "Notification ID"),
+    ),
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn mark_as_read(
     State(state): State<AppState>,
     auth: Authenticated,
@@ -134,6 +165,14 @@ async fn mark_as_read(
     Ok(Json(serde_json::json!({ "success": true })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/notifications/inbox/read-all",
+    tag = "Notifications",
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn mark_all_as_read(
     State(state): State<AppState>,
     auth: Authenticated,
@@ -142,6 +181,17 @@ async fn mark_all_as_read(
     Ok(Json(serde_json::json!({ "success": true })))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/notifications/inbox/{id}",
+    tag = "Notifications",
+    params(
+        ("id" = i64, Path, description = "Notification ID"),
+    ),
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
 async fn delete_notification(
     State(state): State<AppState>,
     auth: Authenticated,
@@ -158,15 +208,23 @@ async fn delete_notification(
 // Admin: Channel Configuration
 // ============================================================================
 
-#[derive(Serialize)]
-struct ChannelDto {
-    channel_type: String,
-    enabled: bool,
-    config: serde_json::Value,
-    created_at: String,
-    updated_at: String,
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct ChannelDto {
+    pub channel_type: String,
+    pub enabled: bool,
+    pub config: serde_json::Value,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/notifications/channels",
+    tag = "Notifications",
+    responses(
+        (status = 200, body = Vec<ChannelDto>)
+    )
+)]
 async fn list_channels(
     State(state): State<AppState>,
     _auth: Authorized<SettingsView>,
@@ -212,6 +270,17 @@ async fn list_channels(
     Ok(Json(result))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/notifications/channels/{channel_type}",
+    tag = "Notifications",
+    params(
+        ("channel_type" = String, Path, description = "Channel type"),
+    ),
+    responses(
+        (status = 200, body = ChannelDto)
+    )
+)]
 async fn get_channel(
     State(state): State<AppState>,
     _auth: Authorized<SettingsView>,
@@ -247,12 +316,24 @@ async fn get_channel(
     }
 }
 
-#[derive(Deserialize)]
-struct UpdateChannelRequest {
-    enabled: Option<bool>,
-    config: Option<serde_json::Value>,
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct UpdateChannelRequest {
+    pub enabled: Option<bool>,
+    pub config: Option<serde_json::Value>,
 }
 
+#[utoipa::path(
+    put,
+    path = "/api/notifications/channels/{channel_type}",
+    tag = "Notifications",
+    params(
+        ("channel_type" = String, Path, description = "Channel type"),
+    ),
+    request_body = UpdateChannelRequest,
+    responses(
+        (status = 200, body = ChannelDto)
+    )
+)]
 async fn update_channel(
     State(state): State<AppState>,
     _auth: Authorized<SettingsManage>,
@@ -318,17 +399,29 @@ async fn update_channel(
     }))
 }
 
-#[derive(Deserialize)]
-struct TestChannelRequest {
-    destination: String,
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct TestChannelRequest {
+    pub destination: String,
 }
 
-#[derive(Serialize)]
-struct TestChannelResponse {
-    success: bool,
-    error: Option<String>,
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct TestChannelResponse {
+    pub success: bool,
+    pub error: Option<String>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/notifications/channels/{channel_type}/test",
+    tag = "Notifications",
+    params(
+        ("channel_type" = String, Path, description = "Channel type"),
+    ),
+    request_body = TestChannelRequest,
+    responses(
+        (status = 200, body = TestChannelResponse)
+    )
+)]
 async fn test_channel(
     State(state): State<AppState>,
     _auth: Authorized<SettingsManage>,
@@ -350,13 +443,21 @@ async fn test_channel(
 // Admin: Event Settings
 // ============================================================================
 
-#[derive(Serialize)]
-struct EventSettingDto {
-    event_type: String,
-    enabled: bool,
-    severity: String,
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct EventSettingDto {
+    pub event_type: String,
+    pub enabled: bool,
+    pub severity: String,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/notifications/events",
+    tag = "Notifications",
+    responses(
+        (status = 200, body = Vec<EventSettingDto>)
+    )
+)]
 async fn list_events(
     State(state): State<AppState>,
     _auth: Authorized<SettingsView>,
@@ -393,12 +494,24 @@ async fn list_events(
     Ok(Json(result))
 }
 
-#[derive(Deserialize)]
-struct UpdateEventRequest {
-    enabled: Option<bool>,
-    severity: Option<String>,
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct UpdateEventRequest {
+    pub enabled: Option<bool>,
+    pub severity: Option<String>,
 }
 
+#[utoipa::path(
+    put,
+    path = "/api/notifications/events/{event_type}",
+    tag = "Notifications",
+    params(
+        ("event_type" = String, Path, description = "Event type"),
+    ),
+    request_body = UpdateEventRequest,
+    responses(
+        (status = 200, body = EventSettingDto)
+    )
+)]
 async fn update_event(
     State(state): State<AppState>,
     _auth: Authorized<SettingsManage>,
@@ -443,14 +556,22 @@ async fn update_event(
 // User Preferences
 // ============================================================================
 
-#[derive(Serialize)]
-struct UserPrefDto {
-    channel_type: String,
-    enabled: bool,
-    destination: Option<String>,
-    verified: bool,
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct UserPrefDto {
+    pub channel_type: String,
+    pub enabled: bool,
+    pub destination: Option<String>,
+    pub verified: bool,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/notifications/preferences",
+    tag = "Notifications",
+    responses(
+        (status = 200, body = Vec<UserPrefDto>)
+    )
+)]
 async fn get_preferences(
     State(state): State<AppState>,
     auth: Authenticated,
@@ -488,12 +609,24 @@ async fn get_preferences(
     Ok(Json(result))
 }
 
-#[derive(Deserialize)]
-struct UpdatePrefRequest {
-    enabled: Option<bool>,
-    destination: Option<String>,
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct UpdatePrefRequest {
+    pub enabled: Option<bool>,
+    pub destination: Option<String>,
 }
 
+#[utoipa::path(
+    put,
+    path = "/api/notifications/preferences/{channel_type}",
+    tag = "Notifications",
+    params(
+        ("channel_type" = String, Path, description = "Channel type"),
+    ),
+    request_body = UpdatePrefRequest,
+    responses(
+        (status = 200, body = UserPrefDto)
+    )
+)]
 async fn update_preference(
     State(state): State<AppState>,
     auth: Authenticated,
@@ -558,32 +691,46 @@ async fn update_preference(
 // Admin: Logs
 // ============================================================================
 
-#[derive(Deserialize)]
-struct LogsQuery {
-    limit: Option<u64>,
-    offset: Option<u64>,
-    channel_type: Option<String>,
-    status: Option<String>,
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct LogsQuery {
+    pub limit: Option<u64>,
+    pub offset: Option<u64>,
+    pub channel_type: Option<String>,
+    pub status: Option<String>,
 }
 
-#[derive(Serialize)]
-struct LogDto {
-    id: i64,
-    user_id: Option<i64>,
-    channel_type: String,
-    event_type: String,
-    recipient: Option<String>,
-    status: String,
-    error_message: Option<String>,
-    created_at: String,
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct LogDto {
+    pub id: i64,
+    pub user_id: Option<i64>,
+    pub channel_type: String,
+    pub event_type: String,
+    pub recipient: Option<String>,
+    pub status: String,
+    pub error_message: Option<String>,
+    pub created_at: String,
 }
 
-#[derive(Serialize)]
-struct LogsResponse {
-    logs: Vec<LogDto>,
-    total: u64,
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct LogsResponse {
+    pub logs: Vec<LogDto>,
+    pub total: u64,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/notifications/logs",
+    tag = "Notifications",
+    params(
+        ("limit" = Option<u64>, Query, description = "Number of logs to return"),
+        ("offset" = Option<u64>, Query, description = "Offset for pagination"),
+        ("channel_type" = Option<String>, Query, description = "Filter by channel type"),
+        ("status" = Option<String>, Query, description = "Filter by status"),
+    ),
+    responses(
+        (status = 200, body = LogsResponse)
+    )
+)]
 async fn list_logs(
     State(state): State<AppState>,
     _auth: Authorized<AuditView>,
