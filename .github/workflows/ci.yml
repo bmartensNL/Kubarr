@@ -40,3 +40,12 @@ jobs:
       contents: read
       packages: write
     secrets: inherit
+
+  publish-charts:
+    needs: [backend-tests, frontend-check, e2e-tests]
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/helm-publish.yml
+    permissions:
+      contents: read
+      packages: write
+    secrets: inherit

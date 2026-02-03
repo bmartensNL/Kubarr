@@ -1,0 +1,59 @@
+name: Publish Helm Charts
+
+on:
+  workflow_call:
+
+env:
+  REGISTRY: ghcr.io
+  OCI_REPO: oci://ghcr.io/${{ github.repository_owner }}/kubarr/charts
+
+jobs:
+  publish:
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ${{ env.REGISTRY }} --username ${{ github.actor }} --password-stdin
+
+      - name: Package and push all charts
+        run: |
+          echo "## Helm Charts Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          for chart_dir in charts/*/; do
+            chart_name=$(basename "$chart_dir")
+
+            if [ ! -f "$chart_dir/Chart.yaml" ]; then
+              echo "Skipping $chart_name (no Chart.yaml)"
+              continue
+            fi
+
+            echo "Packaging $chart_name..."
+            helm package "$chart_dir" --destination /tmp/helm-packages
+
+            pkg=$(ls /tmp/helm-packages/${chart_name}-*.tgz 2>/dev/null | head -1)
+            if [ -z "$pkg" ]; then
+              echo "::warning::Failed to package $chart_name"
+              continue
+            fi
+
+            echo "Pushing $chart_name..."
+            helm push "$pkg" ${{ env.OCI_REPO }}
+
+            version=$(helm show chart "$chart_dir" | grep '^version:' | awk '{print $2}')
+            echo "- \`${chart_name}:${version}\` → \`${{ env.OCI_REPO }}/${chart_name}\`" >> $GITHUB_STEP_SUMMARY
+
+            rm -f "$pkg"
+          done
+
+      - name: Logout
+        if: always()
+        run: helm registry logout ${{ env.REGISTRY }} || true
