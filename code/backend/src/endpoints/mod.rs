@@ -307,7 +307,8 @@ async fn openapi_json() -> axum::Json<utoipa::openapi::OpenApi> {
 
 /// Serve Swagger UI
 async fn swagger_ui() -> Html<&'static str> {
-    Html(r#"<!DOCTYPE html>
+    Html(
+        r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -326,5 +327,6 @@ async fn swagger_ui() -> Html<&'static str> {
         });
     </script>
 </body>
-</html>"#)
+</html>"#,
+    )
 }

@@ -148,8 +148,7 @@ impl<'a> DeploymentManager<'a> {
                         set_args.push(format!("vpn.secretName={}", secret_name));
                         set_args.push(format!("vpn.killSwitch={}", vpn_config.kill_switch));
                         if vpn_config.port_forwarding {
-                            set_args
-                                .push("vpn.portForwarding.enabled=true".to_string());
+                            set_args.push("vpn.portForwarding.enabled=true".to_string());
                         }
                         // Use --set-string for subnets since CIDR notation contains
                         // commas and slashes that Helm's --set parser misinterprets

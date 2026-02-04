@@ -34,10 +34,7 @@ pub fn vpn_routes(state: AppState) -> Router {
             "/apps/:app_name",
             get(get_app_config).put(assign_vpn).delete(remove_vpn),
         )
-        .route(
-            "/apps/:app_name/forwarded-port",
-            get(get_forwarded_port),
-        )
+        .route("/apps/:app_name/forwarded-port", get(get_forwarded_port))
         // Supported providers
         .route("/supported-providers", get(list_supported_providers))
         .with_state(state)
@@ -369,9 +366,7 @@ async fn get_forwarded_port(
     let pod_list = pods
         .list(&kube::api::ListParams::default())
         .await
-        .map_err(|e| {
-            crate::error::AppError::Internal(format!("Failed to list pods: {}", e))
-        })?;
+        .map_err(|e| crate::error::AppError::Internal(format!("Failed to list pods: {}", e)))?;
 
     // Find a running pod with a gluetun container
     let pod_ip = pod_list
@@ -409,9 +404,10 @@ async fn get_forwarded_port(
 
     match client.get(&url).send().await {
         Ok(resp) => {
-            let body: serde_json::Value = resp.json().await.unwrap_or_else(|_| {
-                serde_json::json!({ "port": 0 })
-            });
+            let body: serde_json::Value = resp
+                .json()
+                .await
+                .unwrap_or_else(|_| serde_json::json!({ "port": 0 }));
             let port = body.get("port").and_then(|v| v.as_u64()).unwrap_or(0);
             Ok(Json(serde_json::json!({ "port": port })))
         }

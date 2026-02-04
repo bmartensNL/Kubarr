@@ -19,8 +19,14 @@ pub fn monitoring_routes(state: AppState) -> Router {
         .route("/vm/apps", get(get_app_metrics))
         .route("/vm/cluster", get(get_cluster_metrics))
         .route("/vm/app/:app_name", get(get_app_detail_metrics))
-        .route("/vm/cluster/network-history", get(get_cluster_network_history))
-        .route("/vm/cluster/metrics-history", get(get_cluster_metrics_history))
+        .route(
+            "/vm/cluster/network-history",
+            get(get_cluster_network_history),
+        )
+        .route(
+            "/vm/cluster/metrics-history",
+            get(get_cluster_metrics_history),
+        )
         .route("/vm/available", get(check_vm_available))
         .route("/pods", get(get_pods))
         .route("/metrics", get(get_metrics))
@@ -598,7 +604,8 @@ async fn get_cluster_metrics_history(
     let cpu_query = r#"sum(rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[5m])) / sum(machine_cpu_cores) * 100"#;
     let memory_query = r#"sum(container_memory_working_set_bytes{container!="",container!="POD"}) / sum(machine_memory_bytes) * 100"#;
     let storage_query = r#"max(container_fs_usage_bytes{id="/",device=~"/dev/.*"}) / max(container_fs_limit_bytes{id="/",device=~"/dev/.*"}) * 100"#;
-    let pod_query = r#"count(count by (pod, namespace) (container_last_seen{container!="",container!="POD"}))"#;
+    let pod_query =
+        r#"count(count by (pod, namespace) (container_last_seen{container!="",container!="POD"}))"#;
     let container_query = r#"count(container_last_seen{container!="",container!="POD"})"#;
 
     let (cpu_results, memory_results, storage_results, pod_results, container_results) = tokio::join!(

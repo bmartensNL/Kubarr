@@ -4,7 +4,7 @@ test.describe('Dashboard', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     // Wait for dashboard to load
-    await expect(page.locator('h2:has-text("Overview")')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('h2:has-text("Dashboard")')).toBeVisible({ timeout: 10000 });
   });
 
   test.describe('Overview Section', () => {

@@ -37,7 +37,7 @@ test.describe('Authentication', () => {
 
       // Should redirect to dashboard
       await expect(page).toHaveURL('/', { timeout: 10000 });
-      await expect(page.locator('text=Overview')).toBeVisible();
+      await expect(page.locator('text=Dashboard')).toBeVisible();
     });
 
     test('redirects authenticated user away from login', async ({ page }) => {
