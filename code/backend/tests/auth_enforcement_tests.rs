@@ -48,23 +48,15 @@ async fn create_test_state_with_admin() -> (AppState, String) {
 
     // Create an admin user to simulate completed setup
     let db = state.get_db().await.unwrap();
-    let admin_user = create_test_user_with_role(
-        &db,
-        "admin",
-        "admin@example.com",
-        "admin_password",
-        "admin",
-    )
-    .await;
+    let admin_user =
+        create_test_user_with_role(&db, "admin", "admin@example.com", "admin_password", "admin")
+            .await;
 
     (state, admin_user.username)
 }
 
 /// Helper to make an unauthenticated GET request
-async fn make_unauthenticated_request(
-    state: AppState,
-    uri: &str,
-) -> (StatusCode, String) {
+async fn make_unauthenticated_request(state: AppState, uri: &str) -> (StatusCode, String) {
     let app = create_router(state);
 
     let request = Request::builder()
@@ -224,11 +216,7 @@ async fn test_users_endpoints_require_auth() {
 async fn test_roles_endpoints_require_auth() {
     let state = create_test_state().await;
 
-    let endpoints = vec![
-        "/api/roles",
-        "/api/roles/1",
-        "/api/roles/1/permissions",
-    ];
+    let endpoints = vec!["/api/roles", "/api/roles/1", "/api/roles/1/permissions"];
 
     for endpoint in endpoints {
         let (status, _) = make_unauthenticated_request(state.clone(), endpoint).await;
@@ -246,10 +234,7 @@ async fn test_roles_endpoints_require_auth() {
 async fn test_storage_endpoints_require_auth() {
     let state = create_test_state().await;
 
-    let endpoints = vec![
-        "/api/storage/browse",
-        "/api/storage/shared-folders",
-    ];
+    let endpoints = vec!["/api/storage/browse", "/api/storage/shared-folders"];
 
     for endpoint in endpoints {
         let (status, _) = make_unauthenticated_request(state.clone(), endpoint).await;
@@ -289,10 +274,7 @@ async fn test_vpn_endpoints_require_auth() {
 async fn test_monitoring_endpoints_require_auth() {
     let state = create_test_state().await;
 
-    let endpoints = vec![
-        "/api/monitoring/apps",
-        "/api/monitoring/system",
-    ];
+    let endpoints = vec!["/api/monitoring/apps", "/api/monitoring/system"];
 
     for endpoint in endpoints {
         let (status, _) = make_unauthenticated_request(state.clone(), endpoint).await;
@@ -310,10 +292,7 @@ async fn test_monitoring_endpoints_require_auth() {
 async fn test_logs_endpoints_require_auth() {
     let state = create_test_state().await;
 
-    let endpoints = vec![
-        "/api/logs/apps/jellyfin",
-        "/api/logs/system",
-    ];
+    let endpoints = vec!["/api/logs/apps/jellyfin", "/api/logs/system"];
 
     for endpoint in endpoints {
         let (status, _) = make_unauthenticated_request(state.clone(), endpoint).await;
@@ -371,10 +350,7 @@ async fn test_networking_endpoints_require_auth() {
 async fn test_settings_endpoints_require_auth() {
     let state = create_test_state().await;
 
-    let endpoints = vec![
-        "/api/settings",
-        "/api/settings/smtp",
-    ];
+    let endpoints = vec!["/api/settings", "/api/settings/smtp"];
 
     for endpoint in endpoints {
         let (status, _) = make_unauthenticated_request(state.clone(), endpoint).await;
@@ -433,9 +409,7 @@ async fn test_auth_endpoints_accessible_without_auth() {
         .uri("/auth/login")
         .method("POST")
         .header("content-type", "application/json")
-        .body(Body::from(
-            r#"{"username":"invalid","password":"invalid"}"#,
-        ))
+        .body(Body::from(r#"{"username":"invalid","password":"invalid"}"#))
         .unwrap();
     let response = app.oneshot(request).await.unwrap();
     let status = response.status();
@@ -443,7 +417,9 @@ async fn test_auth_endpoints_accessible_without_auth() {
     // Should return either 401 (invalid creds) or 400 (bad request), not 404
     // This confirms the endpoint is accessible
     assert!(
-        status == StatusCode::UNAUTHORIZED || status == StatusCode::BAD_REQUEST || status == StatusCode::NOT_FOUND,
+        status == StatusCode::UNAUTHORIZED
+            || status == StatusCode::BAD_REQUEST
+            || status == StatusCode::NOT_FOUND,
         "Auth login endpoint should be accessible (got status {})",
         status
     );
@@ -538,7 +514,9 @@ async fn test_setup_endpoints_protected_after_admin_creation() {
 
         // Verify the error message indicates setup is complete
         assert!(
-            body.contains("Setup already complete") || body.contains("setup") || body.contains("forbidden"),
+            body.contains("Setup already complete")
+                || body.contains("setup")
+                || body.contains("forbidden"),
             "Expected setup complete error message for {}, got: {}",
             endpoint,
             body
@@ -550,11 +528,7 @@ async fn test_setup_endpoints_protected_after_admin_creation() {
 async fn test_bootstrap_status_protected_after_setup() {
     let (state, _) = create_test_state_with_admin().await;
 
-    let (status, body) = make_unauthenticated_request(
-        state,
-        "/api/setup/bootstrap/status",
-    )
-    .await;
+    let (status, body) = make_unauthenticated_request(state, "/api/setup/bootstrap/status").await;
 
     assert_eq!(
         status,
@@ -569,11 +543,7 @@ async fn test_bootstrap_status_protected_after_setup() {
 async fn test_bootstrap_logs_protected_after_setup() {
     let (state, _) = create_test_state_with_admin().await;
 
-    let (status, body) = make_unauthenticated_request(
-        state,
-        "/api/setup/bootstrap/logs",
-    )
-    .await;
+    let (status, body) = make_unauthenticated_request(state, "/api/setup/bootstrap/logs").await;
 
     assert_eq!(
         status,
@@ -589,12 +559,8 @@ async fn test_bootstrap_retry_protected_after_setup() {
     let (state, _) = create_test_state_with_admin().await;
 
     // This is the HIGH priority security finding from the audit
-    let (status, body) = make_unauthenticated_post(
-        state,
-        "/api/setup/bootstrap/retry/admin",
-        "{}",
-    )
-    .await;
+    let (status, body) =
+        make_unauthenticated_post(state, "/api/setup/bootstrap/retry/admin", "{}").await;
 
     assert_eq!(
         status,
@@ -687,11 +653,7 @@ async fn test_frontend_fallback_spa_routes_accessible() {
 
     // Frontend SPA routes should be accessible without auth
     // These serve the login page, setup page, etc.
-    let spa_routes = vec![
-        "/",
-        "/login",
-        "/setup",
-    ];
+    let spa_routes = vec!["/", "/login", "/setup"];
 
     for route in spa_routes {
         let (status, _) = make_unauthenticated_request(state.clone(), route).await;
@@ -713,10 +675,7 @@ async fn test_frontend_app_routes_require_auth() {
 
     // App routes (e.g., /jellyfin/, /plex/) should require authentication
     // These are handled by the frontend fallback handler with optional auth
-    let app_routes = vec![
-        "/jellyfin/",
-        "/plex/web/",
-    ];
+    let app_routes = vec!["/jellyfin/", "/plex/web/"];
 
     for route in app_routes {
         let (status, body) = make_unauthenticated_request(state.clone(), route).await;
