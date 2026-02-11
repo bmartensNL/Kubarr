@@ -10,7 +10,7 @@ on:
 
 jobs:
   build:
-    uses: ./.github/workflows/build-images.yml
+    uses: ./.github/workflows/build.yml
     with:
       image-tag: ci-${{ github.sha }}
 
@@ -27,4 +27,6 @@ jobs:
     permissions:
       contents: read
       packages: write
+      pages: write
+      id-token: write
     secrets: inherit
