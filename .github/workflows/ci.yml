@@ -49,11 +49,3 @@ jobs:
       contents: read
       packages: write
     secrets: inherit
-
-  docs:
-    if: github.event_name != 'pull_request'
-    uses: ./.github/workflows/docs.yml
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
