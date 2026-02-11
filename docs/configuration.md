@@ -578,7 +578,4 @@ affinity:
 
 ## See Also
 
-- [Installation Guide](./INSTALLATION.md) - Step-by-step installation instructions
-- [Architecture Overview](./ARCHITECTURE.md) - System architecture and components
-- [Development Guide](./DEVELOPMENT.md) - Development setup and guidelines
-- [Helm Chart README](../charts/kubarr/README.md) - Helm chart documentation
+- [Quick Start](./quick-start.md) - Get Kubarr running in minutes

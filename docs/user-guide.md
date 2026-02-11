@@ -6,7 +6,6 @@ This guide will cover how to use Kubarr features effectively.
 
 For now, please refer to:
 - [Quick Start Guide](./quick-start.md) - Get started in 15 minutes
-- [Installation Guide](./installation.md) - Detailed installation instructions
 - [Configuration Reference](./configuration.md) - Configuration options
 
 ## Coming Soon

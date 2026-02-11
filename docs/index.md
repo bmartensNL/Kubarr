@@ -27,7 +27,7 @@ helm install kubarr oci://ghcr.io/bmartensnl/charts/kubarr -n kubarr --create-na
 
 That's it. Once the pods are ready, open the dashboard and log in with the credentials from the install output.
 
-For more details, see the [Quick Start Guide](quick-start.md) or the full [Installation Guide](installation.md).
+For more details, see the [Quick Start Guide](quick-start.md).
 
 ## What Can You Deploy?
 
@@ -44,6 +44,3 @@ Kubarr comes with a curated catalog of popular homelab apps. Deploy them individ
 ## Next Steps
 
 - **[Quick Start](quick-start.md)** — Get running in 15 minutes
-- **[Installation](installation.md)** — All the ways to install Kubarr
-- **[Configuration](configuration.md)** — Customize your setup
-- **[User Guide](user-guide.md)** — Learn what Kubarr can do

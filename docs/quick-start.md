@@ -42,9 +42,7 @@ Visit [http://localhost:8080](http://localhost:8080). The setup wizard will walk
 
 ## What's Next
 
-- **[Configuration](configuration.md)** — Customize Helm values, environment variables, ingress, storage
-- **[Installation Guide](installation.md)** — Production setups, TLS, external databases, HA
-- **[User Guide](user-guide.md)** — Managing apps, users, notifications, and more
+- **[GitHub](https://github.com/bmartensNL/Kubarr)** — Source code and issue tracker
 
 ## Uninstall
 

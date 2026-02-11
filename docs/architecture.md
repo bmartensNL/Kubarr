@@ -12,7 +12,7 @@ Kubarr consists of three main components:
 - **Frontend** (React/TypeScript) - Modern SPA with real-time updates
 - **Database** (PostgreSQL/SQLite) - Application state and configuration storage
 
-See the [README.md](../README.md#architecture) for a basic architecture diagram.
+See the project README for a basic architecture diagram.
 
 ## Coming Soon
 
