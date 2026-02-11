@@ -9,23 +9,23 @@ on:
   workflow_dispatch:
 
 jobs:
-  check:
+  lint:
     uses: ./.github/workflows/check.yml
 
   build:
-    needs: check
+    needs: lint
     uses: ./.github/workflows/build.yml
     with:
       image-tag: ci-${{ github.sha }}
 
-  testing:
+  test:
     needs: build
     uses: ./.github/workflows/testing.yml
     with:
       image-tag: ci-${{ github.sha }}
 
   publish:
-    needs: testing
+    needs: test
     if: github.event_name != 'pull_request'
     uses: ./.github/workflows/publish.yml
     permissions:

@@ -1,10 +1,10 @@
-name: Check
+name: Lint
 
 on:
   workflow_call:
 
 jobs:
-  rust:
+  backend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
