@@ -726,7 +726,9 @@ async fn test_frontend_app_routes_require_auth() {
         // 2. Return 401 unauthorized
         // Should NOT return 200 (app access without auth)
         assert!(
-            status == StatusCode::FOUND || status == StatusCode::UNAUTHORIZED || status == StatusCode::NOT_FOUND,
+            status == StatusCode::FOUND
+                || status == StatusCode::UNAUTHORIZED
+                || status == StatusCode::NOT_FOUND,
             "App route {} should not allow unauthenticated access (got {}). Body: {}",
             route,
             status,
@@ -744,10 +746,7 @@ async fn test_oauth_management_endpoints_require_auth() {
     let state = create_test_state().await;
 
     // OAuth provider management endpoints require settings permissions
-    let endpoints = vec![
-        "/api/oauth/providers",
-        "/api/oauth/providers/1",
-    ];
+    let endpoints = vec!["/api/oauth/providers", "/api/oauth/providers/1"];
 
     for endpoint in endpoints {
         let (status, _) = make_unauthenticated_request(state.clone(), endpoint).await;
@@ -766,11 +765,7 @@ async fn test_oauth_link_endpoint_requires_session() {
     let state = create_test_state().await;
 
     // OAuth account linking requires an active session
-    let (status, _) = make_unauthenticated_request(
-        state,
-        "/auth/oauth/link/github",
-    )
-    .await;
+    let (status, _) = make_unauthenticated_request(state, "/auth/oauth/link/github").await;
 
     // Should return 401 (no active session) not 200
     assert_eq!(

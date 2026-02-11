@@ -57,19 +57,20 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
     PROFILE_DIR=$(if [ "$PROFILE" = "release" ]; then echo "release"; else echo "$PROFILE"; fi) && \
-    rm -f /app/target/${PROFILE_DIR}/kubarr /app/target/${PROFILE_DIR}/deps/kubarr* && \
+    rm -f "/app/target/${PROFILE_DIR}/kubarr" "/app/target/${PROFILE_DIR}/deps"/kubarr* && \
     touch src/main.rs && \
-    cargo build --profile ${PROFILE} && \
-    cp target/${PROFILE_DIR}/kubarr /kubarr
+    cargo build --profile "${PROFILE}" && \
+    cp "target/${PROFILE_DIR}/kubarr" /kubarr
 
 # Stage 2: Download Helm and prepare assets
 FROM alpine:3.19 AS asset-builder
 
 ARG TARGETARCH=amd64
 
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 RUN apk add --no-cache curl tar tzdata ca-certificates && \
-    curl -fsSL https://get.helm.sh/helm-v3.14.0-linux-${TARGETARCH}.tar.gz | tar xz && \
-    mv linux-${TARGETARCH}/helm /helm && \
+    curl -fsSL "https://get.helm.sh/helm-v3.14.0-linux-${TARGETARCH}.tar.gz" | tar xz && \
+    mv "linux-${TARGETARCH}/helm" /helm && \
     chmod +x /helm
 
 # Stage 3: Final Alpine image (includes DNS resolution)

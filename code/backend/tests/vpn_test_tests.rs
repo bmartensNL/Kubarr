@@ -357,7 +357,9 @@ async fn test_list_vpn_providers() {
         .unwrap();
 
     // List providers
-    let providers = kubarr::services::vpn::list_vpn_providers(&db).await.unwrap();
+    let providers = kubarr::services::vpn::list_vpn_providers(&db)
+        .await
+        .unwrap();
     assert_eq!(providers.len(), 2);
 
     // Verify first provider
