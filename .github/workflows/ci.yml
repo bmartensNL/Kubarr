@@ -20,7 +20,7 @@ jobs:
 
   test:
     needs: build
-    uses: ./.github/workflows/testing.yml
+    uses: ./.github/workflows/test.yml
     with:
       image-tag: ci-${{ github.sha }}
 
