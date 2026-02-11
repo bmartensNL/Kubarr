@@ -17,11 +17,9 @@ jobs:
           - image: kubarr-backend-test
             dockerfile: docker/Dockerfile.backend
             target: test
-            test_cmd: cargo test --verbose
           - image: kubarr-frontend-test
             dockerfile: docker/Dockerfile.frontend
             target: test
-            test_cmd: npm test && npm run build
           - image: kubarr-backend
             dockerfile: docker/Dockerfile.backend
           - image: kubarr-frontend
@@ -40,16 +38,10 @@ jobs:
             --build-arg COMMIT_HASH=${{ github.sha }} \
             --build-arg BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) .
 
-      - name: Test ${{ matrix.image }}
-        if: matrix.test_cmd
-        run: docker run --rm "${{ matrix.image }}:${{ inputs.image-tag }}" sh -c "${{ matrix.test_cmd }}"
-
       - name: Save image
-        if: ${{ !matrix.target }}
         run: docker save "${{ matrix.image }}:${{ inputs.image-tag }}" | gzip > "${{ matrix.image }}.tar.gz"
 
       - name: Upload image artifact
-        if: ${{ !matrix.target }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.image }}

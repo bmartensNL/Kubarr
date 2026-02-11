@@ -18,8 +18,14 @@ jobs:
     with:
       image-tag: ci-${{ github.sha }}
 
-  publish:
+  test:
     needs: build
+    uses: ./.github/workflows/test.yml
+    with:
+      image-tag: ci-${{ github.sha }}
+
+  publish:
+    needs: test
     if: github.event_name != 'pull_request'
     uses: ./.github/workflows/publish.yml
     with:
