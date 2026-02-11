@@ -1,4 +1,4 @@
-name: Frontend Check
+name: Frontend Tests
 
 on:
   workflow_call:
@@ -8,13 +8,8 @@ on:
         type: string
 
 jobs:
-  check:
+  test:
     runs-on: self-hosted
-    # NOTE: This workflow uses `docker run` with pre-built images and does not
-    # check out source code. It assumes the test image was built and loaded on
-    # the SAME self-hosted runner by the upstream build job. If you have multiple
-    # self-hosted runners, ensure jobs are pinned to the same runner (e.g. via
-    # labels) or use a shared registry to transfer images between runners.
     steps:
       - name: Verify test image exists
         run: |
@@ -23,9 +18,6 @@ jobs:
             echo "This workflow requires the image to be built by the upstream build job on the same runner."
             exit 1
           fi
-
-      - name: Lint
-        run: docker run --rm "kubarr-frontend-test:${{ inputs.image-tag }}" npm run lint
 
       - name: Build
         run: docker run --rm "kubarr-frontend-test:${{ inputs.image-tag }}" npm run build

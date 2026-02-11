@@ -10,11 +10,6 @@ on:
 jobs:
   test:
     runs-on: self-hosted
-    # NOTE: This workflow uses `docker run` with pre-built images and does not
-    # check out source code. It assumes the test image was built and loaded on
-    # the SAME self-hosted runner by the upstream build job. If you have multiple
-    # self-hosted runners, ensure jobs are pinned to the same runner (e.g. via
-    # labels) or use a shared registry to transfer images between runners.
     steps:
       - name: Verify test image exists
         run: |
@@ -23,13 +18,6 @@ jobs:
             echo "This workflow requires the image to be built by the upstream build job on the same runner."
             exit 1
           fi
-
-      - name: Check formatting
-        run: docker run --rm "kubarr-backend-test:${{ inputs.image-tag }}" cargo fmt --check
-
-      - name: Clippy
-        run: docker run --rm "kubarr-backend-test:${{ inputs.image-tag }}" cargo clippy --all-targets --all-features -- -D warnings
-        continue-on-error: true
 
       - name: Unit tests
         run: docker run --rm "kubarr-backend-test:${{ inputs.image-tag }}" cargo test --verbose

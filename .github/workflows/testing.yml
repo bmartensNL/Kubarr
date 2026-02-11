@@ -8,12 +8,12 @@ on:
         type: string
 
 jobs:
-  backend-tests:
+  backend:
     uses: ./.github/workflows/backend-tests.yml
     with:
       image-tag: ${{ inputs.image-tag }}
 
-  frontend-check:
+  frontend:
     uses: ./.github/workflows/frontend-check.yml
     with:
       image-tag: ${{ inputs.image-tag }}
