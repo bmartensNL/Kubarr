@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 import { execSync } from 'child_process'
 
 // Get git commit hash at build time
@@ -26,7 +27,7 @@ const getBuildTime = () => {
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [tailwindcss(), react()],
   base: '/',
   define: {
     __COMMIT_HASH__: JSON.stringify(getGitHash()),
