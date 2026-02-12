@@ -28,7 +28,7 @@ FROM builder AS built
 RUN npm run build
 
 # Production stage - minimal BusyBox httpd (~1MB total)
-FROM busybox:1.36
+FROM busybox:1.37
 
 WORKDIR /var/www
 
