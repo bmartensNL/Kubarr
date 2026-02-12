@@ -99,8 +99,9 @@ impl K8sClient {
 
             // Calculate age
             let age = if let Some(creation) = metadata.creation_timestamp {
-                let duration = chrono::Utc::now() - creation.0;
-                format_age(duration)
+                let now = jiff::Timestamp::now();
+                let seconds = (now - creation.0).as_secs();
+                format_age(seconds)
             } else {
                 "unknown".to_string()
             };
@@ -412,9 +413,7 @@ struct ContainerUsage {
 // Helper Functions
 // ============================================================================
 
-fn format_age(duration: chrono::Duration) -> String {
-    let total_seconds = duration.num_seconds();
-
+fn format_age(total_seconds: i64) -> String {
     if total_seconds < 60 {
         format!("{}s", total_seconds)
     } else if total_seconds < 3600 {
