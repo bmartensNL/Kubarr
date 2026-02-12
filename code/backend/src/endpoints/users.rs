@@ -43,7 +43,7 @@ pub fn users_routes(state: AppState) -> Router {
         .route("/invites", get(list_invites).post(create_invite))
         .route("/invites/{invite_id}", delete(delete_invite))
         .route(
-            "/:user_id",
+            "/{user_id}",
             get(get_user).patch(update_user).delete(delete_user),
         )
         .route("/{user_id}/approve", post(approve_user))

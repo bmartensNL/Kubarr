@@ -25,7 +25,7 @@ pub fn oauth_routes(state: AppState) -> Router {
         // Admin: Provider configuration
         .route("/providers", get(list_providers))
         .route(
-            "/providers/:provider",
+            "/providers/{provider}",
             get(get_provider).put(update_provider),
         )
         // OAuth flow

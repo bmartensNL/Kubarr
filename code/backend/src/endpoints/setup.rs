@@ -35,7 +35,7 @@ pub fn setup_routes(state: AppState) -> Router {
         .route("/bootstrap/start", post(start_bootstrap))
         .route("/bootstrap/status", get(get_bootstrap_status))
         .route(
-            "/bootstrap/retry/:component",
+            "/bootstrap/retry/{component}",
             post(retry_bootstrap_component),
         )
         .route("/bootstrap/ws", get(bootstrap_ws_handler))
