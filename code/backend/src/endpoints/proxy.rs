@@ -3,10 +3,8 @@
 //! Reverse proxy requests to installed apps under /proxy/{app_name}/*
 
 use axum::{
-    body::Body,
     extract::ws::WebSocketUpgrade,
     extract::{FromRequestParts, Path, Request, State},
-    http::{HeaderMap, Method},
     response::Response,
     routing::any,
     Router,
