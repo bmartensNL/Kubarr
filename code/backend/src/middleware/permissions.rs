@@ -14,7 +14,8 @@
 
 use std::marker::PhantomData;
 
-use axum::{async_trait, extract::FromRequestParts, http::request::Parts};
+use async_trait::async_trait;
+use axum::{extract::FromRequestParts, http::request::Parts};
 
 use crate::error::AppError;
 use crate::middleware::AuthenticatedUser;

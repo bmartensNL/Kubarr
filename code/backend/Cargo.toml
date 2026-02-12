@@ -43,7 +43,7 @@ serde_yaml = "0.9"
 utoipa = { version = "5", features = ["axum_extras", "chrono"] }
 
 # HTTP client (for Prometheus/VictoriaLogs and notification APIs)
-reqwest = { version = "0.13", features = ["json"] }
+reqwest = { version = "0.13", features = ["json", "form"] }
 
 # Email notifications
 lettre = { version = "0.11", default-features = false, features = ["tokio1-native-tls", "smtp-transport", "builder"] }
