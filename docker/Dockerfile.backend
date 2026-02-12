@@ -63,7 +63,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cp "target/${PROFILE_DIR}/kubarr" /kubarr
 
 # Stage 2: Download Helm and prepare assets
-FROM alpine:3.19 AS asset-builder
+FROM alpine:3.23 AS asset-builder
 
 ARG TARGETARCH=amd64
 
@@ -74,7 +74,7 @@ RUN apk add --no-cache curl tar tzdata ca-certificates && \
     chmod +x /helm
 
 # Stage 3: Final Alpine image (includes DNS resolution)
-FROM alpine:3.19
+FROM alpine:3.23
 
 # Build args for environment
 ARG COMMIT_HASH=unknown
