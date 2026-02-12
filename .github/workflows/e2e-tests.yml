@@ -17,8 +17,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: recursive
 
       - uses: actions/setup-node@v6
         with:
@@ -85,6 +83,9 @@ jobs:
           kind load docker-image victoriametrics/victoria-metrics:v1.96.0 --name "$KIND_CLUSTER"
           kind load docker-image victoriametrics/victoria-logs:v1.3.2-victorialogs --name "$KIND_CLUSTER"
           kind load docker-image fluent/fluent-bit:3.2.2 --name "$KIND_CLUSTER"
+
+      - name: Clone charts
+        run: git clone --depth 1 https://github.com/bmartensNL/kubarr-charts.git charts
 
       - name: Deploy Kubarr
         run: |

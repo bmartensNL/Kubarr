@@ -295,7 +295,7 @@ async fn login(
     });
 
     // Determine if we should set Secure flag (check if running behind HTTPS)
-    let secure = CONFIG.oauth2_issuer_url.starts_with("https://");
+    let secure = CONFIG.auth.oauth2_issuer_url.starts_with("https://");
 
     tracing::info!(
         user_id = found_user.id,
@@ -531,7 +531,7 @@ async fn switch_session(
         return Err(AppError::NotFound("No session in that slot".to_string()));
     }
 
-    let secure = CONFIG.oauth2_issuer_url.starts_with("https://");
+    let secure = CONFIG.auth.oauth2_issuer_url.starts_with("https://");
 
     tracing::info!(slot = slot, "User switched to session slot {}", slot);
 

@@ -10,7 +10,7 @@ pub type DbConn = DatabaseConnection;
 
 /// Create a new database connection and run migrations using config
 pub async fn connect() -> Result<DbConn> {
-    connect_with_url(&CONFIG.database_url).await
+    connect_with_url(&CONFIG.database.database_url).await
 }
 
 /// Create a new database connection with a specific URL and run migrations
@@ -42,7 +42,7 @@ pub async fn connect_with_url(database_url: &str) -> Result<DbConn> {
 pub async fn try_connect() -> Option<DbConn> {
     // First, check if the database URL looks like it could work
     // If it's the default localhost URL, skip trying since PostgreSQL isn't deployed yet
-    if CONFIG.database_url.contains("localhost") && std::env::var("KUBARR_DATABASE_URL").is_err() {
+    if CONFIG.database.database_url.contains("localhost") && std::env::var("KUBARR_DATABASE_URL").is_err() {
         tracing::info!("No DATABASE_URL configured, skipping initial database connection");
         return None;
     }
@@ -50,7 +50,7 @@ pub async fn try_connect() -> Option<DbConn> {
     // Try to connect with a short timeout
     let result = tokio::time::timeout(
         Duration::from_secs(5),
-        connect_with_url(&CONFIG.database_url),
+        connect_with_url(&CONFIG.database.database_url),
     )
     .await;
 

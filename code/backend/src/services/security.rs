@@ -204,7 +204,7 @@ pub fn create_access_token(
     let now = Utc::now();
     let exp = now + Duration::seconds(expires_in.unwrap_or(ACCESS_TOKEN_EXPIRE));
 
-    let issuer = format!("{}/auth", CONFIG.oauth2_issuer_url);
+    let issuer = format!("{}/auth", CONFIG.auth.oauth2_issuer_url);
     let claims = Claims {
         sub: subject.to_string(),
         iss: issuer,
@@ -239,7 +239,7 @@ pub fn create_refresh_token(
     let now = Utc::now();
     let exp = now + Duration::seconds(expires_in.unwrap_or(REFRESH_TOKEN_EXPIRE));
 
-    let issuer = format!("{}/auth", CONFIG.oauth2_issuer_url);
+    let issuer = format!("{}/auth", CONFIG.auth.oauth2_issuer_url);
     let claims = Claims {
         sub: subject.to_string(),
         iss: issuer,

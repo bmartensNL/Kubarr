@@ -61,7 +61,7 @@ impl AppCatalog {
 
     /// Load all app definitions from Helm charts
     fn load_apps(&mut self) {
-        let charts_dir = &CONFIG.charts_dir;
+        let charts_dir = &CONFIG.charts.dir;
 
         if !charts_dir.exists() {
             tracing::warn!("Charts directory does not exist: {}", charts_dir.display());
@@ -333,7 +333,6 @@ impl AppCatalog {
     }
 
     /// Reload apps from charts directory
-    #[allow(dead_code)]
     pub fn reload(&mut self) {
         self.apps.clear();
         self.load_apps();

@@ -1,0 +1,133 @@
+//! Chart sync service
+//!
+//! Discovers charts from GitHub and pulls them from an OCI registry
+//! so the catalog always reflects the latest published versions.
+
+use std::process::Command;
+use std::sync::Arc;
+use std::time::Duration;
+
+use async_trait::async_trait;
+use sea_orm::DatabaseConnection;
+use serde::Deserialize;
+
+use crate::config::CONFIG;
+use crate::state::SharedCatalog;
+
+/// GitHub Contents API entry
+#[derive(Debug, Deserialize)]
+struct GitHubContent {
+    name: String,
+    #[serde(rename = "type")]
+    content_type: String,
+}
+
+/// Shared chart sync service used by both the scheduler and the on-demand endpoint.
+pub struct ChartSyncService {
+    catalog: SharedCatalog,
+    client: reqwest::Client,
+}
+
+impl ChartSyncService {
+    pub fn new(catalog: SharedCatalog) -> Self {
+        Self {
+            catalog,
+            client: reqwest::Client::builder()
+                .user_agent("kubarr-backend")
+                .timeout(Duration::from_secs(30))
+                .build()
+                .expect("failed to build reqwest client"),
+        }
+    }
+
+    /// Discover chart names from the GitHub repo, pull each from OCI, and reload the catalog.
+    pub async fn sync(&self) -> anyhow::Result<()> {
+        let chart_names = self.discover_charts().await?;
+
+        if chart_names.is_empty() {
+            tracing::warn!("Chart sync: no charts discovered from GitHub");
+            return Ok(());
+        }
+
+        let mut synced = 0u32;
+        for name in &chart_names {
+            match self.pull_chart(name) {
+                Ok(()) => synced += 1,
+                Err(e) => tracing::warn!("Chart sync: failed to pull {}: {}", name, e),
+            }
+        }
+
+        // Reload the catalog from the (now-updated) charts directory
+        {
+            let mut catalog = self.catalog.write().await;
+            catalog.reload();
+        }
+
+        tracing::info!("Chart sync completed, {} charts synced", synced);
+        Ok(())
+    }
+
+    /// Query the GitHub Contents API to discover which chart directories exist.
+    async fn discover_charts(&self) -> anyhow::Result<Vec<String>> {
+        let url = format!(
+            "https://api.github.com/repos/{}/contents/?ref={}",
+            CONFIG.charts.repo, CONFIG.charts.git_ref,
+        );
+
+        let resp = self
+            .client
+            .get(&url)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        let entries: Vec<GitHubContent> = resp.json().await?;
+
+        let names: Vec<String> = entries
+            .into_iter()
+            .filter(|e| e.content_type == "dir" && !e.name.starts_with('.'))
+            .map(|e| e.name)
+            .collect();
+
+        tracing::debug!("Chart sync: discovered {} charts from GitHub", names.len());
+        Ok(names)
+    }
+
+    /// Pull a single chart from the OCI registry using `helm pull`.
+    fn pull_chart(&self, name: &str) -> anyhow::Result<()> {
+        let chart_ref = format!("{}/{}", CONFIG.charts.registry, name);
+        let dest = CONFIG.charts.dir.to_str().unwrap_or("/app/charts");
+
+        let output = Command::new("helm")
+            .args(["pull", &chart_ref, "--untar", "--destination", dest])
+            .output()?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("helm pull failed for {}: {}", name, stderr.trim());
+        }
+
+        tracing::debug!("Chart sync: pulled {}", name);
+        Ok(())
+    }
+}
+
+/// Periodic task wrapper that runs chart sync on an interval.
+pub struct ChartSyncTask {
+    pub service: Arc<ChartSyncService>,
+}
+
+#[async_trait]
+impl super::scheduler::PeriodicTask for ChartSyncTask {
+    fn name(&self) -> &'static str {
+        "chart_sync"
+    }
+
+    fn interval(&self) -> Duration {
+        Duration::from_secs(CONFIG.charts.sync_interval)
+    }
+
+    async fn run(&self, _db: &DatabaseConnection) -> anyhow::Result<()> {
+        self.service.sync().await
+    }
+}

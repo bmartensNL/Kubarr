@@ -91,11 +91,10 @@ COPY --from=builder /kubarr /app/kubarr
 # Copy Helm binary (statically linked)
 COPY --from=asset-builder /helm /usr/local/bin/helm
 
-# Copy Helm charts
-COPY charts/ /app/charts/
+# Create charts directory (populated at runtime via OCI sync)
+RUN mkdir -p /app/charts
 
 # Set environment variables
-ENV CHARTS_DIR=/app/charts
 ENV COMMIT_HASH=${COMMIT_HASH}
 ENV BUILD_TIME=${BUILD_TIME}
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt

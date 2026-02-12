@@ -315,7 +315,7 @@ async fn oauth_login(
 
     let redirect_uri = format!(
         "{}/api/oauth/{}/callback",
-        CONFIG.oauth2_issuer_url, provider
+        CONFIG.auth.oauth2_issuer_url, provider
     );
 
     let url = format!(
@@ -388,7 +388,7 @@ async fn oauth_callback(
 
     let redirect_uri = format!(
         "{}/api/oauth/{}/callback",
-        CONFIG.oauth2_issuer_url, provider
+        CONFIG.auth.oauth2_issuer_url, provider
     );
 
     // Exchange code for tokens

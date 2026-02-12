@@ -101,6 +101,7 @@ use crate::state::AppState;
         apps::check_app_health,
         apps::check_app_exists,
         apps::get_app_status,
+        apps::sync_charts,
         apps::log_app_access,
         // Monitoring
         monitoring::get_app_metrics,

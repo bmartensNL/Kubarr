@@ -19,11 +19,11 @@ pub struct K8sClient {
 impl K8sClient {
     /// Create a new Kubernetes client
     pub async fn new() -> Result<Self> {
-        let client = if CONFIG.in_cluster {
+        let client = if CONFIG.kubernetes.in_cluster {
             // In-cluster config
             let config = Config::incluster()?;
             Client::try_from(config)?
-        } else if let Some(ref kubeconfig_path) = CONFIG.kubeconfig_path {
+        } else if let Some(ref kubeconfig_path) = CONFIG.kubernetes.kubeconfig_path {
             // Explicit kubeconfig path
             let kubeconfig = Kubeconfig::read_from(kubeconfig_path)?;
             let config =

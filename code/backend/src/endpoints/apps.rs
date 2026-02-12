@@ -26,6 +26,7 @@ pub fn apps_routes(state: AppState) -> Router {
         .route("/catalog/{app_name}/icon", get(get_app_icon))
         .route("/installed", get(list_installed_apps))
         .route("/install", post(install_app))
+        .route("/sync", post(sync_charts))
         .route("/categories", get(list_categories))
         .route("/category/{category}", get(get_apps_by_category))
         .route("/{app_name}", delete(delete_app))
@@ -106,7 +107,7 @@ async fn get_app_icon(Path(app_name): Path<String>) -> Result<Response> {
         return Err(AppError::BadRequest("Invalid app name".to_string()));
     }
 
-    let icon_path = CONFIG.charts_dir.join(&app_name).join("icon.svg");
+    let icon_path = CONFIG.charts.dir.join(&app_name).join("icon.svg");
 
     if !icon_path.exists() {
         return Err(AppError::NotFound(format!(
@@ -434,6 +435,29 @@ async fn get_app_status(
             "message": e.to_string()
         }))),
     }
+}
+
+/// Trigger on-demand chart sync from OCI registry
+#[utoipa::path(
+    post,
+    path = "/api/apps/sync",
+    tag = "Apps",
+    responses((status = 200, body = serde_json::Value))
+)]
+async fn sync_charts(
+    State(state): State<AppState>,
+    _auth: Authorized<AppsInstall>,
+) -> Result<Json<serde_json::Value>> {
+    state
+        .chart_sync
+        .sync()
+        .await
+        .map_err(|e| AppError::Internal(format!("Chart sync failed: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": "Chart sync completed"
+    })))
 }
 
 /// Log app access - called when user opens an app

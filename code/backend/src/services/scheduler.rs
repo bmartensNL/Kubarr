@@ -9,6 +9,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::interval;
 
+use super::chart_sync::{ChartSyncService, ChartSyncTask};
+
 /// Trait for periodic background tasks
 #[async_trait]
 pub trait PeriodicTask: Send + Sync {
@@ -23,10 +25,10 @@ pub trait PeriodicTask: Send + Sync {
 }
 
 /// Start all periodic tasks
-pub fn start_scheduler(db: Arc<DatabaseConnection>) {
+pub fn start_scheduler(db: Arc<DatabaseConnection>, chart_sync: Arc<ChartSyncService>) {
     let tasks: Vec<Box<dyn PeriodicTask>> = vec![
         Box::new(SessionCleanupTask),
-        // Add more tasks here
+        Box::new(ChartSyncTask { service: chart_sync }),
     ];
 
     for task in tasks {

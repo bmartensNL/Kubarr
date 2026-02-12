@@ -61,14 +61,9 @@ impl<'a> DeploymentManager<'a> {
         }
     }
 
-    /// Get the path to a Helm chart for an app
-    fn get_chart_path(&self, app_name: &str) -> Option<std::path::PathBuf> {
-        let chart_path = CONFIG.charts_dir.join(app_name);
-        if chart_path.exists() && chart_path.join("Chart.yaml").exists() {
-            Some(chart_path)
-        } else {
-            None
-        }
+    /// Get the OCI chart reference for an app
+    fn get_chart_ref(&self, app_name: &str) -> String {
+        format!("{}/{}", CONFIG.charts.registry, app_name)
     }
 
     /// Run a Helm command
@@ -100,14 +95,7 @@ impl<'a> DeploymentManager<'a> {
             AppError::NotFound(format!("App '{}' not found in catalog", request.app_name))
         })?;
 
-        // Check if Helm chart exists
-        let chart_path = self.get_chart_path(&request.app_name).ok_or_else(|| {
-            AppError::NotFound(format!(
-                "No Helm chart found for app '{}'",
-                request.app_name
-            ))
-        })?;
-
+        let chart_ref = self.get_chart_ref(&request.app_name);
         let namespace = &request.app_name;
 
         // Build helm upgrade --install command
@@ -115,7 +103,7 @@ impl<'a> DeploymentManager<'a> {
             "upgrade",
             "--install",
             &request.app_name,
-            chart_path.to_str().unwrap(),
+            &chart_ref,
             "-n",
             namespace,
             "--create-namespace",

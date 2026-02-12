@@ -17,8 +17,8 @@ use crate::config::CONFIG;
 use crate::db;
 use crate::endpoints;
 use crate::services::{
-    init_jwt_keys, scheduler, start_network_broadcaster, AppCatalog, AuditService, K8sClient,
-    NotificationService,
+    init_jwt_keys, scheduler, start_network_broadcaster, AppCatalog, AuditService,
+    ChartSyncService, K8sClient, NotificationService,
 };
 use crate::state::AppState;
 
@@ -55,6 +55,12 @@ async fn init_services() -> anyhow::Result<AppState> {
     let k8s_client = init_kubernetes().await;
     let catalog = init_catalog();
 
+    // Create chart sync service and run initial sync
+    let chart_sync = Arc::new(ChartSyncService::new(catalog.clone()));
+    if let Err(e) = chart_sync.sync().await {
+        tracing::warn!("Initial chart sync failed: {}", e);
+    }
+
     // Try to connect to database (may not be available during initial setup)
     let conn = init_database(&k8s_client).await;
 
@@ -77,7 +83,7 @@ async fn init_services() -> anyhow::Result<AppState> {
         }
 
         // Start periodic task scheduler
-        scheduler::start_scheduler(Arc::new(db.clone()));
+        scheduler::start_scheduler(Arc::new(db.clone()), chart_sync.clone());
     } else {
         tracing::info!("Database not available - running in setup mode");
     }
@@ -86,6 +92,7 @@ async fn init_services() -> anyhow::Result<AppState> {
         conn,
         k8s_client,
         catalog,
+        chart_sync,
         audit,
         notification,
     ))
@@ -176,7 +183,7 @@ fn create_app(state: AppState) -> Router {
 
 /// Start the HTTP server
 async fn serve(app: Router) -> anyhow::Result<()> {
-    let addr = SocketAddr::from(([0, 0, 0, 0], CONFIG.port));
+    let addr = SocketAddr::from(([0, 0, 0, 0], CONFIG.server.port));
     tracing::info!("Listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;

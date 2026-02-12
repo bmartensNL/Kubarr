@@ -8,6 +8,7 @@ use sea_orm::DatabaseConnection;
 use crate::services::audit::AuditService;
 use crate::services::cadvisor::NamespaceNetworkMetrics;
 use crate::services::catalog::AppCatalog;
+use crate::services::chart_sync::ChartSyncService;
 use crate::services::k8s::K8sClient;
 use crate::services::notification::NotificationService;
 use crate::services::proxy::ProxyService;
@@ -268,6 +269,7 @@ pub struct AppState {
     pub db: SharedDbConn,
     pub k8s_client: SharedK8sClient,
     pub catalog: SharedCatalog,
+    pub chart_sync: Arc<ChartSyncService>,
     pub audit: AuditService,
     pub notification: NotificationService,
     pub proxy: ProxyService,
@@ -282,6 +284,7 @@ impl AppState {
         db: Option<DbConn>,
         k8s_client: SharedK8sClient,
         catalog: SharedCatalog,
+        chart_sync: Arc<ChartSyncService>,
         audit: AuditService,
         notification: NotificationService,
     ) -> Self {
@@ -294,6 +297,7 @@ impl AppState {
             db: Arc::new(RwLock::new(db)),
             k8s_client,
             catalog,
+            chart_sync,
             audit,
             notification,
             proxy: ProxyService::new(),
