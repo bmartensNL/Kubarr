@@ -100,7 +100,7 @@ impl K8sClient {
             // Calculate age
             let age = if let Some(creation) = metadata.creation_timestamp {
                 let now = jiff::Timestamp::now();
-                let seconds = (now - creation.0).as_secs();
+                let seconds = now.duration_since(creation.0).as_secs();
                 format_age(seconds)
             } else {
                 "unknown".to_string()
