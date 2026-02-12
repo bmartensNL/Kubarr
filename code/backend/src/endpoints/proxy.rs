@@ -3,9 +3,7 @@
 //! Reverse proxy requests to installed apps under /proxy/{app_name}/*
 
 use axum::{
-    body::Body,
-    extract::{Path, State, WebSocketUpgrade},
-    http::{HeaderMap, Method},
+    extract::{Path, Request, State, WebSocketUpgrade},
     response::Response,
     routing::any,
     Router,
@@ -30,11 +28,12 @@ async fn proxy_app_root(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
     auth: Authenticated,
-    method: Method,
-    headers: HeaderMap,
     ws_upgrade: Option<WebSocketUpgrade>,
-    body: Body,
+    request: Request,
 ) -> Result<Response> {
+    let method = request.method().clone();
+    let headers = request.headers().clone();
+    let body = request.into_body();
     proxy_app_inner(
         state,
         app_name,
@@ -53,11 +52,12 @@ async fn proxy_app_with_path(
     State(state): State<AppState>,
     Path((app_name, path)): Path<(String, String)>,
     auth: Authenticated,
-    method: Method,
-    headers: HeaderMap,
     ws_upgrade: Option<WebSocketUpgrade>,
-    body: Body,
+    request: Request,
 ) -> Result<Response> {
+    let method = request.method().clone();
+    let headers = request.headers().clone();
+    let body = request.into_body();
     proxy_app_inner(
         state, app_name, path, auth, method, headers, ws_upgrade, body,
     )
