@@ -58,10 +58,11 @@ jobs:
       - name: Tag and push
         run: |
           LOCAL_IMAGE="kubarr-${{ matrix.image }}:${{ inputs.image-tag }}"
+          REPO="${{ steps.vars.outputs.image }}"
           echo "${{ steps.meta.outputs.tags }}" | while IFS= read -r tag; do
             docker tag "$LOCAL_IMAGE" "$tag"
-            docker push "$tag"
           done
+          docker push --all-tags "$REPO"
 
       - name: Summary
         run: |
