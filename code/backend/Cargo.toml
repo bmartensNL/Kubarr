@@ -8,11 +8,11 @@ description = "Kubernetes application management dashboard"
 
 [dependencies]
 # Web framework
-axum = { version = "0.7", features = ["macros", "multipart", "ws"] }
-tower-http = { version = "0.5", features = ["cors", "fs", "trace", "compression-gzip"] }
+axum = { version = "0.8", features = ["macros", "multipart", "ws"] }
+tower-http = { version = "0.6", features = ["cors", "fs", "trace", "compression-gzip"] }
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
-tokio-tungstenite = "0.24"
+tokio-tungstenite = "0.28"
 futures-util = "0.3"
 http = "1"
 
@@ -21,14 +21,14 @@ sea-orm = { version = "1.1", features = ["sqlx-postgres", "sqlx-sqlite", "runtim
 sea-orm-migration = { version = "1.1", features = ["sqlx-postgres", "sqlx-sqlite", "runtime-tokio-native-tls"] }
 
 # Kubernetes
-kube = { version = "0.95", features = ["runtime", "client", "derive"] }
+kube = { version = "0.99", features = ["runtime", "client", "derive"] }
 k8s-openapi = { version = "0.23", features = ["v1_29"] }
 
 # Authentication & Security
-jsonwebtoken = "9"
-bcrypt = "0.15"
+jsonwebtoken = "10"
+bcrypt = "0.18"
 rsa = { version = "0.9", features = ["sha2"] }
-rand = "0.8"
+rand = "0.9"
 base64 = "0.22"
 hex = "0.4"
 totp-rs = { version = "5", features = ["qr", "gen_secret"] }
@@ -42,7 +42,7 @@ serde_yaml = "0.9"
 utoipa = { version = "5", features = ["axum_extras", "chrono"] }
 
 # HTTP client (for Prometheus/VictoriaLogs and notification APIs)
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.13", features = ["json"] }
 
 # Email notifications
 lettre = { version = "0.11", default-features = false, features = ["tokio1-native-tls", "smtp-transport", "builder"] }
@@ -53,11 +53,11 @@ urlencoding = "2"
 # Utilities
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
-thiserror = "1"
+thiserror = "2"
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-validator = { version = "0.18", features = ["derive"] }
+validator = { version = "0.20", features = ["derive"] }
 async-trait = "0.1"
 once_cell = "1"
 parking_lot = "0.12"
@@ -65,7 +65,7 @@ parking_lot = "0.12"
 [dev-dependencies]
 http-body-util = "0.1"
 paste = "1.0"
-tower = { version = "0.4", features = ["util"] }
+tower = { version = "0.5", features = ["util"] }
 
 [profile.release]
 lto = true
