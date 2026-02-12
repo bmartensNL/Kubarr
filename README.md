@@ -62,8 +62,8 @@ kubectl port-forward -n kubarr svc/kubarr-frontend 8080:80
 # 1. Add Kubarr namespace
 kubectl create namespace kubarr
 
-# 2. Install the Helm chart
-helm install kubarr ./charts/kubarr -n kubarr
+# 2. Install the Helm chart from the OCI registry
+helm install kubarr oci://ghcr.io/bmartensnl/kubarr/charts/kubarr -n kubarr
 
 # 3. Wait for pods to be ready
 kubectl wait --for=condition=ready pod -l app=kubarr -n kubarr --timeout=300s
@@ -78,8 +78,8 @@ kubectl port-forward -n kubarr svc/kubarr-frontend 8080:80
 # 1. Ensure kubectl is configured for your k3s cluster
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
-# 2. Install with Helm
-helm install kubarr ./charts/kubarr -n kubarr --create-namespace
+# 2. Install with Helm from the OCI registry
+helm install kubarr oci://ghcr.io/bmartensnl/kubarr/charts/kubarr -n kubarr --create-namespace
 
 # 3. Access the dashboard
 kubectl port-forward -n kubarr svc/kubarr-frontend 8080:80

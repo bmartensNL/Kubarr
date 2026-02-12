@@ -33,17 +33,6 @@ jobs:
       - run: npm run lint
         working-directory: code/frontend
 
-  helm:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: azure/setup-helm@v4
-      - run: |
-          for chart in charts/*/; do
-            echo "Linting $chart..."
-            helm lint "$chart"
-          done
-
   dockerfiles:
     runs-on: ubuntu-latest
     steps:

@@ -1,4 +1,0 @@
-{{/*
-  SQLite PVC is no longer needed - PostgreSQL (CloudNativePG) manages its own storage.
-  This file is kept for reference but produces no resources.
-*/}}
