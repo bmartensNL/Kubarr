@@ -7,6 +7,11 @@ updates:
     groups:
       cargo:
         patterns: ["*"]
+    ignore:
+      - dependency-name: kube
+        versions: [">=1.0.0"]
+      - dependency-name: k8s-openapi
+        versions: [">=0.24.0"]
 
   - package-ecosystem: npm
     directory: /code/frontend
@@ -15,6 +20,9 @@ updates:
     groups:
       npm_and_yarn:
         patterns: ["*"]
+    ignore:
+      - dependency-name: eslint
+        versions: [">=10.0.0"]
 
   - package-ecosystem: docker
     directory: /docker
