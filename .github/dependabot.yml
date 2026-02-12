@@ -1,0 +1,30 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /code/backend
+    schedule:
+      interval: weekly
+    groups:
+      cargo:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /code/frontend
+    schedule:
+      interval: weekly
+    groups:
+      npm_and_yarn:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /docker
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
