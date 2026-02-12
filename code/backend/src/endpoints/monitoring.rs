@@ -18,7 +18,7 @@ pub fn monitoring_routes(state: AppState) -> Router {
     Router::new()
         .route("/vm/apps", get(get_app_metrics))
         .route("/vm/cluster", get(get_cluster_metrics))
-        .route("/vm/app/:app_name", get(get_app_detail_metrics))
+        .route("/vm/app/{app_name}", get(get_app_detail_metrics))
         .route(
             "/vm/cluster/network-history",
             get(get_cluster_network_history),
@@ -30,8 +30,8 @@ pub fn monitoring_routes(state: AppState) -> Router {
         .route("/vm/available", get(check_vm_available))
         .route("/pods", get(get_pods))
         .route("/metrics", get(get_metrics))
-        .route("/health/:app_name", get(get_app_health))
-        .route("/endpoints/:app_name", get(get_endpoints))
+        .route("/health/{app_name}", get(get_app_health))
+        .route("/endpoints/{app_name}", get(get_endpoints))
         .route("/metrics-available", get(check_metrics_available))
         .with_state(state)
 }

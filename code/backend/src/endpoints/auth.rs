@@ -25,8 +25,8 @@ pub fn auth_routes(state: AppState) -> Router {
         .route("/login", post(login))
         .route("/logout", post(logout))
         .route("/sessions", get(list_sessions))
-        .route("/sessions/:session_id", delete(revoke_session))
-        .route("/switch/:slot", post(switch_session))
+        .route("/sessions/{session_id}", delete(revoke_session))
+        .route("/switch/{slot}", post(switch_session))
         .route("/accounts", get(list_accounts))
         .with_state(state)
 }

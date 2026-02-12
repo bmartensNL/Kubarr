@@ -19,17 +19,17 @@ pub fn logs_routes(state: AppState) -> Router {
         // VictoriaLogs endpoints (must be before /:pod_name to avoid conflicts)
         .route("/vlogs/namespaces", get(get_vlogs_namespaces))
         .route("/vlogs/labels", get(get_vlogs_labels))
-        .route("/vlogs/label/:label/values", get(get_vlogs_label_values))
+        .route("/vlogs/label/{label}/values", get(get_vlogs_label_values))
         .route("/vlogs/query", get(query_vlogs))
         // Legacy Loki endpoints (redirect to VictoriaLogs)
         .route("/loki/namespaces", get(get_vlogs_namespaces))
         .route("/loki/labels", get(get_vlogs_labels))
-        .route("/loki/label/:label/values", get(get_vlogs_label_values))
+        .route("/loki/label/{label}/values", get(get_vlogs_label_values))
         .route("/loki/query", get(query_vlogs))
         // Pod logs endpoints
-        .route("/raw/:pod_name", get(get_raw_pod_logs))
-        .route("/app/:app_name", get(get_app_logs))
-        .route("/:pod_name", get(get_pod_logs))
+        .route("/raw/{pod_name}", get(get_raw_pod_logs))
+        .route("/app/{app_name}", get(get_app_logs))
+        .route("/{pod_name}", get(get_pod_logs))
         .with_state(state)
 }
 

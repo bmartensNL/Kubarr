@@ -205,10 +205,10 @@ async fn handle_websocket(client_socket: WebSocket, target_url: String) {
 /// Convert axum WebSocket message to tungstenite message
 fn axum_to_tungstenite(msg: Message) -> Option<tungstenite::Message> {
     match msg {
-        Message::Text(t) => Some(tungstenite::Message::Text(t.to_string())),
-        Message::Binary(b) => Some(tungstenite::Message::Binary(b.to_vec())),
-        Message::Ping(p) => Some(tungstenite::Message::Ping(p.to_vec())),
-        Message::Pong(p) => Some(tungstenite::Message::Pong(p.to_vec())),
+        Message::Text(t) => Some(tungstenite::Message::Text(t.to_string().into())),
+        Message::Binary(b) => Some(tungstenite::Message::Binary(b)),
+        Message::Ping(p) => Some(tungstenite::Message::Ping(p)),
+        Message::Pong(p) => Some(tungstenite::Message::Pong(p)),
         Message::Close(_) => Some(tungstenite::Message::Close(None)),
     }
 }
@@ -216,7 +216,7 @@ fn axum_to_tungstenite(msg: Message) -> Option<tungstenite::Message> {
 /// Convert tungstenite message to axum WebSocket message
 fn tungstenite_to_axum(msg: tungstenite::Message) -> Option<Message> {
     match msg {
-        tungstenite::Message::Text(t) => Some(Message::Text(t)),
+        tungstenite::Message::Text(t) => Some(Message::Text(t.to_string().into())),
         tungstenite::Message::Binary(b) => Some(Message::Binary(b)),
         tungstenite::Message::Ping(p) => Some(Message::Ping(p)),
         tungstenite::Message::Pong(p) => Some(Message::Pong(p)),

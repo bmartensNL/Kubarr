@@ -19,9 +19,9 @@ use crate::state::AppState;
 /// Create proxy routes
 pub fn proxy_routes(state: AppState) -> Router {
     Router::new()
-        .route("/:app_name", any(proxy_app_root))
-        .route("/:app_name/", any(proxy_app_root))
-        .route("/:app_name/*path", any(proxy_app_with_path))
+        .route("/{app_name}", any(proxy_app_root))
+        .route("/{app_name}/", any(proxy_app_root))
+        .route("/{app_name}/{*path}", any(proxy_app_with_path))
         .with_state(state)
 }
 

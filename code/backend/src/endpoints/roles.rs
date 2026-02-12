@@ -22,7 +22,7 @@ pub fn roles_routes(state: AppState) -> Router {
             "/:role_id",
             get(get_role).patch(update_role).delete(delete_role),
         )
-        .route("/:role_id/apps", put(set_role_apps))
+        .route("/{role_id}/apps", put(set_role_apps))
         .route(
             "/:role_id/permissions",
             get(get_role_permissions).put(set_role_permissions),

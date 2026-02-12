@@ -41,14 +41,14 @@ pub fn users_routes(state: AppState) -> Router {
         .route("/me/2fa/status", get(get_2fa_status))
         .route("/pending", get(list_pending_users))
         .route("/invites", get(list_invites).post(create_invite))
-        .route("/invites/:invite_id", delete(delete_invite))
+        .route("/invites/{invite_id}", delete(delete_invite))
         .route(
             "/:user_id",
             get(get_user).patch(update_user).delete(delete_user),
         )
-        .route("/:user_id/approve", post(approve_user))
-        .route("/:user_id/reject", post(reject_user))
-        .route("/:user_id/password", patch(admin_reset_password))
+        .route("/{user_id}/approve", post(approve_user))
+        .route("/{user_id}/reject", post(reject_user))
+        .route("/{user_id}/password", patch(admin_reset_password))
         .with_state(state)
 }
 

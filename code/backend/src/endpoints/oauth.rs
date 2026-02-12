@@ -29,12 +29,12 @@ pub fn oauth_routes(state: AppState) -> Router {
             get(get_provider).put(update_provider),
         )
         // OAuth flow
-        .route("/:provider/login", get(oauth_login))
-        .route("/:provider/callback", get(oauth_callback))
+        .route("/{provider}/login", get(oauth_login))
+        .route("/{provider}/callback", get(oauth_callback))
         // Account linking (authenticated users)
         .route("/accounts", get(list_linked_accounts))
-        .route("/accounts/:provider", delete(unlink_account))
-        .route("/link/:provider", get(link_account_start))
+        .route("/accounts/{provider}", delete(unlink_account))
+        .route("/link/{provider}", get(link_account_start))
         .with_state(state)
 }
 

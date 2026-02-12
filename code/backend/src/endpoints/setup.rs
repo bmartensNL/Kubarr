@@ -617,14 +617,14 @@ async fn handle_bootstrap_socket(socket: WebSocket, state: AppState) {
             "complete": bootstrap_service.is_complete().await,
         });
         if let Ok(json) = serde_json::to_string(&initial_status) {
-            let _ = sender.send(Message::Text(json)).await;
+            let _ = sender.send(Message::Text(json.into())).await;
         }
     }
 
     // Spawn task to forward broadcast messages to WebSocket
     let send_task = tokio::spawn(async move {
         while let Ok(msg) = rx.recv().await {
-            if sender.send(Message::Text(msg)).await.is_err() {
+            if sender.send(Message::Text(msg.into())).await.is_err() {
                 break;
             }
         }

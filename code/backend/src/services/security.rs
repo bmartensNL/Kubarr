@@ -4,6 +4,7 @@ use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation}
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use rand::Rng;
+use rand_core::OsRng;
 use rsa::{
     pkcs8::{DecodePublicKey, EncodePrivateKey, EncodePublicKey, LineEnding},
     RsaPrivateKey, RsaPublicKey,
@@ -162,9 +163,7 @@ pub fn get_public_key() -> Result<String> {
 
 /// Generate an RSA key pair for JWT signing
 pub fn generate_rsa_key_pair() -> Result<(String, String)> {
-    let mut rng = rand::thread_rng();
-
-    let private_key = RsaPrivateKey::new(&mut rng, 2048)
+    let private_key = RsaPrivateKey::new(&mut OsRng, 2048)
         .map_err(|e| AppError::Internal(format!("Failed to generate RSA key: {}", e)))?;
 
     let public_key = RsaPublicKey::from(&private_key);
@@ -314,8 +313,8 @@ pub fn decode_session_token(token: &str) -> Result<SessionClaims> {
 
 /// Generate a cryptographically secure random string (hex)
 pub fn generate_random_string(length: usize) -> String {
-    let mut rng = rand::thread_rng();
-    let bytes: Vec<u8> = (0..length).map(|_| rng.gen()).collect();
+    let mut rng = rand::rng();
+    let bytes: Vec<u8> = (0..length).map(|_| rng.random()).collect();
     hex::encode(bytes)
 }
 
@@ -324,10 +323,10 @@ pub fn generate_random_string(length: usize) -> String {
 pub fn generate_secure_password(length: usize) -> String {
     const CHARSET: &[u8] =
         b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()";
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     (0..length)
         .map(|_| {
-            let idx = rng.gen_range(0..CHARSET.len());
+            let idx = rng.random_range(0..CHARSET.len());
             CHARSET[idx] as char
         })
         .collect()

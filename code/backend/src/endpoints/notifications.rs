@@ -24,20 +24,20 @@ pub fn notifications_routes(state: AppState) -> Router {
         // User inbox endpoints
         .route("/inbox", get(get_inbox))
         .route("/inbox/count", get(get_unread_count))
-        .route("/inbox/:id/read", post(mark_as_read))
+        .route("/inbox/{id}/read", post(mark_as_read))
         .route("/inbox/read-all", post(mark_all_as_read))
-        .route("/inbox/:id", delete(delete_notification))
+        .route("/inbox/{id}", delete(delete_notification))
         // Admin: Channel configuration
         .route("/channels", get(list_channels))
-        .route("/channels/:channel_type", get(get_channel))
-        .route("/channels/:channel_type", put(update_channel))
-        .route("/channels/:channel_type/test", post(test_channel))
+        .route("/channels/{channel_type}", get(get_channel))
+        .route("/channels/{channel_type}", put(update_channel))
+        .route("/channels/{channel_type}/test", post(test_channel))
         // Admin: Event settings
         .route("/events", get(list_events))
-        .route("/events/:event_type", put(update_event))
+        .route("/events/{event_type}", put(update_event))
         // User preferences
         .route("/preferences", get(get_preferences))
-        .route("/preferences/:channel_type", put(update_preference))
+        .route("/preferences/{channel_type}", put(update_preference))
         // Admin: Logs
         .route("/logs", get(list_logs))
         .with_state(state)

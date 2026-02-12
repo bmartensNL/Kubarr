@@ -38,7 +38,7 @@ static DEFAULT_SETTINGS: Lazy<HashMap<&'static str, (&'static str, &'static str)
 pub fn settings_routes(state: AppState) -> Router {
     Router::new()
         .route("/", get(list_settings))
-        .route("/:key", get(get_setting).put(update_setting))
+        .route("/{key}", get(get_setting).put(update_setting))
         .with_state(state)
 }
 

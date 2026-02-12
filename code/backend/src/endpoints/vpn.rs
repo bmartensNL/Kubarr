@@ -27,14 +27,14 @@ pub fn vpn_routes(state: AppState) -> Router {
                 .put(update_provider)
                 .delete(delete_provider),
         )
-        .route("/providers/:id/test", post(test_provider))
+        .route("/providers/{id}/test", post(test_provider))
         // App VPN configs
         .route("/apps", get(list_app_configs))
         .route(
             "/apps/:app_name",
             get(get_app_config).put(assign_vpn).delete(remove_vpn),
         )
-        .route("/apps/:app_name/forwarded-port", get(get_forwarded_port))
+        .route("/apps/{app_name}/forwarded-port", get(get_forwarded_port))
         // Supported providers
         .route("/supported-providers", get(list_supported_providers))
         .with_state(state)
