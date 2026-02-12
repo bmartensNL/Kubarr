@@ -4,8 +4,8 @@
 
 use axum::{
     body::Body,
-    extract::{FromRequestParts, Path, Request, State},
     extract::ws::WebSocketUpgrade,
+    extract::{FromRequestParts, Path, Request, State},
     http::{HeaderMap, Method},
     response::Response,
     routing::any,

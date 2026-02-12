@@ -22,7 +22,7 @@ pub fn vpn_routes(state: AppState) -> Router {
         // VPN providers
         .route("/providers", get(list_providers).post(create_provider))
         .route(
-            "/providers/:id",
+            "/providers/{id}",
             get(get_provider)
                 .put(update_provider)
                 .delete(delete_provider),
@@ -31,7 +31,7 @@ pub fn vpn_routes(state: AppState) -> Router {
         // App VPN configs
         .route("/apps", get(list_app_configs))
         .route(
-            "/apps/:app_name",
+            "/apps/{app_name}",
             get(get_app_config).put(assign_vpn).delete(remove_vpn),
         )
         .route("/apps/{app_name}/forwarded-port", get(get_forwarded_port))
