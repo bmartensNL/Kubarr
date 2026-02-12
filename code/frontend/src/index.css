@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Use class-based dark mode (.dark on html element) instead of prefers-color-scheme */
+@variant dark (&:where(.dark, .dark *));
+
 /* Theme transition for smooth dark/light mode switching */
 @layer base {
   *,
