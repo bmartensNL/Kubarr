@@ -3,7 +3,10 @@
 //! Reverse proxy requests to installed apps under /proxy/{app_name}/*
 
 use axum::{
-    extract::{Path, Request, State, WebSocketUpgrade},
+    body::Body,
+    extract::{FromRequestParts, Path, Request, State},
+    extract::ws::WebSocketUpgrade,
+    http::{HeaderMap, Method},
     response::Response,
     routing::any,
     Router,
@@ -28,23 +31,9 @@ async fn proxy_app_root(
     State(state): State<AppState>,
     Path(app_name): Path<String>,
     auth: Authenticated,
-    ws_upgrade: Option<WebSocketUpgrade>,
     request: Request,
 ) -> Result<Response> {
-    let method = request.method().clone();
-    let headers = request.headers().clone();
-    let body = request.into_body();
-    proxy_app_inner(
-        state,
-        app_name,
-        String::new(),
-        auth,
-        method,
-        headers,
-        ws_upgrade,
-        body,
-    )
-    .await
+    proxy_app_request(state, app_name, String::new(), auth, request).await
 }
 
 /// Proxy requests to an installed app (with path)
@@ -52,39 +41,22 @@ async fn proxy_app_with_path(
     State(state): State<AppState>,
     Path((app_name, path)): Path<(String, String)>,
     auth: Authenticated,
-    ws_upgrade: Option<WebSocketUpgrade>,
     request: Request,
 ) -> Result<Response> {
-    let method = request.method().clone();
-    let headers = request.headers().clone();
-    let body = request.into_body();
-    proxy_app_inner(
-        state, app_name, path, auth, method, headers, ws_upgrade, body,
-    )
-    .await
+    proxy_app_request(state, app_name, path, auth, request).await
 }
 
 /// Inner proxy implementation
-#[allow(clippy::too_many_arguments)]
-async fn proxy_app_inner(
+async fn proxy_app_request(
     state: AppState,
     app_name: String,
     path: String,
     auth: Authenticated,
-    method: Method,
-    headers: HeaderMap,
-    ws_upgrade: Option<WebSocketUpgrade>,
-    body: Body,
+    request: Request,
 ) -> Result<Response> {
     let user = auth.user();
 
-    // Get AuthenticatedUser from request extensions to check permissions
-    // Note: Authenticated extractor already validates auth, but we need full permissions
-    // Since we're using the Authenticated extractor, the user is already authenticated
-    // We need to check app access separately
-
     // Check if user has access to this app
-    // Get the auth user with permissions from the middleware
     if !check_app_permission(&state, user.id, &app_name).await {
         return Err(AppError::Forbidden(format!(
             "No access to app: {}",
@@ -95,14 +67,26 @@ async fn proxy_app_inner(
     // Get the app's service endpoint from Kubernetes
     let target_url = get_app_target_url(&state, &app_name, &path).await?;
 
+    let method = request.method().clone();
+    let headers = request.headers().clone();
+
     // Handle WebSocket upgrade
-    if let Some(ws) = ws_upgrade {
-        if is_websocket_upgrade(&headers) {
+    if is_websocket_upgrade(&headers) {
+        let (mut parts, body) = request.into_parts();
+        if let Ok(ws) = WebSocketUpgrade::from_request_parts(&mut parts, &state).await {
             return Ok(proxy_websocket(ws, target_url).await);
         }
+        // If WebSocket extraction failed, reconstruct and fall through to HTTP proxy
+        let request = Request::from_parts(parts, body);
+        let body = request.into_body();
+        return state
+            .proxy
+            .proxy_http(&target_url, method, headers, body)
+            .await;
     }
 
     // Proxy HTTP request
+    let body = request.into_body();
     state
         .proxy
         .proxy_http(&target_url, method, headers, body)
