@@ -14,7 +14,6 @@
 
 use std::marker::PhantomData;
 
-use async_trait::async_trait;
 use axum::{extract::FromRequestParts, http::request::Parts};
 
 use crate::error::AppError;
@@ -147,7 +146,6 @@ impl<P: Permission> Authorized<P> {
     }
 }
 
-#[async_trait]
 impl<S, P> FromRequestParts<S> for Authorized<P>
 where
     S: Send + Sync,
@@ -193,7 +191,6 @@ impl Authenticated {
     }
 }
 
-#[async_trait]
 impl<S> FromRequestParts<S> for Authenticated
 where
     S: Send + Sync,
