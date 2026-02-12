@@ -9,8 +9,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ${{ github.repository_owner }}/kubarr
-  OCI_REPO: oci://ghcr.io/${{ github.repository_owner }}/kubarr/charts
 
 jobs:
   docker:
@@ -25,6 +23,10 @@ jobs:
         image: [backend, frontend]
 
     steps:
+      - name: Compute image name
+        id: vars
+        run: echo "image=${{ env.REGISTRY }}/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/kubarr-${{ matrix.image }}" >> "$GITHUB_OUTPUT"
+
       - name: Download image artifact
         uses: actions/download-artifact@v4
         with:
@@ -44,7 +46,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.image }}
+          images: ${{ steps.vars.outputs.image }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -97,6 +99,10 @@ jobs:
       packages: write
 
     steps:
+      - name: Compute OCI repo
+        id: vars
+        run: echo "oci_repo=oci://${{ env.REGISTRY }}/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/kubarr/charts" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
 
       - name: Install Helm
@@ -107,6 +113,7 @@ jobs:
 
       - name: Package and push all charts
         run: |
+          OCI_REPO="${{ steps.vars.outputs.oci_repo }}"
           echo "## Helm Charts Published" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
@@ -128,10 +135,10 @@ jobs:
             fi
 
             echo "Pushing $chart_name..."
-            helm push "$pkg" ${{ env.OCI_REPO }}
+            helm push "$pkg" "$OCI_REPO"
 
             version=$(helm show chart "$chart_dir" | grep '^version:' | awk '{print $2}')
-            echo "- \`${chart_name}:${version}\` → \`${{ env.OCI_REPO }}/${chart_name}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- \`${chart_name}:${version}\` → \`${OCI_REPO}/${chart_name}\`" >> $GITHUB_STEP_SUMMARY
 
             rm -f "$pkg"
           done
