@@ -3,8 +3,8 @@ use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
-use rand::Rng;
-use rand_core::OsRng;
+use rand::rngs::SysRng;
+use rand::RngExt;
 use rsa::{
     pkcs8::{DecodePublicKey, EncodePrivateKey, EncodePublicKey, LineEnding},
     RsaPrivateKey, RsaPublicKey,
@@ -163,7 +163,7 @@ pub fn get_public_key() -> Result<String> {
 
 /// Generate an RSA key pair for JWT signing
 pub fn generate_rsa_key_pair() -> Result<(String, String)> {
-    let private_key = RsaPrivateKey::new(&mut OsRng, 2048)
+    let private_key = RsaPrivateKey::new(&mut SysRng, 2048)
         .map_err(|e| AppError::Internal(format!("Failed to generate RSA key: {}", e)))?;
 
     let public_key = RsaPublicKey::from(&private_key);
