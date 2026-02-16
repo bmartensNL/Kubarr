@@ -186,10 +186,13 @@ We welcome contributions! Whether it's bug reports, feature requests, or code co
 git clone https://github.com/yourusername/kubarr.git
 cd kubarr
 
-# 2. Set up local Kind cluster
+# 2. Install Git hooks (pre-commit checks)
+./scripts/install-hooks.sh
+
+# 3. Set up local Kind cluster
 ./scripts/local-k8s-setup.sh
 
-# 3. Build and deploy
+# 4. Build and deploy
 ./scripts/deploy.sh
 
 # For remote build server
@@ -197,7 +200,7 @@ cd kubarr
 ./scripts/deploy.sh --remote
 ```
 
-See [CLAUDE.md](./CLAUDE.md) for detailed development workflow and best practices.
+See [Development Guide](./docs/development.md) for detailed workflow and [CLAUDE.md](./CLAUDE.md) for Claude Code instructions.
 
 ## 📊 Project Status
 
