@@ -19,7 +19,7 @@ impl ChartsConfig {
             repo: env::var("KUBARR_CHARTS_REPO")
                 .unwrap_or_else(|_| "bmartensNL/kubarr-charts".to_string()),
             registry: env::var("KUBARR_CHARTS_REGISTRY")
-                .unwrap_or_else(|_| "oci://ghcr.io/bmartensnl/kubarr/charts".to_string()),
+                .unwrap_or_else(|_| "oci://ghcr.io/bmartensnl/kubarr-charts".to_string()),
             sync_interval: env::var("KUBARR_CHARTS_SYNC_INTERVAL")
                 .ok()
                 .and_then(|v| v.parse().ok())
