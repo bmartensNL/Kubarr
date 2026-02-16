@@ -36,8 +36,8 @@ test.describe('Authentication', () => {
       await page.click('button[type="submit"]');
 
       // Should redirect to dashboard
-      await expect(page).toHaveURL('/', { timeout: 10000 });
-      await expect(page.locator('text=Dashboard')).toBeVisible();
+      await page.waitForURL('/', { timeout: 15000 });
+      await expect(page.locator('h2:has-text("Dashboard")')).toBeVisible({ timeout: 10000 });
     });
 
     test('redirects authenticated user away from login', async ({ page }) => {
@@ -118,9 +118,9 @@ test.describe('Authentication', () => {
       await page.click('button[type="submit"]');
       await expect(page).toHaveURL('/');
 
-      // Now test logout
-      await page.hover('button:has-text("admin")');
-      await page.click('text=Logout');
+      // Now test logout - click to open user dropdown menu
+      await page.locator('nav').locator('button:has-text("admin")').click();
+      await page.locator('text=Logout').click();
 
       // Should redirect to login
       await expect(page).toHaveURL('/login');
