@@ -62,7 +62,7 @@ test.describe('Resources Page', () => {
     });
 
     test('Refresh button is visible', async ({ page }) => {
-      const refreshButton = page.locator('button').filter({ has: page.locator('svg') }).filter({ hasText: /^$/ }).first();
+      const _refreshButton = page.locator('button').filter({ has: page.locator('svg') }).filter({ hasText: /^$/ }).first();
       // There should be a refresh icon button
       await expect(page.locator('button').first()).toBeVisible();
     });

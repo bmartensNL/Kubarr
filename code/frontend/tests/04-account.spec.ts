@@ -134,7 +134,7 @@ test.describe('Account Management', () => {
   test.describe('Appearance', () => {
     test('shows theme/appearance options', async ({ page }) => {
       // Look for appearance/theme section
-      const hasAppearance = await page.locator('text=/appearance|theme/i').first().isVisible().catch(() => false);
+      const _hasAppearance = await page.locator('text=/appearance|theme/i').first().isVisible().catch(() => false);
       // Theme options might be in the main nav rather than account page
       // Verify account page loads correctly
       await expect(page.locator('h1:has-text("Account Settings")')).toBeVisible();
