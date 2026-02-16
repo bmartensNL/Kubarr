@@ -1,5 +1,9 @@
 # Kubarr
 
+<p align="center">
+  <img src="./docs/kubarr-demo.gif" alt="Kubarr Demo" width="100%">
+</p>
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-1.20%2B-blue.svg)](https://kubernetes.io/)
 [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/bmartensNL/Kubarr/releases)
@@ -60,28 +64,6 @@ Kubarr is built specifically for managing media server infrastructure on Kuberne
 
 **Port Management** - Configure service ports and ingress rules. Set up external access with proper security controls.
 
-## Demo
-
-![Kubarr Demo](./docs/kubarr-demo.webm)
-
-*Video walkthrough showing dashboard, application catalog, monitoring, and log viewer in dark theme*
-
-<details>
-<summary>Screenshots</summary>
-
-![Kubarr Dashboard](./docs/screenshots/dashboard.png)
-*Dashboard showing deployed applications with resource usage and health status*
-
-![Application Catalog](./docs/screenshots/catalog.png)
-*Media application catalog with one-click deployment*
-
-![Live Monitoring](./docs/screenshots/monitoring.png)
-*Real-time resource monitoring and metrics*
-
-![Log Viewer](./docs/screenshots/logs.png)
-*Live log streaming with filtering and search*
-
-</details>
 
 ## Quick Start
 
