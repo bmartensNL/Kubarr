@@ -55,4 +55,4 @@ jobs:
         with:
           python-version: '3.x'
       - run: pip install mkdocs-material
-      - run: mkdocs build --strict
+      - run: mkdocs build --strict -f docs/mkdocs.yml

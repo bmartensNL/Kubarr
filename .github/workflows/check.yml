@@ -40,6 +40,8 @@ jobs:
       - uses: hadolint/hadolint-action@v3.3.0
         with:
           dockerfile: docker/Dockerfile.backend
+          config: docker/.hadolint.yaml
       - uses: hadolint/hadolint-action@v3.3.0
         with:
           dockerfile: docker/Dockerfile.frontend
+          config: docker/.hadolint.yaml

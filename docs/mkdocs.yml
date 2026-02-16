@@ -1,3 +1,6 @@
+docs_dir: .
+site_dir: ../site
+
 site_name: Kubarr
 site_url: https://bmartensNL.github.io/Kubarr/
 site_description: Smooth sailing for self-hosted media on Kubernetes
