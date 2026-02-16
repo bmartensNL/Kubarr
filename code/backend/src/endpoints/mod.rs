@@ -294,6 +294,7 @@ async fn health_check_detailed(State(state): State<AppState>) -> axum::Json<serd
 async fn get_version() -> axum::Json<serde_json::Value> {
     axum::Json(serde_json::json!({
         "version": CONFIG.version,
+        "channel": CONFIG.channel,
         "commit_hash": CONFIG.commit_hash,
         "build_time": CONFIG.build_time,
         "rust_version": "1.83",
