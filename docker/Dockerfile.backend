@@ -79,6 +79,7 @@ FROM alpine:3.23
 # Build args for environment
 ARG COMMIT_HASH=unknown
 ARG BUILD_TIME=unknown
+ARG CHANNEL=dev
 
 # Install CA certificates for HTTPS
 RUN apk add --no-cache ca-certificates tzdata
@@ -97,6 +98,7 @@ RUN mkdir -p /app/charts
 # Set environment variables
 ENV COMMIT_HASH=${COMMIT_HASH}
 ENV BUILD_TIME=${BUILD_TIME}
+ENV CHANNEL=${CHANNEL}
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
 # Expose API port

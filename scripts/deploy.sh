@@ -73,12 +73,52 @@ fi
 
 cd "$PROJECT_ROOT"
 
+# Get git metadata for version tracking
+GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+# Extract version from frontend package.json
+VERSION=$(grep '"version"' "$PROJECT_ROOT/code/frontend/package.json" | head -1 | sed 's/.*"version": "\(.*\)".*/\1/')
+if [ -z "$VERSION" ]; then
+    VERSION="0.0.0"
+fi
+
+# Detect channel from git tags
+# Check if current commit has an exact tag match
+CURRENT_TAG=$(git describe --exact-match --tags 2>/dev/null || echo "")
+if [ -n "$CURRENT_TAG" ]; then
+    # Check tag pattern to determine channel
+    if echo "$CURRENT_TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+        CHANNEL="stable"
+    elif echo "$CURRENT_TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+-(rc|beta)'; then
+        CHANNEL="release"
+    else
+        CHANNEL="dev"
+    fi
+else
+    CHANNEL="dev"
+fi
+
 # Build images
 echo "Building backend..."
-docker $DOCKER_CONTEXT_FLAG build -t kubarr-backend:latest -f docker/Dockerfile.backend --build-arg PROFILE=dev-release .
+echo "  Version: $VERSION"
+echo "  Channel: $CHANNEL"
+echo "  Git commit: $GIT_COMMIT"
+echo "  Build time: $BUILD_TIME"
+docker $DOCKER_CONTEXT_FLAG build -t kubarr-backend:latest -f docker/Dockerfile.backend \
+    --build-arg PROFILE=dev-release \
+    --build-arg COMMIT_HASH="$GIT_COMMIT" \
+    --build-arg BUILD_TIME="$BUILD_TIME" \
+    --build-arg CHANNEL="$CHANNEL" \
+    .
 
 echo "Building frontend..."
-docker $DOCKER_CONTEXT_FLAG build -t kubarr-frontend:latest -f docker/Dockerfile.frontend .
+docker $DOCKER_CONTEXT_FLAG build -t kubarr-frontend:latest -f docker/Dockerfile.frontend \
+    --build-arg VERSION="$VERSION" \
+    --build-arg CHANNEL="$CHANNEL" \
+    --build-arg COMMIT_HASH="$GIT_COMMIT" \
+    --build-arg BUILD_TIME="$BUILD_TIME" \
+    .
 
 # Load into kind
 # Note: kind respects the active Docker context, so when kubarr-remote is active,

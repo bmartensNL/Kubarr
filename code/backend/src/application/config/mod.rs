@@ -21,6 +21,7 @@ pub struct Config {
     pub commit_hash: String,
     pub build_time: String,
     pub version: String,
+    pub channel: String,
 
     // Logging
     pub log_level: String,
@@ -42,6 +43,7 @@ impl Config {
             commit_hash: env::var("COMMIT_HASH").unwrap_or_else(|_| "unknown".to_string()),
             build_time: env::var("BUILD_TIME").unwrap_or_else(|_| "unknown".to_string()),
             version: env!("CARGO_PKG_VERSION").to_string(),
+            channel: env::var("CHANNEL").unwrap_or_else(|_| "dev".to_string()),
 
             // Logging
             log_level: env::var("KUBARR_LOG_LEVEL").unwrap_or_else(|_| "info".to_string()),

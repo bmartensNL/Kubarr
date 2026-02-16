@@ -95,6 +95,7 @@ kubectl port-forward -n kubarr svc/kubarr-frontend 8080:80
 - **[User Guide](./docs/user-guide.md)** - How to use Kubarr features effectively
 - **[Architecture](./docs/architecture.md)** - System architecture and design decisions
 - **[API Documentation](./docs/api.md)** - REST API reference for integrations
+- **[Versioning System](./docs/versioning.md)** - Version management, release channels, and release workflow
 - **[Contributing Guide](./CONTRIBUTING.md)** - How to contribute to Kubarr development
 - **[Security Policy](./code/backend/SECURITY.md)** - Security practices and vulnerability reporting
 - **[Developer Setup](./CLAUDE.md)** - Development environment setup and workflow
