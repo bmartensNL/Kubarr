@@ -47,6 +47,7 @@ nav:
   - Home: index.md
   - Quick Start: quick-start.md
   - Docker: docker.md
+  - Development: development.md
   - Versioning: versioning.md
 
 markdown_extensions:
