@@ -72,6 +72,18 @@ export interface BootstrapStartResponse {
   started: boolean;
 }
 
+// Directory browsing types (setup)
+export interface SetupDirectoryEntry {
+  name: string;
+  path: string;
+}
+
+export interface SetupBrowseResponse {
+  path: string;
+  parent: string | null;
+  directories: SetupDirectoryEntry[];
+}
+
 // Server config types
 export interface ServerConfigRequest {
   name: string;
@@ -111,6 +123,14 @@ export const setupApi = {
   // Validate storage path
   validatePath: async (path: string): Promise<PathValidationResult> => {
     const response = await setupClient.post<PathValidationResult>('/setup/validate-path', null, {
+      params: { path },
+    });
+    return response.data;
+  },
+
+  // Browse directories on the host filesystem
+  browsePath: async (path: string = '/'): Promise<SetupBrowseResponse> => {
+    const response = await setupClient.get<SetupBrowseResponse>('/setup/browse', {
       params: { path },
     });
     return response.data;

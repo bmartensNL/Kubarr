@@ -42,7 +42,9 @@ pub async fn connect_with_url(database_url: &str) -> Result<DbConn> {
 pub async fn try_connect() -> Option<DbConn> {
     // First, check if the database URL looks like it could work
     // If it's the default localhost URL, skip trying since PostgreSQL isn't deployed yet
-    if CONFIG.database.database_url.contains("localhost") && std::env::var("KUBARR_DATABASE_URL").is_err() {
+    if CONFIG.database.database_url.contains("localhost")
+        && std::env::var("KUBARR_DATABASE_URL").is_err()
+    {
         tracing::info!("No DATABASE_URL configured, skipping initial database connection");
         return None;
     }

@@ -74,12 +74,7 @@ impl ChartSyncService {
             CONFIG.charts.repo, CONFIG.charts.git_ref,
         );
 
-        let resp = self
-            .client
-            .get(&url)
-            .send()
-            .await?
-            .error_for_status()?;
+        let resp = self.client.get(&url).send().await?.error_for_status()?;
 
         let entries: Vec<GitHubContent> = resp.json().await?;
 

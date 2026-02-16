@@ -28,7 +28,9 @@ pub trait PeriodicTask: Send + Sync {
 pub fn start_scheduler(db: Arc<DatabaseConnection>, chart_sync: Arc<ChartSyncService>) {
     let tasks: Vec<Box<dyn PeriodicTask>> = vec![
         Box::new(SessionCleanupTask),
-        Box::new(ChartSyncTask { service: chart_sync }),
+        Box::new(ChartSyncTask {
+            service: chart_sync,
+        }),
     ];
 
     for task in tasks {

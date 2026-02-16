@@ -24,6 +24,9 @@ use crate::models::{role, system_setting, user, user_role};
 use crate::services::bootstrap::{self, BootstrapService, ComponentStatus};
 use crate::state::AppState;
 
+/// System/virtual directories to hide from the setup directory browser
+const FILTERED_DIRECTORIES: &[&str] = &["/proc", "/sys", "/dev", "/run", "/tmp", "/var/run"];
+
 pub fn setup_routes(state: AppState) -> Router {
     Router::new()
         .route("/required", get(check_setup_required))
@@ -31,6 +34,7 @@ pub fn setup_routes(state: AppState) -> Router {
         .route("/initialize", post(initialize_setup))
         .route("/generate-credentials", get(generate_credentials))
         .route("/validate-path", post(validate_path))
+        .route("/browse", get(browse_setup_directory))
         // Bootstrap endpoints
         .route("/bootstrap/start", post(start_bootstrap))
         .route("/bootstrap/status", get(get_bootstrap_status))
@@ -434,6 +438,175 @@ async fn validate_path(
         exists,
         writable,
         message,
+    }))
+}
+
+// ============================================================================
+// Directory Browsing for Setup
+// ============================================================================
+
+#[derive(Debug, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
+pub struct BrowseSetupQuery {
+    #[serde(default = "default_browse_path")]
+    pub path: String,
+}
+
+fn default_browse_path() -> String {
+    "/".to_string()
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct BrowseSetupResponse {
+    pub path: String,
+    pub parent: Option<String>,
+    pub directories: Vec<SetupDirectoryEntry>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct SetupDirectoryEntry {
+    pub name: String,
+    pub path: String,
+}
+
+/// Browse directories on the host filesystem during setup
+///
+/// Lists only directories (not files) at the given absolute path.
+/// Filters out system/virtual directories. Only accessible before
+/// admin user creation (same gate as other setup endpoints).
+#[utoipa::path(
+    get,
+    path = "/api/setup/browse",
+    tag = "Setup",
+    params(BrowseSetupQuery),
+    responses(
+        (status = 200, body = BrowseSetupResponse)
+    )
+)]
+async fn browse_setup_directory(
+    State(state): State<AppState>,
+    Query(query): Query<BrowseSetupQuery>,
+) -> Result<Json<BrowseSetupResponse>> {
+    // Only accessible during setup
+    require_setup(&state).await?;
+
+    // The host filesystem may be mounted at a prefix (e.g. /host) inside the container.
+    // KUBARR_HOST_BROWSE_PREFIX maps the container mount point so we can translate
+    // between host paths (what the user sees) and container paths (what we read).
+    // When not set, we browse the container's own filesystem directly.
+    let host_prefix = std::env::var("KUBARR_HOST_BROWSE_PREFIX").unwrap_or_default();
+
+    let requested = Path::new(&query.path);
+    if !requested.is_absolute() {
+        return Err(AppError::BadRequest("Path must be absolute".to_string()));
+    }
+
+    // Map host path to container path: /mnt/data -> /host/mnt/data
+    let container_path = if host_prefix.is_empty() {
+        query.path.clone()
+    } else {
+        format!("{}{}", host_prefix.trim_end_matches('/'), query.path)
+    };
+
+    let canonical = Path::new(&container_path)
+        .canonicalize()
+        .map_err(|_| AppError::NotFound(format!("Path not found: {}", query.path)))?;
+
+    // Ensure the resolved path stays within the host prefix (prevent traversal)
+    if !host_prefix.is_empty() {
+        let prefix_canonical = Path::new(&host_prefix)
+            .canonicalize()
+            .map_err(|_| AppError::Internal("Host browse prefix not found".to_string()))?;
+        if !canonical.starts_with(&prefix_canonical) {
+            return Err(AppError::Forbidden(
+                "Access denied: path traversal attempt detected".to_string(),
+            ));
+        }
+    }
+
+    if !canonical.is_dir() {
+        return Err(AppError::BadRequest(format!(
+            "Path is not a directory: {}",
+            query.path
+        )));
+    }
+
+    // Helper to convert a container path back to a host path
+    let to_host_path = |container: &str| -> String {
+        if host_prefix.is_empty() {
+            container.to_string()
+        } else {
+            let trimmed_prefix = host_prefix.trim_end_matches('/');
+            let stripped = container.strip_prefix(trimmed_prefix).unwrap_or(container);
+            if stripped.is_empty() {
+                "/".to_string()
+            } else {
+                stripped.to_string()
+            }
+        }
+    };
+
+    let canonical_str = canonical.to_string_lossy().to_string();
+    let host_path = to_host_path(&canonical_str);
+
+    // Compute parent path (None if at "/")
+    let parent = if host_path == "/" {
+        None
+    } else {
+        let p = Path::new(&host_path)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string());
+        // Ensure parent is at least "/"
+        p.map(|s| if s.is_empty() { "/".to_string() } else { s })
+    };
+
+    // List only directories, filtering out system/virtual ones
+    let mut directories: Vec<SetupDirectoryEntry> = Vec::new();
+
+    let entries = std::fs::read_dir(&canonical)
+        .map_err(|e| AppError::Forbidden(format!("Cannot read directory: {}", e)))?;
+
+    for entry in entries.filter_map(|e| e.ok()) {
+        let entry_path = entry.path();
+
+        // Only include directories
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        if !is_dir {
+            continue;
+        }
+
+        let container_full = entry_path.to_string_lossy().to_string();
+        let host_full = to_host_path(&container_full);
+
+        // Filter out system/virtual directories (based on host path)
+        if FILTERED_DIRECTORIES.iter().any(|&filtered| {
+            host_full == filtered || host_full.starts_with(&format!("{}/", filtered))
+        }) {
+            continue;
+        }
+
+        let name = entry_path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        // Skip hidden directories (starting with .)
+        if name.starts_with('.') {
+            continue;
+        }
+
+        directories.push(SetupDirectoryEntry {
+            name,
+            path: host_full,
+        });
+    }
+
+    // Sort alphabetically
+    directories.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+
+    Ok(Json(BrowseSetupResponse {
+        path: host_path,
+        parent,
+        directories,
     }))
 }
 

@@ -24,8 +24,7 @@ impl ChartsConfig {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(3600),
-            git_ref: env::var("KUBARR_CHARTS_GIT_REF")
-                .unwrap_or_else(|_| "main".to_string()),
+            git_ref: env::var("KUBARR_CHARTS_GIT_REF").unwrap_or_else(|_| "main".to_string()),
         }
     }
 }

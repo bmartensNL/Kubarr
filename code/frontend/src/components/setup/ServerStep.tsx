@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Check, AlertCircle, Loader2 } from 'lucide-react';
+import { Check, AlertCircle, Loader2, FolderOpen } from 'lucide-react';
 import { setupApi, ServerConfigResponse } from '../../api/setup';
+import DirectoryPicker from './DirectoryPicker';
 
 interface ServerStepProps {
   onComplete: (config: { name: string; storagePath: string }) => void;
@@ -16,6 +17,7 @@ const ServerStep: React.FC<ServerStepProps> = ({ onComplete, onBack, initialConf
   const [validatingPath, setValidatingPath] = useState(false);
   const [pathValid, setPathValid] = useState<boolean | null>(null);
   const [pathMessage, setPathMessage] = useState<string | null>(null);
+  const [showBrowser, setShowBrowser] = useState(false);
 
   // Load existing config on mount
   useEffect(() => {
@@ -155,6 +157,14 @@ const ServerStep: React.FC<ServerStepProps> = ({ onComplete, onBack, initialConf
             />
             <button
               type="button"
+              onClick={() => setShowBrowser(true)}
+              className="inline-flex items-center px-3 py-2 border border-l-0 border-gray-300 dark:border-gray-700 bg-gray-200 dark:bg-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              title="Browse filesystem"
+            >
+              <FolderOpen className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
               onClick={validateStoragePath}
               disabled={validatingPath}
               className="inline-flex items-center px-4 py-2 border border-l-0 border-gray-300 dark:border-gray-700 bg-gray-200 dark:bg-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-r-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
@@ -226,6 +236,32 @@ const ServerStep: React.FC<ServerStepProps> = ({ onComplete, onBack, initialConf
           )}
         </button>
       </div>
+
+      <DirectoryPicker
+        isOpen={showBrowser}
+        initialPath={storagePath || '/'}
+        onSelect={(path) => {
+          setStoragePath(path);
+          setPathValid(null);
+          setPathMessage(null);
+          setShowBrowser(false);
+          // Auto-validate after selection
+          setTimeout(async () => {
+            setValidatingPath(true);
+            try {
+              const result = await setupApi.validatePath(path);
+              setPathValid(result.valid);
+              setPathMessage(result.message);
+            } catch {
+              setPathValid(false);
+              setPathMessage('Failed to validate path');
+            } finally {
+              setValidatingPath(false);
+            }
+          }, 0);
+        }}
+        onClose={() => setShowBrowser(false)}
+      />
     </div>
   );
 };
