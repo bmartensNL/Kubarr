@@ -67,15 +67,34 @@ Kubarr is built specifically for managing media server infrastructure on Kuberne
 
 ## Quick Start
 
-### Prerequisites
+### Automated Installation (Recommended)
 
-- Kubernetes cluster (Kind, k3s, or any K8s 1.20+)
-- `kubectl` configured to access your cluster
-- `helm` 3.0+ (for Helm installation)
+Install Kubarr with k3s (lightweight Kubernetes) in one command:
 
-### Installation
+```bash
+curl -sfL https://raw.githubusercontent.com/bmartensNL/Kubarr/main/install.sh | sh -
+```
 
-**Option 1: Helm Installation**
+This will:
+- Install k3s if not already present
+- Deploy Kubarr via Helm
+- Configure access to the dashboard
+
+Then start port forwarding and access the dashboard:
+
+```bash
+kubectl port-forward -n kubarr svc/kubarr-frontend 8080:80
+```
+
+Open http://localhost:8080 in your browser.
+
+**System Requirements:** Linux with 2GB+ RAM recommended.
+
+### Manual Installation
+
+**Option 1: Existing Kubernetes Cluster**
+
+If you already have a Kubernetes cluster:
 
 ```bash
 # Create namespace
@@ -90,8 +109,6 @@ kubectl wait --for=condition=ready pod -l app=kubarr -n kubarr --timeout=300s
 # Access the dashboard
 kubectl port-forward -n kubarr svc/kubarr-frontend 8080:80
 ```
-
-Open http://localhost:8080 in your browser. Default credentials are shown during installation.
 
 **Option 2: Local Development**
 
@@ -109,7 +126,7 @@ cd Kubarr
 # Access at http://localhost:8080
 ```
 
-See [Installation Guide](./docs/installation.md) for detailed setup instructions including k3s and production deployments.
+See [Installation Guide](./docs/installation.md) for detailed setup instructions and advanced configuration.
 
 ## Architecture
 
