@@ -39,6 +39,7 @@ theme:
 nav:
   - Home: index.md
   - Quick Start: quick-start.md
+  - Docker: docker.md
 
 markdown_extensions:
   - admonition
