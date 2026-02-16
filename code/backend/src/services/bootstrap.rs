@@ -456,7 +456,6 @@ impl BootstrapService {
             match db::connect_with_url(&database_url).await {
                 Ok(conn) => {
                     tracing::info!("Database connection established on attempt {}", attempt);
-                    last_error = None;
 
                     // Store connection in shared state
                     {
