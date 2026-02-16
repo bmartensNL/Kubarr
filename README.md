@@ -60,7 +60,14 @@ Kubarr is built specifically for managing media server infrastructure on Kuberne
 
 **Port Management** - Configure service ports and ingress rules. Set up external access with proper security controls.
 
-## Screenshots
+## Demo
+
+![Kubarr Demo](./docs/kubarr-demo.webm)
+
+*Video walkthrough showing dashboard, application catalog, monitoring, and log viewer in dark theme*
+
+<details>
+<summary>Screenshots</summary>
 
 ![Kubarr Dashboard](./docs/screenshots/dashboard.png)
 *Dashboard showing deployed applications with resource usage and health status*
@@ -74,7 +81,7 @@ Kubarr is built specifically for managing media server infrastructure on Kuberne
 ![Log Viewer](./docs/screenshots/logs.png)
 *Live log streaming with filtering and search*
 
-*Note: Screenshots are placeholders. See [docs/screenshots/README.md](./docs/screenshots/README.md) for requirements.*
+</details>
 
 ## Quick Start
 
