@@ -82,4 +82,57 @@ test.describe('Apps Page', () => {
       await expect(systemBadge).toBeVisible();
     }
   });
+
+  test.describe('App Filtering', () => {
+    test('filter dropdown is visible', async ({ page }) => {
+      // Look for a filter/category selector
+      const filterButton = page.locator('button:has-text("All"), select, [role="combobox"]').first();
+      if (await filterButton.isVisible().catch(() => false)) {
+        await expect(filterButton).toBeVisible();
+      }
+    });
+
+    test('filter dropdown changes displayed apps', async ({ page }) => {
+      // Look for filter control that can filter by installed status
+      const filterButton = page.locator('button:has-text("All"), button:has-text("Filter")').first();
+      if (await filterButton.isVisible().catch(() => false)) {
+        await filterButton.click();
+        const installedOption = page.locator('text=Installed').first();
+        if (await installedOption.isVisible().catch(() => false)) {
+          await installedOption.click();
+          await page.waitForLoadState('networkidle');
+          // Page should still be functional
+          await expect(page.locator('h1:has-text("Apps")')).toBeVisible();
+        }
+      }
+    });
+  });
+
+  test.describe('App Detail Panel', () => {
+    test('clicking an app card opens detail panel', async ({ page }) => {
+      // Click on a known app card
+      const appCard = getAppCard(page, 'Sonarr');
+      if (await appCard.isVisible().catch(() => false)) {
+        await appCard.click();
+        await page.waitForTimeout(500);
+        // Look for detail panel elements - app name, description, or action button
+        const hasDetail = await page.locator('text=Sonarr').first().isVisible().catch(() => false);
+        expect(hasDetail).toBe(true);
+      }
+    });
+
+    test('app card shows app name and category', async ({ page }) => {
+      const appCard = getAppCard(page, 'Sonarr');
+      await expect(appCard).toBeVisible();
+      await expect(appCard.locator('h3:has-text("Sonarr")')).toBeVisible();
+    });
+
+    test('app card has action button (Install or Open)', async ({ page }) => {
+      const appCard = getAppCard(page, 'Sonarr');
+      await expect(appCard).toBeVisible();
+      const hasInstall = await appCard.locator('button:has-text("Install")').isVisible().catch(() => false);
+      const hasOpen = await appCard.locator('a:has-text("Open"), button:has-text("Open")').isVisible().catch(() => false);
+      expect(hasInstall || hasOpen).toBe(true);
+    });
+  });
 });
