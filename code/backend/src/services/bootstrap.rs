@@ -450,31 +450,46 @@ impl BootstrapService {
 
         tracing::info!("Got database URL from K8s secret");
 
-        // Connect to database
-        let db = db::connect_with_url(&database_url).await?;
-        tracing::info!("Database connection established");
+        // Retry connection - DNS may not be ready immediately after service creation
+        let mut last_error = None;
+        for attempt in 1..=10 {
+            match db::connect_with_url(&database_url).await {
+                Ok(conn) => {
+                    tracing::info!("Database connection established on attempt {}", attempt);
 
-        // Store connection in shared state
-        {
-            let mut db_guard = self.db.write().await;
-            *db_guard = Some(db.clone());
+                    // Store connection in shared state
+                    {
+                        let mut db_guard = self.db.write().await;
+                        *db_guard = Some(conn.clone());
+                    }
+
+                    // Initialize JWT signing keys (required for login/sessions)
+                    if let Err(e) = crate::services::init_jwt_keys(&conn).await {
+                        tracing::warn!("Failed to initialize JWT keys: {}", e);
+                    } else {
+                        tracing::info!("JWT signing keys initialized");
+                    }
+
+                    // Initialize bootstrap status in database
+                    self.initialize_db_status(&conn).await?;
+
+                    self.broadcast(BootstrapEvent::DatabaseConnected {
+                        message: "Database connection established".to_string(),
+                    });
+
+                    return Ok(());
+                }
+                Err(e) => {
+                    tracing::warn!("Database connection attempt {}/10 failed: {}", attempt, e);
+                    last_error = Some(e);
+                    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                }
+            }
         }
 
-        // Initialize JWT signing keys (required for login/sessions)
-        if let Err(e) = crate::services::init_jwt_keys(&db).await {
-            tracing::warn!("Failed to initialize JWT keys: {}", e);
-        } else {
-            tracing::info!("JWT signing keys initialized");
-        }
-
-        // Initialize bootstrap status in database
-        self.initialize_db_status(&db).await?;
-
-        self.broadcast(BootstrapEvent::DatabaseConnected {
-            message: "Database connection established".to_string(),
-        });
-
-        Ok(())
+        Err(last_error.unwrap_or_else(|| {
+            AppError::Internal("Failed to connect to database after 10 attempts".to_string())
+        }))
     }
 
     /// Install a single component using Helm

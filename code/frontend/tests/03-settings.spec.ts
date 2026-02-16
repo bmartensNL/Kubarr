@@ -143,4 +143,69 @@ test.describe('Settings Page', () => {
       await expect(page.locator('text=/permission|role|admin|access/i').first()).toBeVisible();
     });
   });
+
+  test.describe('User CRUD', () => {
+    test.beforeEach(async ({ page }) => {
+      await page.locator('nav button:has-text("All Users")').click();
+      await expect(page).toHaveURL(/section=users/);
+    });
+
+    test('Create User button opens form/view', async ({ page }) => {
+      const createButton = page.locator('button:has-text("Create User"), button:has-text("Add User"), button:has-text("New User")');
+      await expect(createButton).toBeVisible();
+      await createButton.click();
+      await page.waitForTimeout(500);
+      // Should show a form with user fields
+      const hasForm = await page.locator('input[name="username"], input[placeholder*="username" i]').isVisible({ timeout: 5000 }).catch(() => false);
+      const hasHeading = await page.locator('text=/create|new|add/i').first().isVisible().catch(() => false);
+      expect(hasForm || hasHeading).toBe(true);
+    });
+
+    test('user form has username, email, password, role fields', async ({ page }) => {
+      const createButton = page.locator('button:has-text("Create User"), button:has-text("Add User"), button:has-text("New User")');
+      await createButton.click();
+      await page.waitForTimeout(500);
+
+      // Check for form fields
+      await expect(page.locator('text=/username/i').first()).toBeVisible({ timeout: 5000 });
+      await expect(page.locator('text=/email/i').first()).toBeVisible();
+      await expect(page.locator('text=/password/i').first()).toBeVisible();
+      await expect(page.locator('text=/role/i').first()).toBeVisible();
+    });
+  });
+
+  test.describe('Invite Links Details', () => {
+    test.beforeEach(async ({ page }) => {
+      await page.locator('nav button:has-text("Invite Links")').click();
+      await expect(page).toHaveURL(/section=invites/);
+    });
+
+    test('Create Invite button is present', async ({ page }) => {
+      await expect(page.locator('button:has-text("Create"), button:has-text("Generate")')).toBeVisible();
+    });
+
+    test('can open invite creation form', async ({ page }) => {
+      const createButton = page.locator('button:has-text("Create"), button:has-text("Generate")');
+      await createButton.click();
+      await page.waitForTimeout(500);
+      // Should show invite creation UI
+      const hasForm = await page.locator('text=/invite|link|code|role/i').first().isVisible({ timeout: 5000 }).catch(() => false);
+      expect(hasForm).toBe(true);
+    });
+  });
+
+  test.describe('General Settings Details', () => {
+    test.beforeEach(async ({ page }) => {
+      await page.locator('nav button:has-text("General")').click();
+      await expect(page).toHaveURL(/section=general/);
+    });
+
+    test('General section shows system settings form fields', async ({ page }) => {
+      await expect(page.locator('h1, h2, h3').filter({ hasText: /general|settings/i }).first()).toBeVisible();
+      // General settings shows toggle switches for registration options
+      // and OAuth providers section
+      await expect(page.locator('text=User Registration')).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('text=Allow Open Registration')).toBeVisible();
+    });
+  });
 });

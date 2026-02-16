@@ -42,3 +42,10 @@ dist/
 .worktrees/
 .security-key
 logs/security/
+
+# MkDocs build artifacts
+site/
+docs/hooks/__pycache__/
+
+# Playwright test results
+test-results/

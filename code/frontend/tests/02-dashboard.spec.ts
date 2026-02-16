@@ -19,7 +19,8 @@ test.describe('Dashboard', () => {
 
   test.describe('System Resources', () => {
     test('shows system resources section', async ({ page }) => {
-      await expect(page.locator('h2:has-text("System Resources")')).toBeVisible();
+      // Resource cards are displayed directly under the Dashboard heading
+      await expect(page.locator('text=CPU Usage')).toBeVisible({ timeout: 15000 });
     });
 
     test('shows CPU usage card', async ({ page }) => {
@@ -54,22 +55,22 @@ test.describe('Dashboard', () => {
     });
 
     test('can navigate to resources page via status menu', async ({ page }) => {
-      // Hover over Status dropdown to open it
-      await page.locator('nav').locator('button:has-text("Status")').hover();
+      // Click Status dropdown to open it (click-based, not hover)
+      await page.locator('nav').locator('button:has-text("Status")').click();
       await page.locator('a:has-text("Resources")').click();
       await expect(page).toHaveURL('/resources');
     });
 
     test('can navigate to storage page via status menu', async ({ page }) => {
-      await page.locator('nav').locator('button:has-text("Status")').hover();
+      await page.locator('nav').locator('button:has-text("Status")').click();
       // Click the nav link, not the dashboard card
       await page.locator('nav a:has-text("Storage"), [role="menu"] a:has-text("Storage")').first().click();
       await expect(page).toHaveURL('/storage');
     });
 
     test('can navigate to account settings via user menu', async ({ page }) => {
-      // Hover over user menu to open dropdown
-      await page.locator('nav').locator('button:has-text("admin")').hover();
+      // Click user menu to open dropdown (click-based, not hover)
+      await page.locator('nav').locator('button:has-text("admin")').click();
       await page.locator('text=Account Settings').click();
       await expect(page).toHaveURL('/account');
     });
@@ -125,11 +126,11 @@ test.describe('Dashboard', () => {
       await expect(page).toHaveURL('/storage');
     });
 
-    test('Network card links to networking page', async ({ page }) => {
-      const networkCard = page.locator('a[href="/networking"]:has-text("Network I/O")');
+    test('Network card links to resources page', async ({ page }) => {
+      const networkCard = page.locator('a[href="/resources"]:has-text("Network I/O")');
       await expect(networkCard).toBeVisible({ timeout: 15000 });
       await networkCard.click();
-      await expect(page).toHaveURL('/networking');
+      await expect(page).toHaveURL('/resources');
     });
   });
 });
