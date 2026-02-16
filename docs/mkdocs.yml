@@ -8,6 +8,13 @@ repo_url: https://github.com/bmartensNL/Kubarr
 repo_name: bmartensNL/Kubarr
 edit_uri: edit/main/docs/
 
+# Version info (displayed in footer and used by plugins)
+# This can be overridden during build with: mkdocs build -e KUBARR_VERSION=1.0.0
+extra:
+  version:
+    provider: mike
+    default: stable
+
 theme:
   name: material
   palette:
@@ -40,6 +47,7 @@ nav:
   - Home: index.md
   - Quick Start: quick-start.md
   - Docker: docker.md
+  - Versioning: versioning.md
 
 markdown_extensions:
   - admonition
@@ -67,3 +75,6 @@ extra_css:
 
 plugins:
   - search
+
+hooks:
+  - hooks/version_info.py
