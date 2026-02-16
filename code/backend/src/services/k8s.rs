@@ -318,7 +318,7 @@ impl K8sClient {
         Ok(secret)
     }
 
-    /// Get database URL from CloudNativePG secret
+    /// Get database URL from PostgreSQL secret
     pub async fn get_database_url(&self, namespace: &str) -> Result<String> {
         let secret = self.get_secret(namespace, "kubarr-db-app").await?;
 

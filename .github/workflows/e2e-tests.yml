@@ -68,8 +68,7 @@ jobs:
 
       - name: Pull images
         run: |
-          docker pull ghcr.io/cloudnative-pg/postgresql:16
-          docker pull ghcr.io/cloudnative-pg/cloudnative-pg:1.25.0
+          docker pull postgres:16-alpine
           docker pull victoriametrics/victoria-metrics:v1.96.0
           docker pull victoriametrics/victoria-logs:v1.3.2-victorialogs
           docker pull fluent/fluent-bit:3.2.2
@@ -78,8 +77,7 @@ jobs:
         run: |
           kind load docker-image "kubarr-backend:${TAG}" --name "$KIND_CLUSTER"
           kind load docker-image "kubarr-frontend:${TAG}" --name "$KIND_CLUSTER"
-          kind load docker-image ghcr.io/cloudnative-pg/postgresql:16 --name "$KIND_CLUSTER"
-          kind load docker-image ghcr.io/cloudnative-pg/cloudnative-pg:1.25.0 --name "$KIND_CLUSTER"
+          kind load docker-image postgres:16-alpine --name "$KIND_CLUSTER"
           kind load docker-image victoriametrics/victoria-metrics:v1.96.0 --name "$KIND_CLUSTER"
           kind load docker-image victoriametrics/victoria-logs:v1.3.2-victorialogs --name "$KIND_CLUSTER"
           kind load docker-image fluent/fluent-bit:3.2.2 --name "$KIND_CLUSTER"
@@ -175,11 +173,9 @@ jobs:
           kubectl logs -l app.kubernetes.io/name=kubarr-frontend -n kubarr --tail=50 2>/dev/null || true
           echo "=== Pod events ==="
           kubectl get events -n kubarr --sort-by='.lastTimestamp' 2>/dev/null | tail -30 || true
-          echo "=== CNPG operator logs ==="
-          kubectl logs -l app.kubernetes.io/name=cloudnative-pg -n cnpg-system --tail=30 2>/dev/null || true
           echo "=== PostgreSQL namespace ==="
           kubectl get pods -n postgresql 2>/dev/null || true
-          kubectl get clusters.postgresql.cnpg.io -n postgresql 2>/dev/null || true
+          kubectl logs -l app.kubernetes.io/name=postgresql -n postgresql --tail=30 2>/dev/null || true
 
       - name: Cleanup
         if: always()
