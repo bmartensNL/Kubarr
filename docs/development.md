@@ -279,11 +279,16 @@ See [versioning.md#branch-protection-rules](versioning.md#branch-protection-rule
 
 - **Issues**: https://github.com/bmartensNL/Kubarr/issues
 - **Discussions**: https://github.com/bmartensNL/Kubarr/discussions
-- **Documentation**: [docs/](.)
+- **Documentation**: [Full documentation](index.md)
 
 ## Contributing
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md) for contribution guidelines.
+Contributions are welcome! Please:
+- Fork the repository
+- Create a feature branch
+- Follow the code style guidelines above
+- Ensure all tests pass
+- Submit a pull request
 
 ---
 
