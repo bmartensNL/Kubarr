@@ -2,6 +2,10 @@
 
 **Smooth sailing for self-hosted media on Kubernetes.**
 
+![Version](https://img.shields.io/badge/version-{{VERSION}}-blue?style=flat-square)
+![Release](https://img.shields.io/badge/channel-{{CHANNEL}}-green?style=flat-square)
+![Build](https://img.shields.io/badge/commit-{{COMMIT}}-lightgrey?style=flat-square)
+
 ---
 
 ## What is Kubarr?
@@ -44,3 +48,15 @@ Kubarr comes with a curated catalog of popular homelab apps. Deploy them individ
 ## Next Steps
 
 - **[Quick Start](quick-start.md)** — Get running in 15 minutes
+- **[Versioning System](versioning.md)** — Learn about releases and version management
+
+---
+
+!!! info "Documentation Version"
+    You are viewing documentation for **Kubarr v{{VERSION}}** ({{CHANNEL}} channel).
+
+    - **Version**: {{VERSION}}
+    - **Release Channel**: {{CHANNEL}}
+    - **Commit**: {{COMMIT}}
+
+    See the [Versioning Guide](versioning.md) for release information and how to upgrade.

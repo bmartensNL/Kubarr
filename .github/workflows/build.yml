@@ -70,8 +70,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
+      - name: Extract version metadata
+        id: meta
+        run: |
+          # Extract version from package.json
+          VERSION=$(grep '"version"' code/frontend/package.json | head -1 | sed 's/.*"version": "\(.*\)".*/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          # Detect channel from git ref
+          if [[ "${{ github.ref }}" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            CHANNEL="stable"
+          elif [[ "${{ github.ref }}" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+-(rc|beta) ]]; then
+            CHANNEL="release"
+          else
+            CHANNEL="dev"
+          fi
+          echo "channel=$CHANNEL" >> $GITHUB_OUTPUT
+
       - uses: actions/setup-python@v6
         with:
           python-version: '3.x'
+
       - run: pip install mkdocs-material
-      - run: mkdocs build --strict -f docs/mkdocs.yml
+
+      - name: Build documentation
+        env:
+          KUBARR_VERSION: ${{ steps.meta.outputs.version }}
+          KUBARR_CHANNEL: ${{ steps.meta.outputs.channel }}
+          KUBARR_COMMIT: ${{ github.sha }}
+        run: mkdocs build --strict -f docs/mkdocs.yml
