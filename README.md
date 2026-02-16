@@ -1,35 +1,71 @@
 # Kubarr
 
+<p align="center">
+  <img src="./docs/kubarr-demo.gif" alt="Kubarr Demo" width="100%">
+</p>
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-1.20%2B-blue.svg)](https://kubernetes.io/)
-[![Helm](https://img.shields.io/badge/Helm-3.0%2B-0f1689.svg)](https://helm.sh/)
-[![Rust](https://img.shields.io/badge/Rust-1.83%2B-orange.svg)](https://www.rust-lang.org/)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/bmartensNL/Kubarr/releases)
 
-> A powerful Kubernetes application management dashboard for orchestrating and monitoring your cluster workloads
-
-![Kubarr Dashboard](./docs/screenshots/dashboard.png)
-*Screenshot placeholder - Dashboard overview showing deployed applications*
+> A Kubernetes-native dashboard for managing media server applications with security isolation, easy deployment, and comprehensive monitoring.
 
 ## Overview
 
-Kubarr is a Kubernetes-native application management dashboard that simplifies the deployment, configuration, and monitoring of workloads on your cluster. Built with Rust and designed for production use, Kubarr provides an intuitive interface for managing applications while maintaining the security and flexibility of Kubernetes.
+Kubarr is built specifically for managing media server infrastructure on Kubernetes. Deploy and manage your entire media stack—Plex, Sonarr, Radarr, qBittorrent, and more—through a unified dashboard with proper security isolation between applications.
 
-## ✨ Features
+**Core Design Principles:**
+- **Security by Separation** - Each application runs in its own namespace with isolated resources and network policies
+- **Easy Installation & Updates** - One-click deployment from a curated application catalog with automatic updates
+- **Comprehensive Monitoring** - Real-time resource usage, health checks, and application metrics
+- **Clean Interface** - Manage everything from a single dashboard without memorizing kubectl commands
 
-- **🚀 One-Click Application Deployment** - Deploy popular applications from a curated catalog with sensible defaults
-- **📊 Real-Time Monitoring** - Track resource usage, pod health, and application metrics in real-time
-- **🔒 Security-First Design** - JWT authentication, role-based access control, and audit logging built-in
-- **⚙️ Configuration Management** - Manage ConfigMaps, Secrets, and environment variables through an intuitive UI
-- **📦 Helm Integration** - Deploy and manage Helm charts directly from the dashboard
-- **🔄 Auto-Scaling Support** - Configure horizontal pod autoscaling with visual feedback
-- **📝 YAML Editor** - Advanced users can directly edit Kubernetes manifests with validation
-- **🌐 Multi-Cluster Ready** - Designed to support multiple cluster contexts (roadmap)
-- **🔔 Smart Notifications** - Email and webhook alerts for deployment events and resource issues
-- **📱 Responsive Design** - Modern, mobile-friendly interface built with best practices
+## Features
 
-## 🚀 Quick Start (Under 15 Minutes)
+### Application Management
 
-Get Kubarr running on your local cluster in minutes:
+**Media Server Catalog** - Pre-configured templates for popular media applications:
+- **Media Servers**: Plex, Jellyfin, Emby
+- **Media Management**: Sonarr, Radarr, Lidarr, Readarr
+- **Indexers**: Prowlarr, Jackett, NZBHydra2
+- **Download Clients**: qBittorrent, SABnzbd, Transmission, Deluge
+- **Request Management**: Overseerr, Ombi
+- **Subtitle Management**: Bazarr
+
+**One-Click Deployment** - Deploy applications with sensible defaults. Each application automatically gets its own namespace with proper resource limits and network policies.
+
+**Easy Updates** - Update applications to newer versions without manual configuration changes. Helm chart integration handles upgrades cleanly.
+
+### Security & Isolation
+
+**Namespace Separation** - Each application runs in its own Kubernetes namespace, providing resource and network isolation. Applications cannot interfere with each other.
+
+**Authentication & RBAC** - JWT-based authentication with role-based access control. Support for multiple users with different permission levels.
+
+**Network Policies** - Control which applications can communicate with each other. Restrict external access where needed.
+
+**Secret Management** - Encrypted storage for API keys, passwords, and credentials. Edit secrets through the UI without exposing values in logs.
+
+### Monitoring & Troubleshooting
+
+**Real-Time Metrics** - Track CPU, memory, network, and disk usage per application. See resource utilization trends over time.
+
+**Health Checks** - Automatic monitoring of pod health and readiness. Get notified when applications become unhealthy.
+
+**Log Streaming** - View live logs from any application. Filter by container, search for specific messages, and download logs for offline analysis.
+
+**Resource Alerts** - Configure alerts for high resource usage, pod restarts, or application failures.
+
+### Configuration
+
+**Environment Variables** - Edit application settings through a simple interface. Changes restart pods automatically.
+
+**Storage Management** - Visualize persistent volumes and their usage. Attach additional storage to applications as needed.
+
+**Port Management** - Configure service ports and ingress rules. Set up external access with proper security controls.
+
+
+## Quick Start
 
 ### Prerequisites
 
@@ -37,76 +73,51 @@ Get Kubarr running on your local cluster in minutes:
 - `kubectl` configured to access your cluster
 - `helm` 3.0+ (for Helm installation)
 
-### Option 1: Local Development with Kind (Recommended)
+### Installation
+
+**Option 1: Helm Installation**
 
 ```bash
-# 1. Create a Kind cluster (if you don't have one)
-./scripts/local-k8s-setup.sh
-
-# 2. Deploy Kubarr using the automated script
-./scripts/deploy.sh
-
-# 3. Port forward to access the dashboard
-kubectl port-forward -n kubarr svc/kubarr-frontend 8080:80
-
-# Visit http://localhost:8080 in your browser
-```
-
-**First Login:**
-- Default admin credentials will be displayed in the deployment output
-- You'll be prompted to change the password on first login
-
-### Option 2: Helm Installation
-
-```bash
-# 1. Add Kubarr namespace
+# Create namespace
 kubectl create namespace kubarr
 
-# 2. Install the Helm chart from the OCI registry
+# Install from OCI registry
 helm install kubarr oci://ghcr.io/bmartensnl/kubarr/charts/kubarr -n kubarr
 
-# 3. Wait for pods to be ready
+# Wait for pods to be ready
 kubectl wait --for=condition=ready pod -l app=kubarr -n kubarr --timeout=300s
 
-# 4. Access the dashboard
+# Access the dashboard
 kubectl port-forward -n kubarr svc/kubarr-frontend 8080:80
 ```
 
-### Option 3: Existing k3s Cluster
+Open http://localhost:8080 in your browser. Default credentials are shown during installation.
+
+**Option 2: Local Development**
 
 ```bash
-# 1. Ensure kubectl is configured for your k3s cluster
-export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+# Clone the repository
+git clone https://github.com/bmartensNL/Kubarr.git
+cd Kubarr
 
-# 2. Install with Helm from the OCI registry
-helm install kubarr oci://ghcr.io/bmartensnl/kubarr/charts/kubarr -n kubarr --create-namespace
+# Create Kind cluster
+./scripts/local-k8s-setup.sh
 
-# 3. Access the dashboard
-kubectl port-forward -n kubarr svc/kubarr-frontend 8080:80
+# Deploy Kubarr
+./scripts/deploy.sh
 
-# Visit http://localhost:8080
+# Access at http://localhost:8080
 ```
 
-## 📖 Documentation
+See [Installation Guide](./docs/installation.md) for detailed setup instructions including k3s and production deployments.
 
-- **[Quick Start Guide](./docs/quick-start.md)** - Get Kubarr running in under 15 minutes (recommended for new users)
-- **[Installation Guide](./docs/installation.md)** - Detailed installation instructions for various Kubernetes distributions
-- **[Configuration Reference](./docs/configuration.md)** - Complete list of configuration options and environment variables
-- **[User Guide](./docs/user-guide.md)** - How to use Kubarr features effectively
-- **[Architecture](./docs/architecture.md)** - System architecture and design decisions
-- **[API Documentation](./docs/api.md)** - REST API reference for integrations
-- **[Versioning System](./docs/versioning.md)** - Version management, release channels, and release workflow
-- **[Contributing Guide](./CONTRIBUTING.md)** - How to contribute to Kubarr development
-- **[Security Policy](./code/backend/SECURITY.md)** - Security practices and vulnerability reporting
-- **[Developer Setup](./CLAUDE.md)** - Development environment setup and workflow
-
-## 🏗️ Architecture
+## Architecture
 
 Kubarr consists of three main components:
 
 - **Backend** (Rust/Axum) - API server with Kubernetes client integration
-- **Frontend** (React/TypeScript) - Modern SPA with real-time updates
-- **Database** (PostgreSQL/SQLite) - Application state and configuration storage
+- **Frontend** (React/TypeScript) - SPA with real-time updates via WebSockets
+- **Database** (PostgreSQL) - Application state and configuration storage
 
 ```
 ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
@@ -117,129 +128,35 @@ Kubarr consists of three main components:
                             ▼
                      ┌─────────────┐
                      │  Database   │
-                     │  (Postgres) │
+                     │ (PostgreSQL)│
                      └─────────────┘
 ```
 
-## 🛠️ Technology Stack
+**Technology Stack:**
+- Backend: Rust, Axum, SeaORM, kube-rs
+- Frontend: React, TypeScript, Tailwind CSS
+- Database: PostgreSQL (production), SQLite (development)
+- Deployment: Docker, Kubernetes, Helm
 
-- **Backend:** Rust, Axum, SeaORM, Kube-rs
-- **Frontend:** React, TypeScript, Tailwind CSS
-- **Database:** PostgreSQL (production), SQLite (development)
-- **Deployment:** Docker, Kubernetes, Helm
-- **Authentication:** JWT, bcrypt, TOTP (2FA)
+## Documentation
 
-## 🔧 Configuration
+- [Quick Start Guide](./docs/quick-start.md) - Get running in 15 minutes
+- [Installation Guide](./docs/installation.md) - Detailed setup instructions
+- [Configuration Reference](./docs/configuration.md) - Environment variables and Helm values
+- [User Guide](./docs/user-guide.md) - How to use Kubarr effectively
+- [Architecture](./docs/architecture.md) - System design and decisions
+- [API Documentation](./docs/api.md) - REST API reference
+- [Development Guide](./docs/development.md) - Contributing to Kubarr
+- [Versioning System](./docs/versioning.md) - Version management and releases
 
-Kubarr can be configured via environment variables or Helm chart values. Key configuration options:
+## Contributing
 
-```yaml
-# Example Helm values
-backend:
-  env:
-    - name: KUBARR_LOG_LEVEL
-      value: "INFO"
-    - name: KUBARR_DATABASE_URL
-      value: "postgresql://user:pass@db:5432/kubarr"
-    - name: KUBARR_JWT_SECRET
-      valueFrom:
-        secretKeyRef:
-          name: kubarr-secrets
-          key: jwt-secret
-```
+Contributions are welcome! Please see [Development Guide](./docs/development.md) for setup instructions.
 
-See [Configuration Reference](./docs/configuration.md) for the complete list of options.
+- Issues: [GitHub Issues](https://github.com/bmartensNL/Kubarr/issues)
+- Discussions: [GitHub Discussions](https://github.com/bmartensNL/Kubarr/discussions)
+- Security: [SECURITY.md](./code/backend/SECURITY.md)
 
-## 📸 Screenshots
-
-### Authentication & Dashboard
-
-| Login Page | Dashboard Overview |
-|------------|-------------------|
-| ![Login Page](./docs/screenshots/login.png) | ![Dashboard](./docs/screenshots/dashboard.png) |
-| *Secure authentication with JWT and optional 2FA* | *Real-time overview of cluster resources and deployed applications* |
-
-### Application Management
-
-| Application Catalog | Deployed Applications | Logs Viewer |
-|--------------------|----------------------|-------------|
-| ![App Catalog](./docs/screenshots/catalog.png) | ![Deployed Apps](./docs/screenshots/deployed-apps.png) | ![Logs Viewer](./docs/screenshots/logs-viewer.png) |
-| *Browse and deploy applications from the catalog* | *Manage running applications and their resources* | *Real-time log streaming with filtering and search* |
-
-### Advanced Features
-
-| File Browser | User Management | Role Management |
-|--------------|----------------|----------------|
-| ![File Browser](./docs/screenshots/file-browser.png) | ![User Management](./docs/screenshots/user-management.png) | ![Role Management](./docs/screenshots/role-management.png) |
-| *Browse and edit ConfigMaps and Secrets* | *Manage users and their access* | *Configure RBAC roles and permissions* |
-
-*All screenshots are placeholders - actual UI may vary. See [docs/screenshots/README.md](./docs/screenshots/README.md) for details.*
-
-## 🤝 Contributing
-
-We welcome contributions! Whether it's bug reports, feature requests, or code contributions, please see our [Contributing Guide](./CONTRIBUTING.md) for details.
-
-### Development Setup
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/yourusername/kubarr.git
-cd kubarr
-
-# 2. Install Git hooks (pre-commit checks)
-./scripts/install-hooks.sh
-
-# 3. Set up local Kind cluster
-./scripts/local-k8s-setup.sh
-
-# 4. Build and deploy
-./scripts/deploy.sh
-
-# For remote build server
-./scripts/remote-server-setup.sh --host <REMOTE_IP> --user <USER>
-./scripts/deploy.sh --remote
-```
-
-See [Development Guide](./docs/development.md) for detailed workflow and [CLAUDE.md](./CLAUDE.md) for Claude Code instructions.
-
-## 📊 Project Status
-
-Kubarr is under active development. Current focus areas:
-
-- ✅ Core Kubernetes integration
-- ✅ Application deployment and management
-- ✅ User authentication and RBAC
-- 🚧 Multi-cluster support
-- 🚧 Advanced monitoring and alerting
-- 📋 Plugin system for extensions
-
-## 📜 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
-
-```
-MIT License
-
-Copyright (c) 2026 Kubarr Contributors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction...
-```
-
-## 🙏 Acknowledgments
-
-- Built with [Kube-rs](https://kube.rs/) - Kubernetes client for Rust
-- Inspired by best practices from the Kubernetes community
-- Thanks to all contributors who help make Kubarr better
-
-## 📞 Support & Community
-
-- **Issues:** [GitHub Issues](https://github.com/yourusername/kubarr/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/yourusername/kubarr/discussions)
-- **Documentation:** [docs/](./docs/)
-- **Security:** See [SECURITY.md](./code/backend/SECURITY.md) for vulnerability reporting
-
----
-
-**Note:** Kubarr is designed to simplify Kubernetes management while maintaining security and best practices. Always review permissions and configurations before deploying to production environments.
