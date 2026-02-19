@@ -29,7 +29,7 @@ jiff = "0.2"
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 bcrypt = "0.18"
 rsa = { version = "0.9", features = ["sha2"] }
-rand = "0.9"
+rand = "0.10"
 rand_core = "0.6"
 base64 = "0.22"
 hex = "0.4"
