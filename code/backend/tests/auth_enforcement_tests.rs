@@ -26,6 +26,7 @@ use common::{create_test_db_with_seed, create_test_user_with_role};
 use kubarr::endpoints::create_router;
 use kubarr::services::audit::AuditService;
 use kubarr::services::catalog::AppCatalog;
+use kubarr::services::chart_sync::ChartSyncService;
 use kubarr::services::notification::NotificationService;
 use kubarr::state::AppState;
 use std::sync::Arc;
@@ -36,10 +37,11 @@ async fn create_test_state() -> AppState {
     let db = create_test_db_with_seed().await;
     let k8s_client = Arc::new(RwLock::new(None));
     let catalog = Arc::new(RwLock::new(AppCatalog::default()));
+    let chart_sync = Arc::new(ChartSyncService::new(catalog.clone()));
     let audit = AuditService::new();
     let notification = NotificationService::new();
 
-    AppState::new(Some(db), k8s_client, catalog, audit, notification)
+    AppState::new(Some(db), k8s_client, catalog, chart_sync, audit, notification)
 }
 
 /// Helper to create a test AppState with an admin user (setup complete)

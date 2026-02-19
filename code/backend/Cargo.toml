@@ -25,6 +25,9 @@ kube = { version = "3.0", features = ["runtime", "client", "derive"] }
 k8s-openapi = { version = "0.27", features = ["v1_31"] }
 jiff = "0.2"
 
+# Rate limiting
+tower-governor = "0.5"
+
 # Authentication & Security
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 bcrypt = "0.18"

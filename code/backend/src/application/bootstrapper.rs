@@ -5,6 +5,8 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use axum::http::{HeaderValue, Method};
+use axum::middleware as axum_middleware;
 use axum::Router;
 use tokio::sync::RwLock;
 use tower_http::{
@@ -16,6 +18,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use crate::config::CONFIG;
 use crate::db;
 use crate::endpoints;
+use crate::middleware::security_headers;
 use crate::services::{
     init_jwt_keys, scheduler, start_network_broadcaster, AppCatalog, AuditService,
     ChartSyncService, K8sClient, NotificationService,
@@ -169,16 +172,49 @@ fn init_catalog() -> Arc<RwLock<AppCatalog>> {
     catalog
 }
 
-/// Create the main application router
-fn create_app(state: AppState) -> Router {
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+/// Create the main application router with all middleware layers applied.
+pub fn create_app(state: AppState) -> Router {
+    let cors = build_cors_layer();
 
     endpoints::create_router(state)
+        .layer(axum_middleware::from_fn(security_headers))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
+}
+
+/// Build the CORS layer.
+///
+/// When `KUBARR_ALLOWED_ORIGINS` is unset (empty), any origin is allowed
+/// for dev convenience. When set, only the listed origins are permitted.
+/// In both cases, only the HTTP methods actually used by the API are allowed.
+fn build_cors_layer() -> CorsLayer {
+    let allowed_methods = [
+        Method::GET,
+        Method::POST,
+        Method::PUT,
+        Method::DELETE,
+        Method::PATCH,
+        Method::OPTIONS,
+    ];
+
+    let origins = &CONFIG.server.allowed_origins;
+
+    if origins.is_empty() {
+        CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(allowed_methods)
+            .allow_headers(Any)
+    } else {
+        let parsed_origins: Vec<HeaderValue> = origins
+            .iter()
+            .filter_map(|o| o.parse().ok())
+            .collect();
+
+        CorsLayer::new()
+            .allow_origin(parsed_origins)
+            .allow_methods(allowed_methods)
+            .allow_headers(Any)
+    }
 }
 
 /// Start the HTTP server
@@ -187,7 +223,11 @@ async fn serve(app: Router) -> anyhow::Result<()> {
     tracing::info!("Listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
 
     Ok(())
 }

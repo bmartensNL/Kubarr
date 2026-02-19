@@ -16,8 +16,13 @@ pub mod storage;
 pub mod users;
 pub mod vpn;
 
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::Arc;
+
+use axum::extract::ConnectInfo;
 use axum::{extract::State, middleware as axum_middleware, response::Html, Router};
 use sea_orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationTrait};
+use tower_governor::{governor::GovernorConfigBuilder, key_extractor::KeyExtractor, GovernorError, GovernorLayer};
 use utoipa::OpenApi;
 
 use crate::config::CONFIG;
@@ -25,6 +30,23 @@ use crate::middleware::require_auth;
 use crate::models::prelude::*;
 use crate::models::{role, user_role};
 use crate::state::AppState;
+
+/// IP key extractor that uses peer `ConnectInfo` in production and falls back
+/// to `127.0.0.1` when `ConnectInfo` is not present (e.g., in unit tests).
+#[derive(Clone, Debug, Default)]
+struct PeerIpWithFallback;
+
+impl KeyExtractor for PeerIpWithFallback {
+    type Key = IpAddr;
+
+    fn extract<B>(&self, req: &axum::http::Request<B>) -> Result<Self::Key, GovernorError> {
+        Ok(req
+            .extensions()
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|ConnectInfo(addr)| addr.ip())
+            .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST)))
+    }
+}
 
 #[derive(OpenApi)]
 #[openapi(
@@ -202,6 +224,17 @@ pub struct ApiDoc;
 
 /// Create the main API router
 pub fn create_router(state: AppState) -> Router {
+    // Rate limiter for auth endpoints: 10 requests per 60 seconds per IP.
+    // A new config is created per router instantiation so test runs are isolated.
+    let auth_rate_config = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(6) // 1 token replenished every 6 s → 10 tokens per 60 s
+            .burst_size(10)
+            .key_extractor(PeerIpWithFallback)
+            .finish()
+            .expect("Invalid governor rate-limit config"),
+    );
+
     // Health/version routes that need state (separate so we can apply state properly)
     let health_routes = Router::new()
         .route("/api/health", axum::routing::get(health_check))
@@ -214,7 +247,11 @@ pub fn create_router(state: AppState) -> Router {
 
     // Public routes (no auth required) - these already have state applied internally
     let public_routes = Router::new()
-        .nest("/auth", auth::auth_routes(state.clone()))
+        .nest(
+            "/auth",
+            auth::auth_routes(state.clone())
+                .layer(GovernorLayer { config: auth_rate_config }),
+        )
         .nest("/api/setup", setup::setup_routes(state.clone()));
 
     // Protected API routes (auth required)
