@@ -51,7 +51,11 @@ async fn get(router: axum::Router, uri: &str) -> (StatusCode, String) {
 async fn test_setup_required_returns_200() {
     let state = build_test_app_state().await;
     let (status, _) = get(create_router(state), "/api/setup/required").await;
-    assert_eq!(status, StatusCode::OK, "GET /api/setup/required must return 200");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "GET /api/setup/required must return 200"
+    );
 }
 
 #[tokio::test]
@@ -282,7 +286,10 @@ async fn test_all_protected_setup_endpoints_return_403_after_admin_creation() {
         );
         // The error body must mention setup completion
         assert!(
-            body.contains("Setup") || body.contains("setup") || body.contains("completed") || body.contains("complete"),
+            body.contains("Setup")
+                || body.contains("setup")
+                || body.contains("completed")
+                || body.contains("complete"),
             "Error message for {} must reference setup completion. Body: {}",
             endpoint,
             body

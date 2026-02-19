@@ -13,7 +13,10 @@ use http_body_util::BodyExt;
 use tower::util::ServiceExt;
 
 mod common;
-use common::{build_test_app_state, build_test_app_state_with_db, create_test_db_with_seed, create_test_user_with_role};
+use common::{
+    build_test_app_state, build_test_app_state_with_db, create_test_db_with_seed,
+    create_test_user_with_role,
+};
 
 use kubarr::endpoints::create_router;
 
@@ -211,7 +214,13 @@ async fn test_version_endpoint_returns_json_with_version_field() {
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
-    assert!(json.get("version").is_some(), "Response must have a 'version' field");
-    assert!(json.get("backend").is_some(), "Response must have a 'backend' field");
+    assert!(
+        json.get("version").is_some(),
+        "Response must have a 'version' field"
+    );
+    assert!(
+        json.get("backend").is_some(),
+        "Response must have a 'backend' field"
+    );
     assert_eq!(json["backend"], "rust");
 }

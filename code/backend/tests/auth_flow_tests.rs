@@ -125,18 +125,20 @@ async fn test_login_valid_credentials_returns_200() {
     ensure_jwt_keys().await;
 
     let db = create_test_db_with_seed().await;
-    create_test_user_with_role(&db, "testuser", "test@example.com", "correctpassword", "admin")
-        .await;
+    create_test_user_with_role(
+        &db,
+        "testuser",
+        "test@example.com",
+        "correctpassword",
+        "admin",
+    )
+    .await;
     let state = build_test_app_state_with_db(db);
 
     let app = create_router(state);
     let (status, cookie) = do_login(app, "testuser", "correctpassword").await;
 
-    assert_eq!(
-        status,
-        StatusCode::OK,
-        "Valid login must return 200"
-    );
+    assert_eq!(status, StatusCode::OK, "Valid login must return 200");
     assert!(cookie.is_some(), "Login must set a session cookie");
 }
 
@@ -173,8 +175,14 @@ async fn test_login_valid_credentials_returns_user_info() {
 
     assert_eq!(json["username"], "myuser");
     assert_eq!(json["email"], "myuser@example.com");
-    assert!(json.get("user_id").is_some(), "Response must include user_id");
-    assert!(json.get("session_slot").is_some(), "Response must include session_slot");
+    assert!(
+        json.get("user_id").is_some(),
+        "Response must include user_id"
+    );
+    assert!(
+        json.get("session_slot").is_some(),
+        "Response must include session_slot"
+    );
 }
 
 #[tokio::test]
@@ -188,7 +196,11 @@ async fn test_login_invalid_password_returns_401() {
     let app = create_router(state);
     let (status, _) = do_login(app, "user2", "wrongpassword").await;
 
-    assert_eq!(status, StatusCode::UNAUTHORIZED, "Wrong password must return 401");
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "Wrong password must return 401"
+    );
 }
 
 #[tokio::test]
@@ -201,7 +213,11 @@ async fn test_login_unknown_user_returns_401() {
     let app = create_router(state);
     let (status, _) = do_login(app, "nonexistent", "anypassword").await;
 
-    assert_eq!(status, StatusCode::UNAUTHORIZED, "Unknown user must return 401");
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "Unknown user must return 401"
+    );
 }
 
 #[tokio::test]
@@ -234,7 +250,11 @@ async fn test_login_inactive_user_returns_401() {
     let app = create_router(state);
     let (status, _) = do_login(app, "inactive_user", "password123").await;
 
-    assert_eq!(status, StatusCode::UNAUTHORIZED, "Inactive account must return 401");
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "Inactive account must return 401"
+    );
 }
 
 #[tokio::test]
@@ -244,13 +264,24 @@ async fn test_login_unapproved_user_returns_401() {
     let db = create_test_db_with_seed().await;
 
     // create_test_user with is_approved = false
-    create_test_user(&db, "pending_user", "pending@example.com", "password123", false).await;
+    create_test_user(
+        &db,
+        "pending_user",
+        "pending@example.com",
+        "password123",
+        false,
+    )
+    .await;
 
     let state = build_test_app_state_with_db(db);
     let app = create_router(state);
     let (status, _) = do_login(app, "pending_user", "password123").await;
 
-    assert_eq!(status, StatusCode::UNAUTHORIZED, "Unapproved account must return 401");
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "Unapproved account must return 401"
+    );
 }
 
 // ============================================================================
@@ -274,7 +305,11 @@ async fn test_logout_without_session_returns_200() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK, "Logout must return 200 even without a session");
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "Logout must return 200 even without a session"
+    );
 }
 
 #[tokio::test]
@@ -286,7 +321,8 @@ async fn test_logout_with_session_returns_200() {
     let state = build_test_app_state_with_db(db);
 
     // Login first
-    let (login_status, cookie) = do_login(create_router(state.clone()), "logoutuser", "password").await;
+    let (login_status, cookie) =
+        do_login(create_router(state.clone()), "logoutuser", "password").await;
     assert_eq!(login_status, StatusCode::OK);
     let cookie = cookie.unwrap();
 
@@ -344,14 +380,22 @@ async fn test_list_sessions_with_valid_session_returns_200() {
     // Use session to list sessions
     let (status, body) = authenticated_get(state, "/auth/sessions", &cookie).await;
 
-    assert_eq!(status, StatusCode::OK, "Listing sessions with valid auth must return 200. Body: {}", body);
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "Listing sessions with valid auth must return 200. Body: {}",
+        body
+    );
 
     let json: serde_json::Value = serde_json::from_str(&body).unwrap();
     assert!(json.is_array(), "Sessions response must be a JSON array");
 
     // There should be at least one session (the one we just created)
     let sessions = json.as_array().unwrap();
-    assert!(!sessions.is_empty(), "Sessions list must not be empty after login");
+    assert!(
+        !sessions.is_empty(),
+        "Sessions list must not be empty after login"
+    );
 }
 
 #[tokio::test]
@@ -370,7 +414,10 @@ async fn test_list_sessions_shows_current_session() {
 
     let sessions: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
     let current = sessions.iter().find(|s| s["is_current"] == true);
-    assert!(current.is_some(), "Session list must contain the current session (is_current = true)");
+    assert!(
+        current.is_some(),
+        "Session list must contain the current session (is_current = true)"
+    );
 }
 
 // ============================================================================
@@ -382,8 +429,7 @@ async fn test_revoke_current_session_returns_bad_request() {
     ensure_jwt_keys().await;
 
     let db = create_test_db_with_seed().await;
-    create_test_user_with_role(&db, "revokeuser", "revoke@example.com", "password", "admin")
-        .await;
+    create_test_user_with_role(&db, "revokeuser", "revoke@example.com", "password", "admin").await;
     let state = build_test_app_state_with_db(db);
 
     // Login to get current session
@@ -424,8 +470,14 @@ async fn test_revoke_nonexistent_session_returns_not_found() {
     ensure_jwt_keys().await;
 
     let db = create_test_db_with_seed().await;
-    create_test_user_with_role(&db, "revokeuser2", "revoke2@example.com", "password", "admin")
-        .await;
+    create_test_user_with_role(
+        &db,
+        "revokeuser2",
+        "revoke2@example.com",
+        "password",
+        "admin",
+    )
+    .await;
     let state = build_test_app_state_with_db(db);
 
     let (_, cookie) = do_login(create_router(state.clone()), "revokeuser2", "password").await;
@@ -459,8 +511,14 @@ async fn test_viewer_cannot_access_settings() {
     ensure_jwt_keys().await;
 
     let db = create_test_db_with_seed().await;
-    create_test_user_with_role(&db, "vieweruser", "viewer@example.com", "password", "viewer")
-        .await;
+    create_test_user_with_role(
+        &db,
+        "vieweruser",
+        "viewer@example.com",
+        "password",
+        "viewer",
+    )
+    .await;
     let state = build_test_app_state_with_db(db);
 
     let (_, cookie) = do_login(create_router(state.clone()), "vieweruser", "password").await;
@@ -480,8 +538,14 @@ async fn test_viewer_cannot_manage_users() {
     ensure_jwt_keys().await;
 
     let db = create_test_db_with_seed().await;
-    create_test_user_with_role(&db, "vieweruser2", "viewer2@example.com", "password", "viewer")
-        .await;
+    create_test_user_with_role(
+        &db,
+        "vieweruser2",
+        "viewer2@example.com",
+        "password",
+        "viewer",
+    )
+    .await;
     let state = build_test_app_state_with_db(db);
 
     let (_, cookie) = do_login(create_router(state.clone()), "vieweruser2", "password").await;

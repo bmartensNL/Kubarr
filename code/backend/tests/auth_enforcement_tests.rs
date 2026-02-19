@@ -41,7 +41,14 @@ async fn create_test_state() -> AppState {
     let audit = AuditService::new();
     let notification = NotificationService::new();
 
-    AppState::new(Some(db), k8s_client, catalog, chart_sync, audit, notification)
+    AppState::new(
+        Some(db),
+        k8s_client,
+        catalog,
+        chart_sync,
+        audit,
+        notification,
+    )
 }
 
 /// Helper to create a test AppState with an admin user (setup complete)
@@ -599,12 +606,7 @@ async fn test_unauthenticated_gets_401_not_403_for_permission_gated_endpoints() 
     let state = create_test_state().await;
 
     // These endpoints require specific permissions — unauthenticated access must be 401
-    let permission_gated = vec![
-        "/api/settings",
-        "/api/users",
-        "/api/roles",
-        "/api/audit",
-    ];
+    let permission_gated = vec!["/api/settings", "/api/users", "/api/roles", "/api/audit"];
 
     for endpoint in permission_gated {
         let (status, body) = make_unauthenticated_request(state.clone(), endpoint).await;
@@ -652,10 +654,7 @@ async fn test_proxy_endpoints_require_auth() {
     // not the API auth middleware. In the test environment the frontend server
     // isn't running so these return 502. We verify they do NOT return 200 (open
     // access) regardless of whether the frontend is running.
-    let endpoints = vec![
-        "/jellyfin/web/index.html",
-        "/plex/web/index.html",
-    ];
+    let endpoints = vec!["/jellyfin/web/index.html", "/plex/web/index.html"];
 
     for endpoint in endpoints {
         let (status, _) = make_unauthenticated_request(state.clone(), endpoint).await;
