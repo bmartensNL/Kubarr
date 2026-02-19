@@ -1,5 +1,11 @@
 # Kubarr
 
+> A Kubernetes-native dashboard for managing media server applications with security isolation, easy deployment, and comprehensive monitoring.
+
+```bash
+curl -sfL https://raw.githubusercontent.com/bmartensNL/Kubarr/main/install.sh | sh -
+```
+
 <p align="center">
   <img src="./docs/kubarr-demo.gif" alt="Kubarr Demo" width="100%">
 </p>
@@ -8,7 +14,38 @@
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-1.20%2B-blue.svg)](https://kubernetes.io/)
 [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/bmartensNL/Kubarr/releases)
 
-> A Kubernetes-native dashboard for managing media server applications with security isolation, easy deployment, and comprehensive monitoring.
+## System Requirements
+
+| Requirement | Minimum | Recommended |
+|-------------|---------|-------------|
+| CPU | 1 core | 2+ cores |
+| RAM | 512 MB | 2 GB+ |
+| Disk | 1 GB | 10 GB+ (media storage separate) |
+| OS | Linux | Linux |
+| Kubernetes | 1.20+ | 1.28+ |
+| Helm | 3.0+ | 3.12+ |
+
+## Supported Applications
+
+Kubarr ships a curated catalog of self-hosted media apps:
+
+**Media Servers**
+- Plex, Jellyfin, Emby
+
+**Media Management**
+- Sonarr (TV), Radarr (Movies), Lidarr (Music), Readarr (Books)
+
+**Indexers**
+- Prowlarr, Jackett, NZBHydra2
+
+**Download Clients**
+- qBittorrent, SABnzbd, Transmission, Deluge
+
+**Request Management**
+- Overseerr, Ombi
+
+**Subtitle Management**
+- Bazarr
 
 ## Overview
 
@@ -69,7 +106,7 @@ Kubarr is built specifically for managing media server infrastructure on Kuberne
 
 ### Automated Installation (Recommended)
 
-Install Kubarr with k3s (lightweight Kubernetes) in one command:
+Run the one-liner at the top of this page, or:
 
 ```bash
 curl -sfL https://raw.githubusercontent.com/bmartensNL/Kubarr/main/install.sh | sh -
@@ -87,8 +124,6 @@ kubectl port-forward -n kubarr svc/kubarr-frontend 8080:80
 ```
 
 Open http://localhost:8080 in your browser.
-
-**System Requirements:** Linux with 2GB+ RAM recommended.
 
 ### Manual Installation
 
@@ -157,12 +192,13 @@ Kubarr consists of three main components:
 
 ## Documentation
 
-- [Quick Start Guide](./docs/quick-start.md) - Get running in 15 minutes
-- [Installation Guide](./docs/installation.md) - Detailed setup instructions
+- [Quick Start Guide](./docs/quick-start.md) - Get running quickly
 - [Configuration Reference](./docs/configuration.md) - Environment variables and Helm values
 - [User Guide](./docs/user-guide.md) - How to use Kubarr effectively
 - [Architecture](./docs/architecture.md) - System design and decisions
 - [API Documentation](./docs/api.md) - REST API reference
+- [Upgrade Guide](./docs/operations/upgrade.md) - How to upgrade Kubarr
+- [Troubleshooting](./docs/operations/troubleshooting.md) - Common issues and fixes
 - [Development Guide](./docs/development.md) - Contributing to Kubarr
 - [Versioning System](./docs/versioning.md) - Version management and releases
 
