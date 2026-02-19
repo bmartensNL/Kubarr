@@ -40,10 +40,7 @@ pub fn users_routes(state: AppState) -> Router {
         .route("/me/2fa/enable", post(enable_2fa))
         .route("/me/2fa/disable", post(disable_2fa))
         .route("/me/2fa/status", get(get_2fa_status))
-        .route(
-            "/me/2fa/recovery-codes",
-            get(get_recovery_code_count),
-        )
+        .route("/me/2fa/recovery-codes", get(get_recovery_code_count))
         .route("/pending", get(list_pending_users))
         .route("/invites", get(list_invites).post(create_invite))
         .route("/invites/{invite_id}", delete(delete_invite))
