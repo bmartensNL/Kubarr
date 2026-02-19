@@ -36,12 +36,18 @@ FROM busybox:1.37
 
 WORKDIR /var/www
 
+# Add non-root user
+RUN adduser -D -u 1000 kubarr
+
 # Copy built files
 COPY --from=built /app/dist /var/www
 
 # Expose port
-EXPOSE 80
+EXPOSE 8080
 
-# Run BusyBox httpd in foreground
+# Run as non-root user
+USER kubarr
+
+# Run BusyBox httpd in foreground on unprivileged port 8080
 # SPA routing handled by the backend proxy (intercepts 404s and serves index.html)
-CMD ["httpd", "-f", "-v", "-p", "80", "-h", "/var/www"]
+CMD ["httpd", "-f", "-v", "-p", "8080", "-h", "/var/www"]
