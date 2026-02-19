@@ -17,7 +17,7 @@ jobs:
           name: kubarr-backend-test
 
       - name: Load image
-        run: docker load < kubarr-backend-test.tar.gz
+        run: docker load < kubarr-backend-test.tar
 
       - name: Unit tests
         run: docker run --rm "kubarr-backend-test:${{ inputs.image-tag }}" cargo test --verbose
@@ -31,7 +31,7 @@ jobs:
           name: kubarr-frontend-test
 
       - name: Load image
-        run: docker load < kubarr-frontend-test.tar.gz
+        run: docker load < kubarr-frontend-test.tar
 
       - name: Unit tests
         run: docker run --rm "kubarr-frontend-test:${{ inputs.image-tag }}" npm test
@@ -75,8 +75,8 @@ jobs:
 
       - name: Load images
         run: |
-          docker load < kubarr-backend.tar.gz
-          docker load < kubarr-frontend.tar.gz
+          docker load < kubarr-backend.tar
+          docker load < kubarr-frontend.tar
 
       - name: Cleanup stale Kind resources
         run: |

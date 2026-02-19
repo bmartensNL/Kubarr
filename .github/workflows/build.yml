@@ -58,13 +58,13 @@ jobs:
             --build-arg BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) .
 
       - name: Save image
-        run: docker save "${{ matrix.image }}:${{ inputs.image-tag }}" | gzip > "${{ matrix.image }}.tar.gz"
+        run: docker save "${{ matrix.image }}:${{ inputs.image-tag }}" > "${{ matrix.image }}.tar"
 
       - name: Upload image artifact
         uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.image }}
-          path: ${{ matrix.image }}.tar.gz
+          path: ${{ matrix.image }}.tar
 
   docs:
     runs-on: ubuntu-latest
