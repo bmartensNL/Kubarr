@@ -5,10 +5,37 @@
 
 #![allow(dead_code)]
 
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
 use sea_orm::{Database, DatabaseConnection};
 use sea_orm_migration::MigratorTrait;
 
 use kubarr::migrations::Migrator;
+use kubarr::services::audit::AuditService;
+use kubarr::services::catalog::AppCatalog;
+use kubarr::services::chart_sync::ChartSyncService;
+use kubarr::services::notification::NotificationService;
+use kubarr::state::{AppState, SharedCatalog, SharedK8sClient};
+
+/// Build a test AppState from an existing DatabaseConnection.
+///
+/// Use this when you need direct control over the database (e.g., to seed
+/// specific users before constructing the state).
+pub fn build_test_app_state_with_db(db: DatabaseConnection) -> AppState {
+    let k8s_client: SharedK8sClient = Arc::new(RwLock::new(None));
+    let catalog: SharedCatalog = Arc::new(RwLock::new(AppCatalog::default()));
+    let chart_sync = Arc::new(ChartSyncService::new(catalog.clone()));
+    let audit = AuditService::new();
+    let notification = NotificationService::new();
+    AppState::new(Some(db), k8s_client, catalog, chart_sync, audit, notification)
+}
+
+/// Build a test AppState with a seeded database.
+pub async fn build_test_app_state() -> AppState {
+    let db = create_test_db_with_seed().await;
+    build_test_app_state_with_db(db)
+}
 
 /// Create an in-memory SQLite database for testing
 pub async fn create_test_db() -> DatabaseConnection {
