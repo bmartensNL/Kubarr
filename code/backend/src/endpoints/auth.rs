@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State},
-    http::{header, HeaderMap, HeaderValue},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,
@@ -10,10 +10,12 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 
 use crate::config::CONFIG;
+use crate::endpoints::settings::get_setting_value;
 use crate::error::{AppError, Result};
 use crate::middleware::auth::{
     ACTIVE_SESSION_COOKIE, MAX_SESSIONS, SESSION_COOKIE_BASE, SESSION_COOKIE_NAME,
 };
+use crate::models::audit_log::{AuditAction, ResourceType};
 use crate::models::prelude::*;
 use crate::models::{session, user};
 use crate::services::{create_session_token, decode_session_token, verify_password, verify_totp};
@@ -209,6 +211,19 @@ async fn login(
 ) -> Result<Response> {
     let db = state.get_db().await?;
 
+    // Read lockout settings from system settings (web UI configurable)
+    let threshold: i32 = get_setting_value(&db, "lockout_threshold")
+        .await
+        .unwrap_or(None)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10);
+
+    let duration_minutes: i64 = get_setting_value(&db, "lockout_duration_minutes")
+        .await
+        .unwrap_or(None)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(15);
+
     // Find user by username or email
     let found_user = User::find()
         .filter(
@@ -230,8 +245,70 @@ async fn login(
         ));
     }
 
+    // Check if account is currently locked
+    if let Some(locked_until) = found_user.locked_until {
+        if locked_until > Utc::now() {
+            let retry_after_secs = locked_until
+                .signed_duration_since(Utc::now())
+                .num_seconds()
+                .max(0);
+            let minutes_remaining = (retry_after_secs as f64 / 60.0).ceil() as i64;
+
+            let mut response = Json(serde_json::json!({
+                "detail": format!(
+                    "Account temporarily locked. Try again in {} minute{}.",
+                    minutes_remaining,
+                    if minutes_remaining == 1 { "" } else { "s" }
+                )
+            }))
+            .into_response();
+            *response.status_mut() = StatusCode::TOO_MANY_REQUESTS;
+            response.headers_mut().insert(
+                header::RETRY_AFTER,
+                HeaderValue::from_str(&retry_after_secs.to_string())
+                    .unwrap_or_else(|_| HeaderValue::from_static("900")),
+            );
+            return Ok(response);
+        }
+    }
+
     // Verify password
     if !verify_password(&request.password, &found_user.hashed_password) {
+        let now = Utc::now();
+        let new_count = found_user.failed_login_count + 1;
+        let mut user_model: user::ActiveModel = found_user.clone().into();
+
+        if new_count >= threshold {
+            // Apply lockout: reset counter and set locked_until
+            let lockout_until = now + Duration::minutes(duration_minutes);
+            user_model.failed_login_count = Set(0);
+            user_model.locked_until = Set(Some(lockout_until));
+            user_model.updated_at = Set(now);
+            user_model.update(&db).await?;
+
+            // Log the lockout event
+            let _ = state
+                .audit
+                .log_success(
+                    AuditAction::AccountLocked,
+                    ResourceType::User,
+                    Some(found_user.id.to_string()),
+                    None,
+                    Some(found_user.username.clone()),
+                    Some(serde_json::json!({
+                        "reason": "Too many failed login attempts",
+                        "locked_until": lockout_until.to_rfc3339(),
+                    })),
+                    None,
+                    None,
+                )
+                .await;
+        } else {
+            user_model.failed_login_count = Set(new_count);
+            user_model.updated_at = Set(now);
+            user_model.update(&db).await?;
+        }
+
         return Err(AppError::Unauthorized("Invalid credentials".to_string()));
     }
 
@@ -248,6 +325,16 @@ async fn login(
         if !verify_totp(totp_secret, totp_code, &found_user.email)? {
             return Err(AppError::Unauthorized("Invalid TOTP code".to_string()));
         }
+    }
+
+    // Reset failed login count on successful login
+    if found_user.failed_login_count > 0 || found_user.locked_until.is_some() {
+        let now = Utc::now();
+        let mut user_model: user::ActiveModel = found_user.clone().into();
+        user_model.failed_login_count = Set(0);
+        user_model.locked_until = Set(None);
+        user_model.updated_at = Set(now);
+        user_model.update(&db).await?;
     }
 
     // Create session record in database

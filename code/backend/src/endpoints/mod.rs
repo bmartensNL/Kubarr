@@ -78,6 +78,7 @@ use crate::state::AppState;
         users::approve_user,
         users::reject_user,
         users::admin_reset_password,
+        users::unlock_user,
         // Roles
         roles::list_roles,
         roles::create_role,

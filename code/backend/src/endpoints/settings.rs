@@ -31,6 +31,20 @@ static DEFAULT_SETTINGS: Lazy<HashMap<&'static str, (&'static str, &'static str)
             "registration_require_approval",
             ("true", "Require admin approval for new registrations"),
         );
+        m.insert(
+            "lockout_threshold",
+            (
+                "10",
+                "Number of failed login attempts before account is locked",
+            ),
+        );
+        m.insert(
+            "lockout_duration_minutes",
+            (
+                "15",
+                "Duration in minutes to lock an account after too many failed login attempts",
+            ),
+        );
         m
     });
 

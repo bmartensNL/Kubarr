@@ -46,6 +46,8 @@ pub enum AuditAction {
     UserApproved,
     UserDeactivated,
     UserActivated,
+    AccountLocked,
+    AccountUnlocked,
 
     // Role management
     RoleCreated,
@@ -91,6 +93,8 @@ impl std::fmt::Display for AuditAction {
             AuditAction::UserApproved => write!(f, "user_approved"),
             AuditAction::UserDeactivated => write!(f, "user_deactivated"),
             AuditAction::UserActivated => write!(f, "user_activated"),
+            AuditAction::AccountLocked => write!(f, "account_locked"),
+            AuditAction::AccountUnlocked => write!(f, "account_unlocked"),
             AuditAction::RoleCreated => write!(f, "role_created"),
             AuditAction::RoleUpdated => write!(f, "role_updated"),
             AuditAction::RoleDeleted => write!(f, "role_deleted"),
