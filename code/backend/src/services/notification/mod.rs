@@ -24,13 +24,18 @@ use crate::models::{
 };
 
 /// Notification channel types
+///
+/// Note: Signal was previously listed here as a stub but had no implementation
+/// and would always fail with "Channel signal not configured". It has been
+/// removed. To add Signal support in the future, implement a `SignalProvider`
+/// using the signal-cli REST API (https://github.com/bbernhard/signal-cli-rest-api)
+/// and add a `KUBARR_SIGNAL_CLI_URL` config option.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ChannelType {
     Email,
     Telegram,
     MessageBird,
-    Signal,
 }
 
 impl ChannelType {
@@ -39,7 +44,6 @@ impl ChannelType {
             ChannelType::Email => "email",
             ChannelType::Telegram => "telegram",
             ChannelType::MessageBird => "messagebird",
-            ChannelType::Signal => "signal",
         }
     }
 
@@ -48,7 +52,6 @@ impl ChannelType {
             "email" => Some(ChannelType::Email),
             "telegram" => Some(ChannelType::Telegram),
             "messagebird" => Some(ChannelType::MessageBird),
-            "signal" => Some(ChannelType::Signal),
             _ => None,
         }
     }
@@ -58,7 +61,6 @@ impl ChannelType {
             ChannelType::Email,
             ChannelType::Telegram,
             ChannelType::MessageBird,
-            ChannelType::Signal,
         ]
     }
 }
@@ -531,21 +533,44 @@ impl Clone for NotificationService {
 /// Format a human-readable title for an audit event
 fn format_event_title(action: &AuditAction) -> String {
     match action {
+        // Authentication
         AuditAction::Login => "Login Successful".to_string(),
         AuditAction::LoginFailed => "Login Failed".to_string(),
         AuditAction::Logout => "Logged Out".to_string(),
+        AuditAction::TokenRefresh => "Session Token Refreshed".to_string(),
+        AuditAction::TwoFactorEnabled => "2FA Enabled".to_string(),
+        AuditAction::TwoFactorDisabled => "2FA Disabled".to_string(),
+        AuditAction::TwoFactorVerified => "2FA Verification Successful".to_string(),
+        AuditAction::TwoFactorFailed => "2FA Verification Failed".to_string(),
+        AuditAction::PasswordChanged => "Password Changed".to_string(),
+        // User management
         AuditAction::UserCreated => "New User Created".to_string(),
         AuditAction::UserUpdated => "User Updated".to_string(),
         AuditAction::UserDeleted => "User Deleted".to_string(),
+        AuditAction::UserApproved => "User Approved".to_string(),
+        AuditAction::UserDeactivated => "User Deactivated".to_string(),
+        AuditAction::UserActivated => "User Activated".to_string(),
+        // Role management
+        AuditAction::RoleCreated => "Role Created".to_string(),
+        AuditAction::RoleUpdated => "Role Updated".to_string(),
+        AuditAction::RoleDeleted => "Role Deleted".to_string(),
+        AuditAction::RoleAssigned => "Role Assigned".to_string(),
+        AuditAction::RoleUnassigned => "Role Unassigned".to_string(),
+        // App management
         AuditAction::AppInstalled => "App Installed".to_string(),
         AuditAction::AppUninstalled => "App Uninstalled".to_string(),
+        AuditAction::AppStarted => "App Started".to_string(),
+        AuditAction::AppStopped => "App Stopped".to_string(),
         AuditAction::AppRestarted => "App Restarted".to_string(),
+        AuditAction::AppConfigured => "App Configured".to_string(),
         AuditAction::AppAccessed => "App Accessed".to_string(),
-        AuditAction::TwoFactorEnabled => "2FA Enabled".to_string(),
-        AuditAction::TwoFactorDisabled => "2FA Disabled".to_string(),
-        AuditAction::PasswordChanged => "Password Changed".to_string(),
+        // System
         AuditAction::SystemSettingChanged => "System Setting Changed".to_string(),
-        _ => format!("{:?}", action),
+        AuditAction::InviteCreated => "Invite Link Created".to_string(),
+        AuditAction::InviteUsed => "Invite Link Used".to_string(),
+        AuditAction::InviteDeleted => "Invite Link Deleted".to_string(),
+        // API
+        AuditAction::ApiAccess => "API Access".to_string(),
     }
 }
 
@@ -559,16 +584,190 @@ fn format_event_body(
     let detail = details.unwrap_or("");
 
     match action {
+        // Authentication
         AuditAction::Login => format!("User {} logged in successfully", user),
         AuditAction::LoginFailed => format!("Failed login attempt for user {}", user),
         AuditAction::Logout => format!("User {} logged out", user),
-        AuditAction::UserCreated => format!("New user account created: {}", detail),
-        AuditAction::AppInstalled => format!("App installed: {}", detail),
-        AuditAction::AppUninstalled => format!("App uninstalled: {}", detail),
-        AuditAction::AppAccessed => format!("User {} accessed {}", user, detail),
-        AuditAction::TwoFactorEnabled => format!("User {} enabled two-factor authentication", user),
+        AuditAction::TokenRefresh => format!("Session token refreshed for user {}", user),
+        AuditAction::TwoFactorEnabled => {
+            format!("User {} enabled two-factor authentication", user)
+        }
+        AuditAction::TwoFactorDisabled => {
+            format!("User {} disabled two-factor authentication", user)
+        }
+        AuditAction::TwoFactorVerified => {
+            format!("User {} successfully verified 2FA code", user)
+        }
+        AuditAction::TwoFactorFailed => {
+            format!("User {} failed 2FA verification", user)
+        }
         AuditAction::PasswordChanged => format!("User {} changed their password", user),
-        _ => detail.to_string(),
+        // User management
+        AuditAction::UserCreated => {
+            if detail.is_empty() {
+                format!("New user account created by {}", user)
+            } else {
+                format!("New user account created by {}: {}", user, detail)
+            }
+        }
+        AuditAction::UserUpdated => {
+            if detail.is_empty() {
+                format!("User account updated by {}", user)
+            } else {
+                format!("User account updated by {}: {}", user, detail)
+            }
+        }
+        AuditAction::UserDeleted => {
+            if detail.is_empty() {
+                format!("User account deleted by {}", user)
+            } else {
+                format!("User account deleted by {}: {}", user, detail)
+            }
+        }
+        AuditAction::UserApproved => {
+            if detail.is_empty() {
+                format!("User account approved by {}", user)
+            } else {
+                format!("User {} approved by {}", detail, user)
+            }
+        }
+        AuditAction::UserDeactivated => {
+            if detail.is_empty() {
+                format!("User account deactivated by {}", user)
+            } else {
+                format!("User {} deactivated by {}", detail, user)
+            }
+        }
+        AuditAction::UserActivated => {
+            if detail.is_empty() {
+                format!("User account activated by {}", user)
+            } else {
+                format!("User {} activated by {}", detail, user)
+            }
+        }
+        // Role management
+        AuditAction::RoleCreated => {
+            if detail.is_empty() {
+                format!("New role created by {}", user)
+            } else {
+                format!("New role created by {}: {}", user, detail)
+            }
+        }
+        AuditAction::RoleUpdated => {
+            if detail.is_empty() {
+                format!("Role updated by {}", user)
+            } else {
+                format!("Role updated by {}: {}", user, detail)
+            }
+        }
+        AuditAction::RoleDeleted => {
+            if detail.is_empty() {
+                format!("Role deleted by {}", user)
+            } else {
+                format!("Role deleted by {}: {}", user, detail)
+            }
+        }
+        AuditAction::RoleAssigned => {
+            if detail.is_empty() {
+                format!("Role assigned by {}", user)
+            } else {
+                format!("Role assigned by {}: {}", user, detail)
+            }
+        }
+        AuditAction::RoleUnassigned => {
+            if detail.is_empty() {
+                format!("Role unassigned by {}", user)
+            } else {
+                format!("Role unassigned by {}: {}", user, detail)
+            }
+        }
+        // App management
+        AuditAction::AppInstalled => {
+            if detail.is_empty() {
+                format!("App installed by {}", user)
+            } else {
+                format!("App installed by {}: {}", user, detail)
+            }
+        }
+        AuditAction::AppUninstalled => {
+            if detail.is_empty() {
+                format!("App uninstalled by {}", user)
+            } else {
+                format!("App uninstalled by {}: {}", user, detail)
+            }
+        }
+        AuditAction::AppStarted => {
+            if detail.is_empty() {
+                format!("App started by {}", user)
+            } else {
+                format!("App started by {}: {}", user, detail)
+            }
+        }
+        AuditAction::AppStopped => {
+            if detail.is_empty() {
+                format!("App stopped by {}", user)
+            } else {
+                format!("App stopped by {}: {}", user, detail)
+            }
+        }
+        AuditAction::AppRestarted => {
+            if detail.is_empty() {
+                format!("App restarted by {}", user)
+            } else {
+                format!("App restarted by {}: {}", user, detail)
+            }
+        }
+        AuditAction::AppConfigured => {
+            if detail.is_empty() {
+                format!("App configuration changed by {}", user)
+            } else {
+                format!("App configuration changed by {}: {}", user, detail)
+            }
+        }
+        AuditAction::AppAccessed => {
+            if detail.is_empty() {
+                format!("App accessed by {}", user)
+            } else {
+                format!("User {} accessed {}", user, detail)
+            }
+        }
+        // System
+        AuditAction::SystemSettingChanged => {
+            if detail.is_empty() {
+                format!("System setting changed by {}", user)
+            } else {
+                format!("System setting changed by {}: {}", user, detail)
+            }
+        }
+        AuditAction::InviteCreated => {
+            if detail.is_empty() {
+                format!("Invite link created by {}", user)
+            } else {
+                format!("Invite link created by {}: {}", user, detail)
+            }
+        }
+        AuditAction::InviteUsed => {
+            if detail.is_empty() {
+                format!("Invite link used by {}", user)
+            } else {
+                format!("Invite link used by {}: {}", user, detail)
+            }
+        }
+        AuditAction::InviteDeleted => {
+            if detail.is_empty() {
+                format!("Invite link deleted by {}", user)
+            } else {
+                format!("Invite link deleted by {}: {}", user, detail)
+            }
+        }
+        // API
+        AuditAction::ApiAccess => {
+            if detail.is_empty() {
+                format!("API accessed by {}", user)
+            } else {
+                format!("API accessed by {}: {}", user, detail)
+            }
+        }
     }
 }
 
