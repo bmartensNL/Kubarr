@@ -287,7 +287,7 @@ test.describe('Networking Page', () => {
       }
 
       // Get initial state
-      const initialText = await infraButton.textContent();
+      const _initialText = await infraButton.textContent();
 
       // Click to toggle
       await infraButton.click();

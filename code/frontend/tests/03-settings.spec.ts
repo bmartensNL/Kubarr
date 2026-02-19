@@ -228,7 +228,7 @@ test.describe('Settings Page', () => {
     test('shows either pending users list or empty state', async ({ page }) => {
       await page.waitForLoadState('networkidle');
       // Either shows a list of pending users or an empty state message
-      const hasUsers = await page.locator('main >> text=/approve|reject|pending/i').first().isVisible({ timeout: 5000 }).catch(() => false);
+      const _hasUsers = await page.locator('main >> text=/approve|reject|pending/i').first().isVisible({ timeout: 5000 }).catch(() => false);
       const hasContent = await page.locator('main').textContent();
       expect(hasContent?.trim().length).toBeGreaterThan(0);
       // Page should have rendered something meaningful
