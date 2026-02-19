@@ -47,7 +47,10 @@ fn test_victoriametrics_url_env_override() {
     let config = Config::from_env();
     std::env::remove_var("KUBARR_VICTORIAMETRICS_URL");
 
-    assert_eq!(config.monitoring.victoriametrics_url, "http://custom-vm:9999");
+    assert_eq!(
+        config.monitoring.victoriametrics_url,
+        "http://custom-vm:9999"
+    );
 }
 
 #[test]
@@ -56,7 +59,10 @@ fn test_victorialogs_url_env_override() {
     let config = Config::from_env();
     std::env::remove_var("KUBARR_VICTORIALOGS_URL");
 
-    assert_eq!(config.monitoring.victorialogs_url, "http://custom-vlogs:5555");
+    assert_eq!(
+        config.monitoring.victorialogs_url,
+        "http://custom-vlogs:5555"
+    );
 }
 
 // ============================================================================
@@ -105,8 +111,8 @@ async fn test_service_unavailable_response_is_json() {
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
 
     // Response must be valid JSON with a "detail" field
-    let parsed: serde_json::Value = serde_json::from_str(&body)
-        .expect("monitoring error response must be valid JSON");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&body).expect("monitoring error response must be valid JSON");
     assert!(
         parsed.get("detail").is_some(),
         "JSON error response must have a 'detail' field"
@@ -129,7 +135,10 @@ async fn test_vm_connection_error_maps_to_503() {
         .await;
 
     // The request must fail (connection refused or timeout).
-    assert!(result.is_err(), "expected a connection error to an unused port");
+    assert!(
+        result.is_err(),
+        "expected a connection error to an unused port"
+    );
 
     // Wrap the error in AppError::ServiceUnavailable (as monitoring.rs does).
     let app_error = AppError::ServiceUnavailable(format!(

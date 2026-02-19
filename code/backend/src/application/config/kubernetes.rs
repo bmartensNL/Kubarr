@@ -15,8 +15,7 @@ impl KubernetesConfig {
             in_cluster: env::var("KUBARR_IN_CLUSTER")
                 .map(|v| v.to_lowercase() == "true")
                 .unwrap_or(false),
-            default_namespace: env::var("KUBARR_DEFAULT_NAMESPACE")
-                .unwrap_or_default(),
+            default_namespace: env::var("KUBARR_DEFAULT_NAMESPACE").unwrap_or_default(),
         }
     }
 }

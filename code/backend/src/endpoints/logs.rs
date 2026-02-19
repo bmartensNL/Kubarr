@@ -253,7 +253,10 @@ async fn get_vlogs_namespaces(_auth: Authorized<LogsView>) -> Result<Json<Vec<St
     // VictoriaLogs uses /select/logsql/field_values for getting field values
     // Requires a query parameter
     let response = client
-        .get(format!("{}/select/logsql/field_values", CONFIG.monitoring.victorialogs_url))
+        .get(format!(
+            "{}/select/logsql/field_values",
+            CONFIG.monitoring.victorialogs_url
+        ))
         .query(&[("query", "*"), ("field", "namespace"), ("limit", "1000")])
         .send()
         .await
@@ -306,7 +309,10 @@ async fn get_vlogs_labels(_auth: Authorized<LogsView>) -> Result<Json<Vec<String
 
     // VictoriaLogs uses /select/logsql/field_names with query parameter
     let response = client
-        .get(format!("{}/select/logsql/field_names", CONFIG.monitoring.victorialogs_url))
+        .get(format!(
+            "{}/select/logsql/field_names",
+            CONFIG.monitoring.victorialogs_url
+        ))
         .query(&[("query", "*"), ("limit", "1000")])
         .send()
         .await
@@ -364,7 +370,10 @@ async fn get_vlogs_label_values(
         .map_err(|e| AppError::Internal(format!("Failed to create HTTP client: {}", e)))?;
 
     let response = client
-        .get(format!("{}/select/logsql/field_values", CONFIG.monitoring.victorialogs_url))
+        .get(format!(
+            "{}/select/logsql/field_values",
+            CONFIG.monitoring.victorialogs_url
+        ))
         .query(&[("query", "*"), ("field", label.as_str()), ("limit", "1000")])
         .send()
         .await
@@ -430,7 +439,10 @@ async fn query_vlogs(
     let query = convert_loki_to_logsql(&params.query);
 
     let response = client
-        .get(format!("{}/select/logsql/query", CONFIG.monitoring.victorialogs_url))
+        .get(format!(
+            "{}/select/logsql/query",
+            CONFIG.monitoring.victorialogs_url
+        ))
         .query(&[
             ("query", query.as_str()),
             ("start", start.as_str()),
