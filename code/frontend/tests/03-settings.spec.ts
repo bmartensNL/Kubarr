@@ -208,4 +208,180 @@ test.describe('Settings Page', () => {
       await expect(page.locator('text=Allow Open Registration')).toBeVisible();
     });
   });
+
+  test.describe('Pending Approval Section', () => {
+    test.beforeEach(async ({ page }) => {
+      await page.locator('nav button:has-text("Pending Approval")').click();
+      await expect(page).toHaveURL(/section=pending/);
+    });
+
+    test('shows Pending Approval heading', async ({ page }) => {
+      await page.waitForLoadState('networkidle');
+      await expect(page.locator('h3:has-text("Pending Approval")')).toBeVisible({ timeout: 10000 });
+    });
+
+    test('shows description text', async ({ page }) => {
+      await page.waitForLoadState('networkidle');
+      await expect(page.locator('text=Users waiting for approval')).toBeVisible({ timeout: 10000 });
+    });
+
+    test('does not show error page', async ({ page }) => {
+      await page.waitForLoadState('networkidle');
+      const errorText = page.locator('text=/something went wrong|internal server error/i');
+      await expect(errorText).not.toBeVisible();
+    });
+
+    test('renders section content without a blank white page', async ({ page }) => {
+      await page.waitForLoadState('networkidle');
+      const body = await page.evaluate(() => document.body.innerText || '');
+      expect(body.trim().length).toBeGreaterThan(0);
+    });
+  });
+
+  test.describe('VPN Section', () => {
+    test.beforeEach(async ({ page }) => {
+      await page.locator('nav button:has-text("VPN")').click();
+      await expect(page).toHaveURL(/section=vpn/);
+    });
+
+    test('shows VPN section content', async ({ page }) => {
+      await page.waitForLoadState('networkidle');
+      // VPN section should load without errors
+      const hasVpnContent = await page.locator('text=/vpn|wireguard|provider|tunnel/i').first()
+        .isVisible({ timeout: 10000 }).catch(() => false);
+      expect(hasVpnContent).toBe(true);
+    });
+
+    test('does not show error page', async ({ page }) => {
+      await page.waitForLoadState('networkidle');
+      const errorText = page.locator('text=/something went wrong|internal server error/i');
+      await expect(errorText).not.toBeVisible();
+    });
+
+    test('renders section content without a blank white page', async ({ page }) => {
+      await page.waitForLoadState('networkidle');
+      const body = await page.evaluate(() => document.body.innerText || '');
+      expect(body.trim().length).toBeGreaterThan(0);
+    });
+
+    test('VPN section heading or content area is visible', async ({ page }) => {
+      await page.waitForLoadState('networkidle');
+      // The VPN tab renders a VpnTab component - check that it loaded something
+      const mainContent = page.locator('main');
+      await expect(mainContent).toBeVisible();
+      const contentText = await mainContent.textContent();
+      expect(contentText?.trim().length).toBeGreaterThan(0);
+    });
+  });
+
+  test.describe('Dynamic DNS Section', () => {
+    test.beforeEach(async ({ page }) => {
+      await page.locator('nav button:has-text("Dynamic DNS")').click();
+      await expect(page).toHaveURL(/section=ddns/);
+    });
+
+    test('shows Dynamic DNS heading', async ({ page }) => {
+      await page.waitForLoadState('networkidle');
+      await expect(page.locator('h3:has-text("Dynamic DNS")')).toBeVisible({ timeout: 10000 });
+    });
+
+    test('shows DDNS coming soon message', async ({ page }) => {
+      await page.waitForLoadState('networkidle');
+      await expect(page.locator('text=DDNS configuration coming soon')).toBeVisible({ timeout: 10000 });
+    });
+
+    test('does not show error page', async ({ page }) => {
+      await page.waitForLoadState('networkidle');
+      const errorText = page.locator('text=/something went wrong|internal server error/i');
+      await expect(errorText).not.toBeVisible();
+    });
+
+    test('renders without blank page', async ({ page }) => {
+      await page.waitForLoadState('networkidle');
+      const body = await page.evaluate(() => document.body.innerText || '');
+      expect(body.trim().length).toBeGreaterThan(0);
+    });
+  });
+
+  test.describe("Let's Encrypt Section", () => {
+    test.beforeEach(async ({ page }) => {
+      await page.locator("nav button:has-text(\"Let's Encrypt\")").click();
+      await expect(page).toHaveURL(/section=letsencrypt/);
+    });
+
+    test("shows Let's Encrypt heading", async ({ page }) => {
+      await page.waitForLoadState('networkidle');
+      await expect(page.locator("h3:has-text(\"Let's Encrypt\")")).toBeVisible({ timeout: 10000 });
+    });
+
+    test("shows Let's Encrypt coming soon message", async ({ page }) => {
+      await page.waitForLoadState('networkidle');
+      await expect(page.locator("text=Let's Encrypt configuration coming soon")).toBeVisible({ timeout: 10000 });
+    });
+
+    test('does not show error page', async ({ page }) => {
+      await page.waitForLoadState('networkidle');
+      const errorText = page.locator('text=/something went wrong|internal server error/i');
+      await expect(errorText).not.toBeVisible();
+    });
+
+    test('renders without blank page', async ({ page }) => {
+      await page.waitForLoadState('networkidle');
+      const body = await page.evaluate(() => document.body.innerText || '');
+      expect(body.trim().length).toBeGreaterThan(0);
+    });
+  });
+
+  test.describe('All Settings Sections Load Without Critical Errors', () => {
+    const sections = [
+      { label: 'Dashboard', urlPattern: /section=dashboard/, name: 'dashboard' },
+      { label: 'General', urlPattern: /section=general/, name: 'general' },
+      { label: 'All Users', urlPattern: /section=users/, name: 'users' },
+      { label: 'Pending Approval', urlPattern: /section=pending/, name: 'pending' },
+      { label: 'Invite Links', urlPattern: /section=invites/, name: 'invites' },
+      { label: 'Permissions', urlPattern: /section=permissions/, name: 'permissions' },
+      { label: 'Audit Logs', urlPattern: /section=audit/, name: 'audit' },
+      { label: 'Notifications', urlPattern: /section=notifications/, name: 'notifications' },
+      { label: 'VPN', urlPattern: /section=vpn/, name: 'vpn' },
+      { label: 'Dynamic DNS', urlPattern: /section=ddns/, name: 'ddns' },
+    ];
+
+    for (const section of sections) {
+      test(`${section.name} section loads without "Something went wrong"`, async ({ page }) => {
+        const consoleErrors: string[] = [];
+        page.on('console', (msg) => {
+          if (msg.type() === 'error') {
+            consoleErrors.push(msg.text());
+          }
+        });
+
+        await page.goto('/settings');
+        await page.waitForLoadState('networkidle');
+
+        await page.locator(`nav button:has-text("${section.label}")`).click();
+        await expect(page).toHaveURL(section.urlPattern);
+        await page.waitForLoadState('networkidle');
+
+        // Should not show generic error message
+        await expect(page.locator('text=/something went wrong/i')).not.toBeVisible();
+
+        // Page should not be blank
+        const mainText = await page.locator('main').textContent();
+        expect(mainText?.trim().length).toBeGreaterThan(0);
+      });
+    }
+
+    test("let's encrypt section loads without errors", async ({ page }) => {
+      await page.goto('/settings');
+      await page.waitForLoadState('networkidle');
+
+      await page.locator("nav button:has-text(\"Let's Encrypt\")").click();
+      await expect(page).toHaveURL(/section=letsencrypt/);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.locator('text=/something went wrong/i')).not.toBeVisible();
+      const mainText = await page.locator('main').textContent();
+      expect(mainText?.trim().length).toBeGreaterThan(0);
+    });
+  });
 });
