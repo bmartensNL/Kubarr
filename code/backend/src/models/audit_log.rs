@@ -63,6 +63,10 @@ pub enum AuditAction {
     AppConfigured,
     AppAccessed,
 
+    // Account lockout
+    AccountLocked,
+    AccountUnlocked,
+
     // System
     SystemSettingChanged,
     InviteCreated,
@@ -103,6 +107,8 @@ impl std::fmt::Display for AuditAction {
             AuditAction::AppRestarted => write!(f, "app_restarted"),
             AuditAction::AppConfigured => write!(f, "app_configured"),
             AuditAction::AppAccessed => write!(f, "app_accessed"),
+            AuditAction::AccountLocked => write!(f, "account_locked"),
+            AuditAction::AccountUnlocked => write!(f, "account_unlocked"),
             AuditAction::SystemSettingChanged => write!(f, "system_setting_changed"),
             AuditAction::InviteCreated => write!(f, "invite_created"),
             AuditAction::InviteUsed => write!(f, "invite_used"),

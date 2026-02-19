@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::endpoints::extractors::{get_user_app_access, get_user_permissions};
 use crate::error::{AppError, Result};
 use crate::middleware::{Authenticated, Authorized, UsersManage, UsersResetPassword, UsersView};
+use crate::models::audit_log::{AuditAction, ResourceType};
 use crate::models::prelude::*;
 use crate::models::{invite, role, user, user_preferences, user_role};
 use crate::services::{
@@ -49,6 +50,7 @@ pub fn users_routes(state: AppState) -> Router {
         .route("/{user_id}/approve", post(approve_user))
         .route("/{user_id}/reject", post(reject_user))
         .route("/{user_id}/password", patch(admin_reset_password))
+        .route("/{user_id}/unlock", post(unlock_user))
         .with_state(state)
 }
 
@@ -1222,4 +1224,72 @@ async fn get_2fa_status(
         verified_at: user_record.totp_verified_at,
         required_by_role,
     }))
+}
+
+// ============================================================================
+// Account Lockout Endpoints
+// ============================================================================
+
+/// Unlock a locked user account (admin action)
+#[doc = "Requires: users.manage"]
+#[utoipa::path(
+    post,
+    path = "/api/users/{user_id}/unlock",
+    tag = "Users",
+    params(("user_id" = i64, Path, description = "User ID to unlock")),
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 404, description = "User not found")
+    )
+)]
+pub async fn unlock_user(
+    State(state): State<AppState>,
+    Path(user_id): Path<i64>,
+    auth: Authorized<UsersManage>,
+) -> Result<Json<serde_json::Value>> {
+    let db = state.get_db().await?;
+
+    let existing_user = User::find_by_id(user_id)
+        .one(&db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+
+    let now = Utc::now();
+    let mut user_model: user::ActiveModel = existing_user.clone().into();
+    user_model.failed_login_count = Set(0);
+    user_model.locked_until = Set(None);
+    user_model.updated_at = Set(now);
+    user_model.update(&db).await?;
+
+    tracing::info!(
+        admin_user_id = auth.user_id(),
+        admin_username = auth.user().username,
+        target_user_id = user_id,
+        target_username = existing_user.username,
+        "Admin unlocked user account"
+    );
+
+    if let Err(e) = state
+        .audit
+        .log_success(
+            AuditAction::AccountUnlocked,
+            ResourceType::User,
+            Some(user_id.to_string()),
+            Some(auth.user_id()),
+            Some(auth.user().username.clone()),
+            Some(serde_json::json!({
+                "unlocked_user_id": user_id,
+                "unlocked_username": existing_user.username,
+            })),
+            None,
+            None,
+        )
+        .await
+    {
+        tracing::warn!("Failed to log AccountUnlocked audit event: {}", e);
+    }
+
+    Ok(Json(serde_json::json!({
+        "message": "Account unlocked successfully"
+    })))
 }

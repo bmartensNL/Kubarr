@@ -18,6 +18,8 @@ pub struct Model {
     pub totp_secret: Option<String>,
     pub totp_enabled: bool,
     pub totp_verified_at: Option<DateTimeUtc>,
+    pub failed_login_count: i32,
+    pub locked_until: Option<DateTimeUtc>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
 }

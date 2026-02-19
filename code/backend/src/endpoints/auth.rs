@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State},
-    http::{header, HeaderMap, HeaderValue},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,
@@ -14,6 +14,7 @@ use crate::error::{AppError, Result};
 use crate::middleware::auth::{
     ACTIVE_SESSION_COOKIE, MAX_SESSIONS, SESSION_COOKIE_BASE, SESSION_COOKIE_NAME,
 };
+use crate::models::audit_log::{AuditAction, ResourceType};
 use crate::models::prelude::*;
 use crate::models::{session, user};
 use crate::services::{create_session_token, decode_session_token, verify_password, verify_totp};
@@ -199,7 +200,8 @@ fn find_available_slot(existing: &[(usize, i64, String)], user_id: i64) -> usize
     tag = "Auth",
     request_body = LoginRequest,
     responses(
-        (status = 200, body = LoginResponse)
+        (status = 200, body = LoginResponse),
+        (status = 429, description = "Account temporarily locked")
     )
 )]
 async fn login(
@@ -220,6 +222,42 @@ async fn login(
         .await?
         .ok_or_else(|| AppError::Unauthorized("Invalid credentials".to_string()))?;
 
+    // Check if account is locked before any other checks
+    if let Some(locked_until) = found_user.locked_until {
+        let now = Utc::now();
+        if locked_until > now {
+            let seconds_remaining = (locked_until - now).num_seconds().max(1);
+            let minutes_remaining = (seconds_remaining + 59) / 60;
+
+            tracing::warn!(
+                user_id = found_user.id,
+                username = found_user.username,
+                seconds_remaining = seconds_remaining,
+                "Login attempt on locked account"
+            );
+
+            let retry_after_value =
+                HeaderValue::from_str(&seconds_remaining.to_string()).unwrap_or_else(|_| {
+                    HeaderValue::from_static("900")
+                });
+
+            let mut response = Json(serde_json::json!({
+                "detail": format!(
+                    "Account temporarily locked. Try again in {} minute(s).",
+                    minutes_remaining
+                )
+            }))
+            .into_response();
+
+            *response.status_mut() = StatusCode::TOO_MANY_REQUESTS;
+            response
+                .headers_mut()
+                .insert("retry-after", retry_after_value);
+
+            return Ok(response);
+        }
+    }
+
     // Check if user is active and approved
     if !found_user.is_active {
         return Err(AppError::Unauthorized("Account is disabled".to_string()));
@@ -230,8 +268,73 @@ async fn login(
         ));
     }
 
+    // Extract user agent and IP from headers for audit logging
+    let user_agent = headers
+        .get(header::USER_AGENT)
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.chars().take(255).collect::<String>());
+
+    let ip_address = headers
+        .get("x-forwarded-for")
+        .or_else(|| headers.get("x-real-ip"))
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.split(',').next().unwrap_or(s).trim().to_string());
+
     // Verify password
     if !verify_password(&request.password, &found_user.hashed_password) {
+        // Increment failure count and potentially apply lockout
+        let new_count = found_user.failed_login_count + 1;
+        let threshold = CONFIG.auth.lockout_threshold as i32;
+        let duration_mins = CONFIG.auth.lockout_duration_minutes as i64;
+        let now = Utc::now();
+
+        let mut update_model: user::ActiveModel = found_user.clone().into();
+        let lockout_applied = if new_count >= threshold {
+            let lockout_until = now + Duration::minutes(duration_mins);
+            update_model.locked_until = Set(Some(lockout_until));
+            update_model.failed_login_count = Set(0);
+            true
+        } else {
+            update_model.failed_login_count = Set(new_count);
+            false
+        };
+        update_model.updated_at = Set(now);
+
+        if let Err(e) = update_model.update(&db).await {
+            tracing::error!("Failed to update failed login count: {}", e);
+        }
+
+        if lockout_applied {
+            tracing::warn!(
+                user_id = found_user.id,
+                username = found_user.username,
+                threshold = threshold,
+                "Account locked after repeated failed login attempts"
+            );
+
+            if let Err(e) = state
+                .audit
+                .log(
+                    AuditAction::AccountLocked,
+                    ResourceType::User,
+                    Some(found_user.id.to_string()),
+                    Some(found_user.id),
+                    Some(found_user.username.clone()),
+                    Some(serde_json::json!({
+                        "reason": format!("Account locked after {} failed login attempts", threshold),
+                        "lockout_duration_minutes": duration_mins,
+                    })),
+                    ip_address.clone(),
+                    user_agent.clone(),
+                    false,
+                    Some("Account locked due to repeated failed login attempts".to_string()),
+                )
+                .await
+            {
+                tracing::warn!("Failed to log AccountLocked audit event: {}", e);
+            }
+        }
+
         return Err(AppError::Unauthorized("Invalid credentials".to_string()));
     }
 
@@ -250,22 +353,23 @@ async fn login(
         }
     }
 
+    // Reset failure count and lockout on successful login
+    if found_user.failed_login_count > 0 || found_user.locked_until.is_some() {
+        let now = Utc::now();
+        let mut reset_model: user::ActiveModel = found_user.clone().into();
+        reset_model.failed_login_count = Set(0);
+        reset_model.locked_until = Set(None);
+        reset_model.updated_at = Set(now);
+
+        if let Err(e) = reset_model.update(&db).await {
+            tracing::error!("Failed to reset login failure count on successful login: {}", e);
+        }
+    }
+
     // Create session record in database
     let session_id = uuid::Uuid::new_v4().to_string();
     let now = Utc::now();
     let expires_at = now + Duration::days(7);
-
-    // Extract user agent and IP from headers
-    let user_agent = headers
-        .get(header::USER_AGENT)
-        .and_then(|h| h.to_str().ok())
-        .map(|s| s.chars().take(255).collect::<String>());
-
-    let ip_address = headers
-        .get("x-forwarded-for")
-        .or_else(|| headers.get("x-real-ip"))
-        .and_then(|h| h.to_str().ok())
-        .map(|s| s.split(',').next().unwrap_or(s).trim().to_string());
 
     let session = session::ActiveModel {
         id: Set(session_id.clone()),

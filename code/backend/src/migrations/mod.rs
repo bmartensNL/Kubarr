@@ -23,6 +23,7 @@ mod m20260129_000001_create_bootstrap_status;
 mod m20260130_000001_create_vpn_providers;
 mod m20260130_000002_create_app_vpn_configs;
 mod m20260131_000001_add_port_forwarding;
+mod m20260219_000001_add_account_lockout;
 
 pub struct Migrator;
 
@@ -53,6 +54,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260130_000001_create_vpn_providers::Migration),
             Box::new(m20260130_000002_create_app_vpn_configs::Migration),
             Box::new(m20260131_000001_add_port_forwarding::Migration),
+            Box::new(m20260219_000001_add_account_lockout::Migration),
         ]
     }
 }
