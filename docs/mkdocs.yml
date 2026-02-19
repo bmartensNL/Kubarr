@@ -46,9 +46,16 @@ theme:
 nav:
   - Home: index.md
   - Quick Start: quick-start.md
+  - Architecture: architecture.md
+  - Configuration: configuration.md
+  - User Guide: user-guide.md
+  - API: api.md
   - Docker: docker.md
   - Development: development.md
   - Versioning: versioning.md
+  - Operations:
+    - Upgrade Guide: operations/upgrade.md
+    - Troubleshooting: operations/troubleshooting.md
 
 markdown_extensions:
   - admonition

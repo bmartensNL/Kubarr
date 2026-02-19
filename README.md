@@ -10,6 +10,35 @@
 
 > A Kubernetes-native dashboard for managing media server applications with security isolation, easy deployment, and comprehensive monitoring.
 
+## Install
+
+```bash
+curl -sfL https://raw.githubusercontent.com/bmartensNL/Kubarr/main/install.sh | sh -
+```
+
+Then access the dashboard:
+
+```bash
+kubectl port-forward -n kubarr svc/kubarr-frontend 8080:80
+```
+
+Open http://localhost:8080 in your browser.
+
+---
+
+## System Requirements
+
+| Requirement | Minimum | Recommended |
+|-------------|---------|-------------|
+| CPU | 1 core | 2+ cores |
+| RAM | 1 GB | 2+ GB |
+| Disk | 2 GB | 10+ GB |
+| OS | Linux (x86_64 / arm64) | Ubuntu 22.04 / Debian 12 |
+| Kubernetes | 1.20+ | 1.28+ |
+| Helm | 3.10+ | 3.14+ |
+
+---
+
 ## Overview
 
 Kubarr is built specifically for managing media server infrastructure on Kubernetes. Deploy and manage your entire media stack—Plex, Sonarr, Radarr, qBittorrent, and more—through a unified dashboard with proper security isolation between applications.
@@ -20,19 +49,46 @@ Kubarr is built specifically for managing media server infrastructure on Kuberne
 - **Comprehensive Monitoring** - Real-time resource usage, health checks, and application metrics
 - **Clean Interface** - Manage everything from a single dashboard without memorizing kubectl commands
 
+## Supported Applications
+
+### Media Servers
+- **Plex** — Media server with transcoding and remote streaming
+- **Jellyfin** — Open-source media server
+- **Emby** — Personal media server
+
+### Media Management
+- **Sonarr** — TV series collection manager
+- **Radarr** — Movie collection manager
+- **Lidarr** — Music collection manager
+- **Readarr** — Book and audiobook manager
+
+### Indexers
+- **Prowlarr** — Unified indexer manager for Sonarr/Radarr
+- **Jackett** — Torrent tracker proxy
+- **NZBHydra2** — Usenet meta search
+
+### Download Clients
+- **qBittorrent** — BitTorrent client
+- **SABnzbd** — Usenet downloader
+- **Transmission** — Lightweight BitTorrent client
+- **Deluge** — Feature-rich BitTorrent client
+
+### Request Management
+- **Overseerr** — Media request and discovery tool
+- **Ombi** — Personal media requests manager
+
+### Subtitle Management
+- **Bazarr** — Automatic subtitle download for Sonarr/Radarr
+
+---
+
 ## Features
 
 ### Application Management
 
-**Media Server Catalog** - Pre-configured templates for popular media applications:
-- **Media Servers**: Plex, Jellyfin, Emby
-- **Media Management**: Sonarr, Radarr, Lidarr, Readarr
-- **Indexers**: Prowlarr, Jackett, NZBHydra2
-- **Download Clients**: qBittorrent, SABnzbd, Transmission, Deluge
-- **Request Management**: Overseerr, Ombi
-- **Subtitle Management**: Bazarr
+**Media Server Catalog** - Pre-configured templates for popular media applications with sensible defaults and resource limits.
 
-**One-Click Deployment** - Deploy applications with sensible defaults. Each application automatically gets its own namespace with proper resource limits and network policies.
+**One-Click Deployment** - Deploy applications with a single click. Each application automatically gets its own namespace with proper resource limits and network policies.
 
 **Easy Updates** - Update applications to newer versions without manual configuration changes. Helm chart integration handles upgrades cleanly.
 
@@ -40,7 +96,7 @@ Kubarr is built specifically for managing media server infrastructure on Kuberne
 
 **Namespace Separation** - Each application runs in its own Kubernetes namespace, providing resource and network isolation. Applications cannot interfere with each other.
 
-**Authentication & RBAC** - JWT-based authentication with role-based access control. Support for multiple users with different permission levels.
+**Authentication & RBAC** - Session-based authentication with role-based access control. Support for multiple users with different permission levels.
 
 **Network Policies** - Control which applications can communicate with each other. Restrict external access where needed.
 
@@ -64,6 +120,7 @@ Kubarr is built specifically for managing media server infrastructure on Kuberne
 
 **Port Management** - Configure service ports and ingress rules. Set up external access with proper security controls.
 
+---
 
 ## Quick Start
 
@@ -87,8 +144,6 @@ kubectl port-forward -n kubarr svc/kubarr-frontend 8080:80
 ```
 
 Open http://localhost:8080 in your browser.
-
-**System Requirements:** Linux with 2GB+ RAM recommended.
 
 ### Manual Installation
 
@@ -126,7 +181,7 @@ cd Kubarr
 # Access at http://localhost:8080
 ```
 
-See [Installation Guide](./docs/installation.md) for detailed setup instructions and advanced configuration.
+---
 
 ## Architecture
 
@@ -155,15 +210,18 @@ Kubarr consists of three main components:
 - Database: PostgreSQL (production), SQLite (development)
 - Deployment: Docker, Kubernetes, Helm
 
+---
+
 ## Documentation
 
 - [Quick Start Guide](./docs/quick-start.md) - Get running in 15 minutes
-- [Installation Guide](./docs/installation.md) - Detailed setup instructions
 - [Configuration Reference](./docs/configuration.md) - Environment variables and Helm values
 - [User Guide](./docs/user-guide.md) - How to use Kubarr effectively
 - [Architecture](./docs/architecture.md) - System design and decisions
 - [API Documentation](./docs/api.md) - REST API reference
 - [Development Guide](./docs/development.md) - Contributing to Kubarr
+- [Upgrade Guide](./docs/operations/upgrade.md) - How to upgrade Kubarr
+- [Troubleshooting](./docs/operations/troubleshooting.md) - Common issues and fixes
 - [Versioning System](./docs/versioning.md) - Version management and releases
 
 ## Contributing
