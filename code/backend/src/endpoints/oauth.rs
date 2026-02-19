@@ -2,10 +2,10 @@ use axum::{
     extract::{Path, Query, State},
     http::{header::SET_COOKIE, HeaderMap, HeaderValue},
     response::{IntoResponse, Redirect, Response},
-    routing::{delete, get},
+    routing::{delete, get, post},
     Json, Router,
 };
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, ModelTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 
@@ -31,6 +31,7 @@ pub fn oauth_routes(state: AppState) -> Router {
         // OAuth flow
         .route("/{provider}/login", get(oauth_login))
         .route("/{provider}/callback", get(oauth_callback))
+        .route("/{provider}/refresh", post(refresh_oauth_token))
         // Account linking (authenticated users)
         .route("/accounts", get(list_linked_accounts))
         .route("/accounts/{provider}", delete(unlink_account))
@@ -49,6 +50,7 @@ pub struct ProviderResponse {
     pub enabled: bool,
     pub client_id: Option<String>,
     pub has_secret: bool,
+    pub auto_approve: bool,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -56,6 +58,7 @@ pub struct UpdateProviderRequest {
     pub enabled: Option<bool>,
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
+    pub auto_approve: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -72,6 +75,34 @@ pub struct LinkedAccountResponse {
     pub email: Option<String>,
     pub display_name: Option<String>,
     pub linked_at: String,
+}
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/// Build the session cookie string. Includes `Secure` flag unless `KUBARR_INSECURE_COOKIES`
+/// is set in the environment (use this in development without HTTPS).
+pub fn build_session_cookie(session_token: &str) -> String {
+    let secure = if std::env::var("KUBARR_INSECURE_COOKIES").is_ok() {
+        ""
+    } else {
+        "; Secure"
+    };
+    format!(
+        "kubarr_session={}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800{}",
+        session_token, secure
+    )
+}
+
+/// Compute the token expiry datetime from an OAuth provider token response.
+/// Reads the `expires_in` field (seconds) and returns `now + expires_in`.
+pub fn compute_token_expires_at(
+    token_data: &serde_json::Value,
+) -> Option<chrono::DateTime<chrono::Utc>> {
+    token_data["expires_in"]
+        .as_u64()
+        .map(|s| Utc::now() + Duration::seconds(s as i64))
 }
 
 // ============================================================================
@@ -142,6 +173,7 @@ async fn list_providers(
             enabled: p.enabled,
             client_id: p.client_id,
             has_secret: p.client_secret.is_some(),
+            auto_approve: p.auto_approve,
         })
         .collect();
 
@@ -177,6 +209,7 @@ async fn get_provider(
         enabled: provider_model.enabled,
         client_id: provider_model.client_id,
         has_secret: provider_model.client_secret.is_some(),
+        auto_approve: provider_model.auto_approve,
     }))
 }
 
@@ -215,6 +248,9 @@ async fn update_provider(
         if let Some(client_secret) = data.client_secret {
             model.client_secret = Set(Some(client_secret));
         }
+        if let Some(auto_approve) = data.auto_approve {
+            model.auto_approve = Set(auto_approve);
+        }
         model.updated_at = Set(now);
         model.update(&db).await?
     } else {
@@ -230,6 +266,7 @@ async fn update_provider(
             enabled: Set(data.enabled.unwrap_or(false)),
             client_id: Set(data.client_id),
             client_secret: Set(data.client_secret),
+            auto_approve: Set(data.auto_approve.unwrap_or(true)),
             created_at: Set(now),
             updated_at: Set(now),
         };
@@ -242,6 +279,7 @@ async fn update_provider(
         enabled: provider_model.enabled,
         client_id: provider_model.client_id,
         has_secret: provider_model.client_secret.is_some(),
+        auto_approve: provider_model.auto_approve,
     }))
 }
 
@@ -507,7 +545,7 @@ async fn oauth_callback(
             display_name: Set(display_name),
             access_token: Set(Some(access_token.to_string())),
             refresh_token: Set(token_data["refresh_token"].as_str().map(|s| s.to_string())),
-            token_expires_at: Set(None),
+            token_expires_at: Set(compute_token_expires_at(&token_data)),
             created_at: Set(now),
             updated_at: Set(now),
             ..Default::default()
@@ -545,7 +583,7 @@ async fn oauth_callback(
                 display_name: Set(display_name.clone()),
                 access_token: Set(Some(access_token.to_string())),
                 refresh_token: Set(token_data["refresh_token"].as_str().map(|s| s.to_string())),
-                token_expires_at: Set(None),
+                token_expires_at: Set(compute_token_expires_at(&token_data)),
                 created_at: Set(now),
                 updated_at: Set(now),
                 ..Default::default()
@@ -588,7 +626,7 @@ async fn oauth_callback(
                 email: Set(email.clone()),
                 hashed_password: Set(password_hash),
                 is_active: Set(true),
-                is_approved: Set(true), // Auto-approve OAuth users
+                is_approved: Set(provider_config.auto_approve),
                 created_at: Set(now),
                 updated_at: Set(now),
                 ..Default::default()
@@ -605,7 +643,7 @@ async fn oauth_callback(
                 display_name: Set(display_name),
                 access_token: Set(Some(access_token.to_string())),
                 refresh_token: Set(token_data["refresh_token"].as_str().map(|s| s.to_string())),
-                token_expires_at: Set(None),
+                token_expires_at: Set(compute_token_expires_at(&token_data)),
                 created_at: Set(now),
                 updated_at: Set(now),
                 ..Default::default()
@@ -624,7 +662,7 @@ async fn oauth_callback(
         return Ok(Redirect::to("/login?error=Account%20is%20inactive").into_response());
     }
     if !found_user.is_approved {
-        return Ok(Redirect::to("/login?error=Account%20pending%20approval").into_response());
+        return Ok(Redirect::to("/login?error=pending_approval").into_response());
     }
 
     // Create session token
@@ -644,15 +682,124 @@ async fn oauth_callback(
     )?;
 
     // Set session cookie and redirect
-    let cookie = format!(
-        "kubarr_session={}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800",
-        session_token
-    );
+    let cookie = build_session_cookie(&session_token);
 
     let mut headers = HeaderMap::new();
     headers.insert(SET_COOKIE, HeaderValue::from_str(&cookie).unwrap());
 
     Ok((headers, Redirect::to("/")).into_response())
+}
+
+/// Refresh the OAuth access token for the authenticated user and provider
+#[utoipa::path(
+    post,
+    path = "/api/oauth/{provider}/refresh",
+    tag = "OAuth",
+    params(
+        ("provider" = String, Path, description = "OAuth provider ID")
+    ),
+    responses(
+        (status = 200, body = serde_json::Value)
+    )
+)]
+async fn refresh_oauth_token(
+    State(state): State<AppState>,
+    Path(provider): Path<String>,
+    auth: Authenticated,
+) -> Result<Json<serde_json::Value>> {
+    let db = state.get_db().await?;
+
+    let oauth = OauthAccount::find()
+        .filter(oauth_account::Column::UserId.eq(auth.user_id()))
+        .filter(oauth_account::Column::Provider.eq(&provider))
+        .one(&db)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("No {} account linked", provider)))?;
+
+    let refresh_token = oauth
+        .refresh_token
+        .clone()
+        .ok_or_else(|| AppError::BadRequest("No refresh token stored".to_string()))?;
+
+    // Only refresh if token is expired or within 5 minutes of expiry
+    let needs_refresh = oauth
+        .token_expires_at
+        .map(|expires| expires - Duration::minutes(5) <= Utc::now())
+        .unwrap_or(true);
+
+    if !needs_refresh {
+        return Ok(Json(serde_json::json!({ "refreshed": false })));
+    }
+
+    let provider_config = OauthProvider::find_by_id(&provider)
+        .one(&db)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Provider '{}' not found", provider)))?;
+
+    let client_id = provider_config
+        .client_id
+        .ok_or_else(|| AppError::Internal("Provider client_id not configured".to_string()))?;
+    let client_secret = provider_config
+        .client_secret
+        .ok_or_else(|| AppError::Internal("Provider client_secret not configured".to_string()))?;
+
+    let token_url = match provider.as_str() {
+        "google" => "https://oauth2.googleapis.com/token",
+        "microsoft" => "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+        _ => {
+            return Err(AppError::BadRequest(format!(
+                "Unknown provider: {}",
+                provider
+            )))
+        }
+    };
+
+    let http_client = reqwest::Client::new();
+    let token_response = http_client
+        .post(token_url)
+        .form(&[
+            ("client_id", client_id.as_str()),
+            ("client_secret", client_secret.as_str()),
+            ("refresh_token", refresh_token.as_str()),
+            ("grant_type", "refresh_token"),
+        ])
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("Token refresh request failed: {}", e)))?;
+
+    if !token_response.status().is_success() {
+        let error_text = token_response.text().await.unwrap_or_default();
+        tracing::error!(
+            "OAuth token refresh failed for provider {}: {}",
+            provider,
+            error_text
+        );
+        return Err(AppError::Internal(format!(
+            "Token refresh failed: {}",
+            error_text
+        )));
+    }
+
+    let token_data: serde_json::Value = token_response
+        .json()
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to parse token refresh response: {}", e)))?;
+
+    let new_access_token = token_data["access_token"]
+        .as_str()
+        .ok_or_else(|| AppError::Internal("No access token in refresh response".to_string()))?;
+
+    let now = Utc::now();
+    let mut account_model: oauth_account::ActiveModel = oauth.into();
+    account_model.access_token = Set(Some(new_access_token.to_string()));
+    account_model.token_expires_at = Set(compute_token_expires_at(&token_data));
+    if let Some(new_refresh) = token_data["refresh_token"].as_str() {
+        account_model.refresh_token = Set(Some(new_refresh.to_string()));
+    }
+    account_model.updated_at = Set(now);
+    account_model.update(&db).await?;
+
+    Ok(Json(serde_json::json!({ "refreshed": true })))
 }
 
 // ============================================================================

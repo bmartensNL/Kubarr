@@ -163,6 +163,7 @@ use crate::state::AppState;
         oauth::update_provider,
         oauth::oauth_login,
         oauth::oauth_callback,
+        oauth::refresh_oauth_token,
         oauth::list_linked_accounts,
         oauth::unlink_account,
         oauth::link_account_start,
