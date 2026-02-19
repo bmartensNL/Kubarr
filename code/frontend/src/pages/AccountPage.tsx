@@ -4,7 +4,7 @@ import { useTheme } from '../contexts/ThemeContext'
 import { User, Mail, Shield, Sun, Moon, Monitor, Check, Key, Smartphone, AlertTriangle, Eye, EyeOff, Loader2, Link2, Unlink, Palette, Info, Clock, Globe, Trash2, History, Pencil, X } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import type { Theme, TwoFactorStatusResponse, TwoFactorSetupResponse } from '../api/users'
-import { changeOwnPassword, get2FAStatus, setup2FA, enable2FA, disable2FA, updateOwnProfile, deleteOwnAccount } from '../api/users'
+import { changeOwnPassword, get2FAStatus, getRecoveryCodeCount, setup2FA, enable2FA, disable2FA, updateOwnProfile, deleteOwnAccount } from '../api/users'
 import { oauthApi, type LinkedAccount, type AvailableProvider } from '../api/oauth'
 import { getSessions, revokeSession, type SessionInfo } from '../api/auth'
 import { auditApi, type AuditLog } from '../api/audit'
@@ -42,6 +42,8 @@ export default function AccountPage() {
   const [twoFactorError, setTwoFactorError] = useState('')
   const [twoFactorSuccess, setTwoFactorSuccess] = useState('')
   const [processing2FA, setProcessing2FA] = useState(false)
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null)
+  const [recoveryCodeCount, setRecoveryCodeCount] = useState<number | null>(null)
 
   // Linked accounts state
   const [linkedAccounts, setLinkedAccounts] = useState<LinkedAccount[]>([])
@@ -72,6 +74,14 @@ export default function AccountPage() {
       try {
         const status = await get2FAStatus()
         setTwoFactorStatus(status)
+        if (status.enabled) {
+          try {
+            const counts = await getRecoveryCodeCount()
+            setRecoveryCodeCount(counts.remaining)
+          } catch {
+            // Non-critical, ignore
+          }
+        }
       } catch (err) {
         console.error('Failed to load 2FA status:', err)
       } finally {
@@ -186,10 +196,11 @@ export default function AccountPage() {
 
     setProcessing2FA(true)
     try {
-      await enable2FA(verificationCode)
-      setTwoFactorSuccess('Two-factor authentication enabled successfully')
+      const result = await enable2FA(verificationCode)
       setSetupData(null)
       setVerificationCode('')
+      setRecoveryCodes(result.recovery_codes)
+      setRecoveryCodeCount(result.recovery_codes.length)
       const status = await get2FAStatus()
       setTwoFactorStatus(status)
     } catch (err: unknown) {
@@ -213,6 +224,7 @@ export default function AccountPage() {
       await disable2FA(disablePassword)
       setTwoFactorSuccess('Two-factor authentication disabled')
       setDisablePassword('')
+      setRecoveryCodeCount(null)
       const status = await get2FAStatus()
       setTwoFactorStatus(status)
     } catch (err: unknown) {
@@ -936,7 +948,7 @@ export default function AccountPage() {
               )}
 
               {/* Status Display */}
-              <div className="flex items-center gap-3 mb-4">
+              <div className="flex items-center gap-3 mb-4 flex-wrap">
                 <span className="text-sm text-gray-600 dark:text-gray-400">Status:</span>
                 {twoFactorStatus?.enabled ? (
                   <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded text-sm font-medium">
@@ -954,7 +966,57 @@ export default function AccountPage() {
                     Required by your role
                   </span>
                 )}
+                {twoFactorStatus?.enabled && recoveryCodeCount !== null && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded text-sm font-medium">
+                    <Key size={14} />
+                    {recoveryCodeCount} recovery {recoveryCodeCount === 1 ? 'code' : 'codes'} remaining
+                  </span>
+                )}
               </div>
+
+              {/* One-time recovery codes display after enabling */}
+              {recoveryCodes && recoveryCodes.length > 0 && (
+                <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                  <div className="flex items-start gap-2 mb-3">
+                    <AlertTriangle size={18} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                        Save your recovery codes now
+                      </p>
+                      <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                        These codes will only be shown once. Store them somewhere safe — you can use them to access your account if you lose your authenticator.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    {recoveryCodes.map((code, i) => (
+                      <code
+                        key={i}
+                        className="px-3 py-1.5 bg-white dark:bg-gray-800 border border-amber-200 dark:border-amber-700 rounded text-sm font-mono text-center tracking-wider"
+                      >
+                        {code}
+                      </code>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(recoveryCodes.join('\n'))
+                      }}
+                      className="px-3 py-1.5 text-sm bg-amber-100 dark:bg-amber-800 hover:bg-amber-200 dark:hover:bg-amber-700 text-amber-800 dark:text-amber-200 rounded-lg font-medium flex items-center gap-1.5"
+                    >
+                      <Key size={14} />
+                      Copy all
+                    </button>
+                    <button
+                      onClick={() => setRecoveryCodes(null)}
+                      className="px-3 py-1.5 text-sm border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-lg font-medium"
+                    >
+                      I've saved my codes
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Setup Flow */}
               {!twoFactorStatus?.enabled && !setupData && (

@@ -69,6 +69,9 @@ export const sessionLogin = async (credentials: LoginRequest): Promise<SessionLo
       if (detail.includes('Two-factor authentication code required')) {
         return { status: '2fa_required' };
       }
+      if (detail.includes('Two-factor authentication setup required')) {
+        return { status: '2fa_setup_required' };
+      }
     }
     throw error;
   }
@@ -133,4 +136,20 @@ export const getAccounts = async (): Promise<AccountInfo[]> => {
  */
 export const switchAccount = async (slot: number): Promise<void> => {
   await authClient.post(`/switch/${slot}`);
+};
+
+/**
+ * Login using a recovery code instead of TOTP
+ */
+export const loginWithRecoveryCode = async (
+  username: string,
+  password: string,
+  recoveryCode: string
+): Promise<SessionLoginResponse> => {
+  const response = await authClient.post<SessionLoginResponse>('/2fa/recover', {
+    username,
+    password,
+    recovery_code: recoveryCode,
+  });
+  return { ...response.data, status: 'success' };
 };

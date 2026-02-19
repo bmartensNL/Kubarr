@@ -236,11 +236,28 @@ export const setup2FA = async (): Promise<TwoFactorSetupResponse> => {
   return response.data;
 };
 
+export interface TwoFactorEnableResponse {
+  message: string;
+  recovery_codes: string[];
+}
+
+export interface TwoFactorRecoveryCodesResponse {
+  remaining: number;
+}
+
 /**
- * Enable 2FA - verifies code and activates
+ * Enable 2FA - verifies code and activates; returns one-time recovery codes
  */
-export const enable2FA = async (code: string): Promise<{ message: string }> => {
-  const response = await apiClient.post<{ message: string }>('/users/me/2fa/enable', { code });
+export const enable2FA = async (code: string): Promise<TwoFactorEnableResponse> => {
+  const response = await apiClient.post<TwoFactorEnableResponse>('/users/me/2fa/enable', { code });
+  return response.data;
+};
+
+/**
+ * Get remaining unused recovery code count
+ */
+export const getRecoveryCodeCount = async (): Promise<TwoFactorRecoveryCodesResponse> => {
+  const response = await apiClient.get<TwoFactorRecoveryCodesResponse>('/users/me/2fa/recovery-codes');
   return response.data;
 };
 
