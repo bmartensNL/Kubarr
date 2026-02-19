@@ -8,6 +8,7 @@ use sea_orm::DatabaseConnection;
 use kubarr::services::audit::AuditService;
 use kubarr::services::catalog::AppCatalog;
 use kubarr::services::notification::NotificationService;
+use kubarr::services::ChartSyncService;
 use kubarr::state::{AppState, DbConn, SharedCatalog, SharedK8sClient};
 mod common;
 
@@ -19,10 +20,11 @@ async fn test_app_state_new() {
     let k8s_client: SharedK8sClient = Arc::new(RwLock::new(None));
     let catalog = AppCatalog::default();
     let catalog: SharedCatalog = Arc::new(RwLock::new(catalog));
+    let chart_sync = Arc::new(ChartSyncService::new(catalog.clone()));
     let audit = AuditService::new();
     let notification = NotificationService::new();
 
-    let state = AppState::new(Some(db), k8s_client, catalog, audit, notification);
+    let state = AppState::new(Some(db), k8s_client, catalog, chart_sync, audit, notification);
 
     // Should be cloneable
     let _cloned = state.clone();
@@ -34,6 +36,7 @@ async fn test_app_state_clone() {
     let k8s_client: SharedK8sClient = Arc::new(RwLock::new(None));
     let catalog = AppCatalog::default();
     let catalog: SharedCatalog = Arc::new(RwLock::new(catalog));
+    let chart_sync = Arc::new(ChartSyncService::new(catalog.clone()));
     let audit = AuditService::new();
     let notification = NotificationService::new();
 
@@ -41,6 +44,7 @@ async fn test_app_state_clone() {
         Some(db.clone()),
         k8s_client.clone(),
         catalog.clone(),
+        chart_sync,
         audit,
         notification,
     );

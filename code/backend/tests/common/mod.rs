@@ -5,10 +5,18 @@
 
 #![allow(dead_code)]
 
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
 use sea_orm::{Database, DatabaseConnection};
 use sea_orm_migration::MigratorTrait;
 
 use kubarr::migrations::Migrator;
+use kubarr::services::audit::AuditService;
+use kubarr::services::catalog::AppCatalog;
+use kubarr::services::notification::NotificationService;
+use kubarr::services::ChartSyncService;
+use kubarr::state::{AppState, SharedCatalog, SharedK8sClient};
 
 /// Create an in-memory SQLite database for testing
 pub async fn create_test_db() -> DatabaseConnection {
@@ -265,4 +273,60 @@ pub async fn create_test_user_with_role(
     user_role.insert(db).await.unwrap();
 
     user
+}
+
+/// Build an AppState from an existing database connection.
+/// This is the canonical way to create AppState in tests, including the
+/// required ChartSyncService.
+pub fn build_app_state(db: DatabaseConnection) -> AppState {
+    let k8s_client: SharedK8sClient = Arc::new(RwLock::new(None));
+    let catalog: SharedCatalog = Arc::new(RwLock::new(AppCatalog::default()));
+    let chart_sync = Arc::new(ChartSyncService::new(catalog.clone()));
+    let audit = AuditService::new();
+    let notification = NotificationService::new();
+    AppState::new(Some(db), k8s_client, catalog, chart_sync, audit, notification)
+}
+
+/// Initialize JWT signing keys using the given test database.
+///
+/// Must be called before any operation that creates or validates session tokens
+/// (e.g., login, authenticated endpoint tests).
+pub async fn init_test_jwt_keys(db: &DatabaseConnection) {
+    kubarr::services::security::init_jwt_keys(db)
+        .await
+        .expect("Failed to initialize JWT keys for testing");
+}
+
+/// Insert a session record into the database and return the session cookie string.
+///
+/// Requires `init_test_jwt_keys` to have been called first so that
+/// `create_session_token` can sign the JWT.
+pub async fn create_test_session(db: &DatabaseConnection, user_id: i64) -> String {
+    use kubarr::models::session;
+    use kubarr::services::security::create_session_token;
+    use sea_orm::{ActiveModelTrait, Set};
+
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now();
+
+    let session_model = session::ActiveModel {
+        id: Set(session_id.clone()),
+        user_id: Set(user_id),
+        user_agent: Set(None),
+        ip_address: Set(None),
+        created_at: Set(now),
+        expires_at: Set(now + chrono::Duration::days(7)),
+        last_accessed_at: Set(now),
+        is_revoked: Set(false),
+    };
+    session_model
+        .insert(db)
+        .await
+        .expect("Failed to insert test session");
+
+    let token = create_session_token(&session_id)
+        .expect("JWT keys must be initialized before calling create_test_session");
+
+    // Return as a legacy cookie string (kubarr_session=<token>)
+    format!("kubarr_session={}", token)
 }

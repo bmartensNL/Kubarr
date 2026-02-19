@@ -21,37 +21,27 @@ use http_body_util::BodyExt;
 use tower::util::ServiceExt; // for `oneshot`
 
 mod common;
-use common::{create_test_db_with_seed, create_test_user_with_role};
+use common::{
+    build_app_state, create_test_db_with_seed, create_test_session, create_test_user_with_role,
+    init_test_jwt_keys,
+};
 
 use kubarr::endpoints::create_router;
-use kubarr::services::audit::AuditService;
-use kubarr::services::catalog::AppCatalog;
-use kubarr::services::notification::NotificationService;
 use kubarr::state::AppState;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 
 /// Helper to create a test AppState with a seeded database
 async fn create_test_state() -> AppState {
     let db = create_test_db_with_seed().await;
-    let k8s_client = Arc::new(RwLock::new(None));
-    let catalog = Arc::new(RwLock::new(AppCatalog::default()));
-    let audit = AuditService::new();
-    let notification = NotificationService::new();
-
-    AppState::new(Some(db), k8s_client, catalog, audit, notification)
+    build_app_state(db)
 }
 
 /// Helper to create a test AppState with an admin user (setup complete)
 async fn create_test_state_with_admin() -> (AppState, String) {
-    let state = create_test_state().await;
-
-    // Create an admin user to simulate completed setup
-    let db = state.get_db().await.unwrap();
+    let db = create_test_db_with_seed().await;
     let admin_user =
         create_test_user_with_role(&db, "admin", "admin@example.com", "admin_password", "admin")
             .await;
-
+    let state = build_app_state(db);
     (state, admin_user.username)
 }
 
@@ -467,10 +457,10 @@ async fn test_oauth_public_endpoints_accessible() {
 async fn test_setup_endpoints_accessible_before_admin_creation() {
     let state = create_test_state().await;
 
-    // Before admin creation, setup endpoints should be accessible
+    // Before admin creation, these setup endpoints should be accessible (not 403)
     let endpoints = vec![
-        "/api/setup/check-database",
-        "/api/setup/bootstrap",
+        "/api/setup/status",
+        "/api/setup/generate-credentials",
         "/api/setup/bootstrap/status",
     ];
 
@@ -492,12 +482,11 @@ async fn test_setup_endpoints_accessible_before_admin_creation() {
 async fn test_setup_endpoints_protected_after_admin_creation() {
     let (state, _admin_username) = create_test_state_with_admin().await;
 
-    // After admin creation, setup endpoints should return 403 Forbidden
+    // After admin creation, setup endpoints that call require_setup() return 403
     let protected_setup_endpoints = vec![
-        "/api/setup/check-database",
-        "/api/setup/check-kubernetes",
-        "/api/setup/bootstrap",
-        "/api/setup/check-admin",
+        "/api/setup/status",
+        "/api/setup/generate-credentials",
+        "/api/setup/bootstrap/status",
     ];
 
     for endpoint in protected_setup_endpoints {
@@ -515,6 +504,7 @@ async fn test_setup_endpoints_protected_after_admin_creation() {
         // Verify the error message indicates setup is complete
         assert!(
             body.contains("Setup already complete")
+                || body.contains("already been completed")
                 || body.contains("setup")
                 || body.contains("forbidden"),
             "Expected setup complete error message for {}, got: {}",
@@ -540,15 +530,17 @@ async fn test_bootstrap_status_protected_after_setup() {
 }
 
 #[tokio::test]
-async fn test_bootstrap_logs_protected_after_setup() {
+async fn test_setup_generate_credentials_protected_after_setup() {
     let (state, _) = create_test_state_with_admin().await;
 
-    let (status, body) = make_unauthenticated_request(state, "/api/setup/bootstrap/logs").await;
+    // /api/setup/generate-credentials must return 403 once an admin exists
+    let (status, body) =
+        make_unauthenticated_request(state, "/api/setup/generate-credentials").await;
 
     assert_eq!(
         status,
         StatusCode::FORBIDDEN,
-        "Bootstrap logs endpoint should return 403 after setup (got {}). Body: {}",
+        "generate-credentials endpoint should return 403 after setup (got {}). Body: {}",
         status,
         body
     );
@@ -590,31 +582,110 @@ async fn test_setup_required_always_accessible() {
 // Permission-Based Authorization Tests
 // ============================================================================
 
+/// Verify that a user with the "viewer" role cannot access endpoints that
+/// require permissions the viewer role does not have.
+///
+/// The viewer role has: apps.view, logs.view, monitoring.view, storage.view,
+/// storage.download — but NOT settings.view, settings.manage, users.manage, etc.
+///
+/// This test:
+/// 1. Creates a viewer user and establishes a session
+/// 2. Makes authenticated requests to settings and users endpoints
+/// 3. Expects 403 Forbidden (authenticated but insufficient permissions)
 #[tokio::test]
-async fn test_permission_enforcement_concept() {
-    // Note: Full permission testing requires authenticated requests with session cookies
-    // This test documents the permission enforcement architecture
+async fn test_permission_enforcement_viewer_cannot_access_settings() {
+    let db = create_test_db_with_seed().await;
+    // JWT keys must be initialised so create_test_session can sign tokens
+    init_test_jwt_keys(&db).await;
 
-    // Permission-based authorization uses the Authorized<Permission> extractor:
-    // - Authorized<AppsView> - requires apps.view permission
-    // - Authorized<AppsInstall> - requires apps.install permission
-    // - Authorized<UsersView> - requires users.view permission
-    // - Authorized<SettingsManage> - requires settings.manage permission
-    // etc.
+    // Create a viewer user (no settings.view / settings.manage permission)
+    let viewer = create_test_user_with_role(&db, "viewer_perm", "viewer@example.com", "pw", "viewer").await;
 
-    // These extractors check:
-    // 1. User is authenticated (has valid session)
-    // 2. User has required permission (via role assignments)
-    // 3. Returns 401 if not authenticated, 403 if authenticated but lacks permission
+    // Build state and establish a session for the viewer
+    let state = build_app_state(db.clone());
+    let cookie = create_test_session(&db, viewer.id).await;
 
-    // The test suite would need to:
-    // 1. Create users with different roles
-    // 2. Authenticate and get session cookies
-    // 3. Make requests with session cookies
-    // 4. Verify 403 Forbidden for insufficient permissions
+    // Endpoints that require settings.view — viewer should get 403
+    let restricted_endpoints = vec!["/api/settings", "/api/settings/some_key"];
 
-    // This is a TODO for future enhancement of the test suite
-    assert!(true, "Permission enforcement architecture is documented");
+    for endpoint in restricted_endpoints {
+        let app = create_router(state.clone());
+        let request = Request::builder()
+            .uri(endpoint)
+            .method("GET")
+            .header("cookie", &cookie)
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        let status = response.status();
+
+        assert_eq!(
+            status,
+            StatusCode::FORBIDDEN,
+            "Viewer user should get 403 for settings endpoint {} (got {})",
+            endpoint,
+            status
+        );
+    }
+}
+
+/// Verify that a user with the "viewer" role cannot manage users.
+#[tokio::test]
+async fn test_permission_enforcement_viewer_cannot_manage_users() {
+    let db = create_test_db_with_seed().await;
+    init_test_jwt_keys(&db).await;
+
+    let viewer = create_test_user_with_role(&db, "viewer_users", "vu@example.com", "pw", "viewer").await;
+    let state = build_app_state(db.clone());
+    let cookie = create_test_session(&db, viewer.id).await;
+
+    // GET /api/users requires users.view which the viewer role does not have
+    let app = create_router(state);
+    let request = Request::builder()
+        .uri("/api/users")
+        .method("GET")
+        .header("cookie", &cookie)
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "Viewer user should get 403 for /api/users"
+    );
+}
+
+/// Verify that a user with the "admin" role CAN access settings endpoints.
+#[tokio::test]
+async fn test_permission_enforcement_admin_can_access_settings() {
+    let db = create_test_db_with_seed().await;
+    init_test_jwt_keys(&db).await;
+
+    let admin = create_test_user_with_role(&db, "admin_perm", "ap@example.com", "pw", "admin").await;
+    let state = build_app_state(db.clone());
+    let cookie = create_test_session(&db, admin.id).await;
+
+    // GET /api/settings requires settings.view which admin has
+    let app = create_router(state);
+    let request = Request::builder()
+        .uri("/api/settings")
+        .method("GET")
+        .header("cookie", &cookie)
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    let status = response.status();
+
+    // Admin should be able to access the settings endpoint (200 OK)
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "Admin user should be able to access /api/settings (got {})",
+        status
+    );
 }
 
 // ============================================================================
@@ -760,6 +831,7 @@ async fn test_auth_architecture_summary() {
     //    - Uses Authorized<Permission> extractor pattern
     //    - Verifies user has required permission via role assignments
     //    - Returns 403 Forbidden if authenticated but lacks permission
+    //    - See test_permission_enforcement_* tests above for concrete examples
 
     // 4. SESSION MANAGEMENT:
     //    - Cookie-based sessions (kubarr_session)
