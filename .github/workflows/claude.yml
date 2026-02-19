@@ -9,7 +9,7 @@ on:
     types: [opened, assigned]
   pull_request_review:
     types: [submitted]
-  # Auto-fix CI failures on claude[bot] PRs
+  # Auto-fix CI failures and review feedback on claude[bot] PRs
   pull_request:
     types: [opened, synchronize]
 
@@ -20,6 +20,11 @@ jobs:
         github.event_name == 'pull_request' &&
         startsWith(github.head_ref, 'claude/') &&
         github.event.pull_request.user.login == 'claude[bot]'
+      ) ||
+      (
+        github.event_name == 'pull_request_review' &&
+        startsWith(github.event.pull_request.head.ref, 'claude/') &&
+        github.actor == 'claude[bot]'
       ) ||
       (
         github.actor == 'bmartensNL' && (
@@ -35,7 +40,7 @@ jobs:
       pull-requests: write
       issues: write
       id-token: write
-      actions: read # Required for Claude to read CI results on PRs
+      actions: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -48,13 +53,14 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
-          # This is an optional setting that allows Claude to read CI results on PRs
+          # Allow claude[bot] to trigger this workflow
+          allowed_bots: 'claude[bot]'
+
           additional_permissions: |
             actions: read
 
-          # When triggered by a PR event (CI failure auto-fix), give Claude explicit instructions
+          # Context-aware prompt for automated triggers
           prompt: |
-            ${{ github.event_name == 'pull_request' && 'CI is failing on this pull request. Fetch the latest CI logs using the available tools, identify what is failing (lint errors, test failures, build errors, etc.), fix the root cause in the code, and push the fix to this branch. Do not change the PR description or title.' || '' }}
+            ${{ github.event_name == 'pull_request' && 'CI is failing on this pull request. Use the available tools to fetch the CI logs, identify what is failing (lint errors, test failures, build errors, etc.), fix the root cause in the code, and push the fix to this branch. Do not change the PR description or title.' || '' }}${{ github.event_name == 'pull_request_review' && 'A code review has been submitted on this pull request with feedback and issues to fix. Read the review comments carefully, address every issue raised, and push the fixes to this branch.' || '' }}
 
           claude_args: '--dangerously-skip-permissions'
-
