@@ -877,7 +877,7 @@ async fn migration_count_impl(db: &DatabaseConnection) {
         .expect("Failed to query migrations");
 
     let count: i64 = result[0].try_get("", "cnt").unwrap();
-    assert_eq!(count, 22, "Should have exactly 22 migrations applied");
+    assert_eq!(count, 23, "Should have exactly 23 migrations applied");
 }
 
 test_both_databases!(test_migration_count, migration_count_impl);
