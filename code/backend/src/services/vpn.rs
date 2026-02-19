@@ -870,7 +870,10 @@ async fn create_gluetun_test_pod(
         spec: Some(PodSpec {
             containers: vec![Container {
                 name: "gluetun".to_string(),
-                image: Some("qmcgaw/gluetun:latest".to_string()),
+                image: Some(
+                    std::env::var("KUBARR_GLUETUN_IMAGE")
+                        .unwrap_or_else(|_| "qmcgaw/gluetun:v3.40".to_string()),
+                ),
                 env: Some(env_vars),
                 env_from: Some(vec![k8s_openapi::api::core::v1::EnvFromSource {
                     secret_ref: Some(k8s_openapi::api::core::v1::SecretEnvSource {
