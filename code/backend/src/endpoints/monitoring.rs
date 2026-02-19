@@ -5,13 +5,11 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::error::Result;
+use crate::config::CONFIG;
+use crate::error::{AppError, Result};
 use crate::middleware::permissions::{Authorized, MonitoringView};
 use crate::services::k8s::{PodMetrics, PodStatus, ServiceEndpoint};
 use crate::state::AppState;
-
-/// VictoriaMetrics URL (inside cluster)
-const VICTORIAMETRICS_URL: &str = "http://victoriametrics.victoriametrics.svc.cluster.local:8428";
 
 /// Create monitoring routes
 pub fn monitoring_routes(state: AppState) -> Router {
@@ -149,9 +147,9 @@ pub struct ClusterMetricsHistory {
 // VictoriaMetrics Query Helpers
 // ============================================================================
 
-async fn query_vm(query: &str) -> Vec<serde_json::Value> {
+async fn query_vm(query: &str) -> Result<Vec<serde_json::Value>> {
     let client = reqwest::Client::new();
-    let url = format!("{}/api/v1/query", VICTORIAMETRICS_URL);
+    let url = format!("{}/api/v1/query", CONFIG.monitoring.victoriametrics_url);
 
     match client
         .get(&url)
@@ -163,21 +161,24 @@ async fn query_vm(query: &str) -> Vec<serde_json::Value> {
         Ok(resp) => {
             if let Ok(data) = resp.json::<serde_json::Value>().await {
                 if data.get("status") == Some(&serde_json::json!("success")) {
-                    return data["data"]["result"]
+                    return Ok(data["data"]["result"]
                         .as_array()
                         .cloned()
-                        .unwrap_or_default();
+                        .unwrap_or_default());
                 }
             }
-            Vec::new()
+            Ok(Vec::new())
         }
-        Err(_) => Vec::new(),
+        Err(e) => Err(AppError::ServiceUnavailable(format!(
+            "VictoriaMetrics is not reachable. Check monitoring setup. ({})",
+            e
+        ))),
     }
 }
 
-async fn query_vm_range(query: &str, start: f64, end: f64, step: &str) -> Vec<serde_json::Value> {
+async fn query_vm_range(query: &str, start: f64, end: f64, step: &str) -> Result<Vec<serde_json::Value>> {
     let client = reqwest::Client::new();
-    let url = format!("{}/api/v1/query_range", VICTORIAMETRICS_URL);
+    let url = format!("{}/api/v1/query_range", CONFIG.monitoring.victoriametrics_url);
 
     match client
         .get(&url)
@@ -194,15 +195,18 @@ async fn query_vm_range(query: &str, start: f64, end: f64, step: &str) -> Vec<se
         Ok(resp) => {
             if let Ok(data) = resp.json::<serde_json::Value>().await {
                 if data.get("status") == Some(&serde_json::json!("success")) {
-                    return data["data"]["result"]
+                    return Ok(data["data"]["result"]
                         .as_array()
                         .cloned()
-                        .unwrap_or_default();
+                        .unwrap_or_default());
                 }
             }
-            Vec::new()
+            Ok(Vec::new())
         }
-        Err(_) => Vec::new(),
+        Err(e) => Err(AppError::ServiceUnavailable(format!(
+            "VictoriaMetrics is not reachable. Check monitoring setup. ({})",
+            e
+        ))),
     }
 }
 
@@ -240,21 +244,21 @@ async fn get_app_metrics(
 
     // Query CPU usage by namespace
     let cpu_query = r#"sum by (namespace) (rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[5m]))"#;
-    let cpu_results = query_vm(cpu_query).await;
+    let cpu_results = query_vm(cpu_query).await?;
 
     // Query memory usage by namespace
     let memory_query = r#"sum by (namespace) (container_memory_working_set_bytes{container!="",container!="POD"})"#;
-    let memory_results = query_vm(memory_query).await;
+    let memory_results = query_vm(memory_query).await?;
 
     // Query network receive rate by namespace
     let network_rx_query =
         r#"sum by (namespace) (rate(container_network_receive_bytes_total{interface!="lo"}[5m]))"#;
-    let network_rx_results = query_vm(network_rx_query).await;
+    let network_rx_results = query_vm(network_rx_query).await?;
 
     // Query network transmit rate by namespace
     let network_tx_query =
         r#"sum by (namespace) (rate(container_network_transmit_bytes_total{interface!="lo"}[5m]))"#;
-    let network_tx_results = query_vm(network_tx_query).await;
+    let network_tx_results = query_vm(network_tx_query).await?;
 
     let mut metrics_map = std::collections::HashMap::new();
 
@@ -363,86 +367,91 @@ async fn get_app_metrics(
 )]
 async fn get_cluster_metrics(_auth: Authorized<MonitoringView>) -> Result<Json<ClusterMetrics>> {
     // Total CPU cores
-    let total_cpu = query_vm("sum(machine_cpu_cores)")
-        .await
+    let r = query_vm("sum(machine_cpu_cores)").await?;
+    let total_cpu = r
         .first()
         .and_then(|r| r["value"][1].as_str())
         .and_then(|v| v.parse::<f64>().ok())
         .unwrap_or(0.0);
 
     // Total memory
-    let total_memory = query_vm("sum(machine_memory_bytes)")
-        .await
+    let r = query_vm("sum(machine_memory_bytes)").await?;
+    let total_memory = r
         .first()
         .and_then(|r| r["value"][1].as_str())
         .and_then(|v| v.parse::<f64>().ok())
         .unwrap_or(0.0) as i64;
 
     // Used CPU
-    let used_cpu = query_vm(
+    let r = query_vm(
         r#"sum(rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[5m]))"#,
     )
-    .await
-    .first()
-    .and_then(|r| r["value"][1].as_str())
-    .and_then(|v| v.parse::<f64>().ok())
-    .unwrap_or(0.0);
+    .await?;
+    let used_cpu = r
+        .first()
+        .and_then(|r| r["value"][1].as_str())
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.0);
 
     // Used memory
-    let used_memory =
+    let r =
         query_vm(r#"sum(container_memory_working_set_bytes{container!="",container!="POD"})"#)
-            .await
-            .first()
-            .and_then(|r| r["value"][1].as_str())
-            .and_then(|v| v.parse::<f64>().ok())
-            .unwrap_or(0.0) as i64;
+            .await?;
+    let used_memory = r
+        .first()
+        .and_then(|r| r["value"][1].as_str())
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.0) as i64;
 
     // Container count
-    let container_count = query_vm(r#"count(container_last_seen{container!="",container!="POD"})"#)
-        .await
+    let r = query_vm(r#"count(container_last_seen{container!="",container!="POD"})"#).await?;
+    let container_count = r
         .first()
         .and_then(|r| r["value"][1].as_str())
         .and_then(|v| v.parse::<f64>().ok())
         .unwrap_or(0.0) as i32;
 
     // Pod count
-    let pod_count = query_vm(
+    let r = query_vm(
         r#"count(count by (pod, namespace) (container_last_seen{container!="",container!="POD"}))"#,
     )
-    .await
-    .first()
-    .and_then(|r| r["value"][1].as_str())
-    .and_then(|v| v.parse::<f64>().ok())
-    .unwrap_or(0.0) as i32;
+    .await?;
+    let pod_count = r
+        .first()
+        .and_then(|r| r["value"][1].as_str())
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.0) as i32;
 
     // Network receive rate
-    let network_rx =
+    let r =
         query_vm(r#"sum(rate(container_network_receive_bytes_total{interface!="lo"}[5m]))"#)
-            .await
-            .first()
-            .and_then(|r| r["value"][1].as_str())
-            .and_then(|v| v.parse::<f64>().ok())
-            .unwrap_or(0.0);
+            .await?;
+    let network_rx = r
+        .first()
+        .and_then(|r| r["value"][1].as_str())
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.0);
 
     // Network transmit rate
-    let network_tx =
+    let r =
         query_vm(r#"sum(rate(container_network_transmit_bytes_total{interface!="lo"}[5m]))"#)
-            .await
-            .first()
-            .and_then(|r| r["value"][1].as_str())
-            .and_then(|v| v.parse::<f64>().ok())
-            .unwrap_or(0.0);
+            .await?;
+    let network_tx = r
+        .first()
+        .and_then(|r| r["value"][1].as_str())
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.0);
 
     // Storage metrics
-    let total_storage = query_vm(r#"max(container_fs_limit_bytes{id="/",device=~"/dev/.*"})"#)
-        .await
+    let r = query_vm(r#"max(container_fs_limit_bytes{id="/",device=~"/dev/.*"})"#).await?;
+    let total_storage = r
         .first()
         .and_then(|r| r["value"][1].as_str())
         .and_then(|v| v.parse::<f64>().ok())
         .unwrap_or(0.0) as i64;
 
-    let used_storage = query_vm(r#"max(container_fs_usage_bytes{id="/",device=~"/dev/.*"})"#)
-        .await
+    let r = query_vm(r#"max(container_fs_usage_bytes{id="/",device=~"/dev/.*"})"#).await?;
+    let used_storage = r
         .first()
         .and_then(|r| r["value"][1].as_str())
         .and_then(|v| v.parse::<f64>().ok())
@@ -519,8 +528,8 @@ async fn get_cluster_network_history(
     let rx_query = r#"sum(rate(container_network_receive_bytes_total{interface!="lo"}[5m]))"#;
     let tx_query = r#"sum(rate(container_network_transmit_bytes_total{interface!="lo"}[5m]))"#;
 
-    let rx_results = query_vm_range(rx_query, start_time, end_time, step).await;
-    let tx_results = query_vm_range(tx_query, start_time, end_time, step).await;
+    let rx_results = query_vm_range(rx_query, start_time, end_time, step).await?;
+    let tx_results = query_vm_range(tx_query, start_time, end_time, step).await?;
 
     let parse_series = |results: Vec<serde_json::Value>| -> Vec<TimeSeriesPoint> {
         results
@@ -615,6 +624,11 @@ async fn get_cluster_metrics_history(
         query_vm_range(pod_query, start_time, end_time, step),
         query_vm_range(container_query, start_time, end_time, step),
     );
+    let cpu_results = cpu_results?;
+    let memory_results = memory_results?;
+    let storage_results = storage_results?;
+    let pod_results = pod_results?;
+    let container_results = container_results?;
 
     let parse_series = |results: Vec<serde_json::Value>| -> Vec<TimeSeriesPoint> {
         results
@@ -712,7 +726,7 @@ async fn get_app_detail_metrics(
     );
 
     // Query historical CPU
-    let cpu_results = query_vm_range(&cpu_query, start_time, end_time, step).await;
+    let cpu_results = query_vm_range(&cpu_query, start_time, end_time, step).await?;
 
     let cpu_series: Vec<TimeSeriesPoint> = cpu_results
         .first()
@@ -733,7 +747,7 @@ async fn get_app_detail_metrics(
         .unwrap_or_default();
 
     // Query historical memory
-    let memory_results = query_vm_range(&memory_query, start_time, end_time, step).await;
+    let memory_results = query_vm_range(&memory_query, start_time, end_time, step).await?;
 
     let memory_series: Vec<TimeSeriesPoint> = memory_results
         .first()
@@ -754,7 +768,7 @@ async fn get_app_detail_metrics(
         .unwrap_or_default();
 
     // Query historical network receive
-    let network_rx_results = query_vm_range(&network_rx_query, start_time, end_time, step).await;
+    let network_rx_results = query_vm_range(&network_rx_query, start_time, end_time, step).await?;
 
     let network_rx_series: Vec<TimeSeriesPoint> = network_rx_results
         .first()
@@ -775,7 +789,7 @@ async fn get_app_detail_metrics(
         .unwrap_or_default();
 
     // Query historical network transmit
-    let network_tx_results = query_vm_range(&network_tx_query, start_time, end_time, step).await;
+    let network_tx_results = query_vm_range(&network_tx_query, start_time, end_time, step).await?;
 
     let network_tx_series: Vec<TimeSeriesPoint> = network_tx_results
         .first()
@@ -820,8 +834,8 @@ async fn get_app_detail_metrics(
         app_name
     );
 
-    let pod_cpu_results = query_vm(&pod_cpu_query).await;
-    let pod_memory_results = query_vm(&pod_memory_query).await;
+    let pod_cpu_results = query_vm(&pod_cpu_query).await?;
+    let pod_memory_results = query_vm(&pod_memory_query).await?;
 
     // Build maps of pod name -> metric value
     let mut pod_cpu_map: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
@@ -894,7 +908,7 @@ async fn get_app_detail_metrics(
 async fn check_vm_available(_auth: Authorized<MonitoringView>) -> Result<Json<serde_json::Value>> {
     let client = reqwest::Client::new();
     // VictoriaMetrics uses /health endpoint for health checks
-    let url = format!("{}/health", VICTORIAMETRICS_URL);
+    let url = format!("{}/health", CONFIG.monitoring.victoriametrics_url);
 
     let available = client
         .get(&url)
@@ -906,7 +920,8 @@ async fn check_vm_available(_auth: Authorized<MonitoringView>) -> Result<Json<se
 
     Ok(Json(serde_json::json!({
         "available": available,
-        "message": if available { "VictoriaMetrics is available" } else { "Cannot connect to VictoriaMetrics" }
+        "url": CONFIG.monitoring.victoriametrics_url,
+        "message": if available { "VictoriaMetrics is available" } else { "VictoriaMetrics is not reachable. Check monitoring setup." }
     })))
 }
 
@@ -925,7 +940,7 @@ async fn get_pods(
     Query(query): Query<PodQuery>,
     _auth: Authorized<MonitoringView>,
 ) -> Result<Json<Vec<PodStatus>>> {
-    let namespace = query.namespace.unwrap_or_else(|| "media".to_string());
+    let namespace = query.namespace.unwrap_or_else(|| CONFIG.kubernetes.default_namespace.clone());
 
     let pods = if let Some(client) = state.k8s_client.read().await.as_ref() {
         client
@@ -954,7 +969,7 @@ async fn get_metrics(
     Query(query): Query<PodQuery>,
     _auth: Authorized<MonitoringView>,
 ) -> Result<Json<Vec<PodMetrics>>> {
-    let namespace = query.namespace.unwrap_or_else(|| "media".to_string());
+    let namespace = query.namespace.unwrap_or_else(|| CONFIG.kubernetes.default_namespace.clone());
 
     let metrics = if let Some(client) = state.k8s_client.read().await.as_ref() {
         client
@@ -987,7 +1002,7 @@ async fn get_app_health(
     Query(query): Query<PodQuery>,
     _auth: Authorized<MonitoringView>,
 ) -> Result<Json<AppHealth>> {
-    let namespace = query.namespace.unwrap_or_else(|| "media".to_string());
+    let namespace = query.namespace.unwrap_or_else(|| CONFIG.kubernetes.default_namespace.clone());
 
     let (pods, metrics, endpoints) = if let Some(client) = state.k8s_client.read().await.as_ref() {
         let pods = client
@@ -1061,7 +1076,7 @@ async fn get_endpoints(
     Query(query): Query<PodQuery>,
     _auth: Authorized<MonitoringView>,
 ) -> Result<Json<Vec<ServiceEndpoint>>> {
-    let namespace = query.namespace.unwrap_or_else(|| "media".to_string());
+    let namespace = query.namespace.unwrap_or_else(|| CONFIG.kubernetes.default_namespace.clone());
 
     let endpoints = if let Some(client) = state.k8s_client.read().await.as_ref() {
         client

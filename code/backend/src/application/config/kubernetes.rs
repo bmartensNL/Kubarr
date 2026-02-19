@@ -16,7 +16,7 @@ impl KubernetesConfig {
                 .map(|v| v.to_lowercase() == "true")
                 .unwrap_or(false),
             default_namespace: env::var("KUBARR_DEFAULT_NAMESPACE")
-                .unwrap_or_else(|_| "media".to_string()),
+                .unwrap_or_default(),
         }
     }
 }

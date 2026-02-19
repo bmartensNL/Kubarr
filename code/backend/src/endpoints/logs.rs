@@ -7,12 +7,10 @@ use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::config::CONFIG;
 use crate::error::{AppError, Result};
 use crate::middleware::permissions::{Authorized, LogsView};
 use crate::state::AppState;
-
-// VictoriaLogs service URL inside the cluster
-const VICTORIALOGS_URL: &str = "http://victorialogs.victorialogs.svc.cluster.local:9428";
 
 pub fn logs_routes(state: AppState) -> Router {
     Router::new()
@@ -51,7 +49,7 @@ pub struct PodLogsQuery {
 }
 
 fn default_namespace() -> String {
-    "media".to_string()
+    CONFIG.kubernetes.default_namespace.clone()
 }
 
 fn default_tail() -> i32 {
@@ -255,7 +253,7 @@ async fn get_vlogs_namespaces(_auth: Authorized<LogsView>) -> Result<Json<Vec<St
     // VictoriaLogs uses /select/logsql/field_values for getting field values
     // Requires a query parameter
     let response = client
-        .get(format!("{}/select/logsql/field_values", VICTORIALOGS_URL))
+        .get(format!("{}/select/logsql/field_values", CONFIG.monitoring.victorialogs_url))
         .query(&[("query", "*"), ("field", "namespace"), ("limit", "1000")])
         .send()
         .await
@@ -308,7 +306,7 @@ async fn get_vlogs_labels(_auth: Authorized<LogsView>) -> Result<Json<Vec<String
 
     // VictoriaLogs uses /select/logsql/field_names with query parameter
     let response = client
-        .get(format!("{}/select/logsql/field_names", VICTORIALOGS_URL))
+        .get(format!("{}/select/logsql/field_names", CONFIG.monitoring.victorialogs_url))
         .query(&[("query", "*"), ("limit", "1000")])
         .send()
         .await
@@ -366,7 +364,7 @@ async fn get_vlogs_label_values(
         .map_err(|e| AppError::Internal(format!("Failed to create HTTP client: {}", e)))?;
 
     let response = client
-        .get(format!("{}/select/logsql/field_values", VICTORIALOGS_URL))
+        .get(format!("{}/select/logsql/field_values", CONFIG.monitoring.victorialogs_url))
         .query(&[("query", "*"), ("field", label.as_str()), ("limit", "1000")])
         .send()
         .await
@@ -432,7 +430,7 @@ async fn query_vlogs(
     let query = convert_loki_to_logsql(&params.query);
 
     let response = client
-        .get(format!("{}/select/logsql/query", VICTORIALOGS_URL))
+        .get(format!("{}/select/logsql/query", CONFIG.monitoring.victorialogs_url))
         .query(&[
             ("query", query.as_str()),
             ("start", start.as_str()),
