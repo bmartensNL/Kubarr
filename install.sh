@@ -15,6 +15,7 @@ NC='\033[0m' # No Color
 KUBARR_NAMESPACE="kubarr"
 KUBARR_VERSION="${KUBARR_VERSION:-latest}"
 MIN_RAM_MB=2048
+SKIP_K3S_INSTALL=false
 
 # Print functions
 print_info() {
@@ -57,6 +58,19 @@ detect_system() {
 
     OS=$(uname -s | tr '[:upper:]' '[:lower:]')
     ARCH=$(uname -m)
+
+    # macOS is not supported (k3s is Linux-only)
+    if [ "$OS" = "darwin" ]; then
+        echo ""
+        print_error "macOS detected. k3s is not supported on macOS."
+        echo ""
+        echo "Options:"
+        echo "  1. Set KUBECONFIG to an existing cluster and re-run"
+        echo "  2. Install Rancher Desktop or Docker Desktop with Kubernetes enabled"
+        echo "  3. Use a Linux VM or VPS"
+        echo ""
+        exit 1
+    fi
 
     case "$ARCH" in
         x86_64)
@@ -104,8 +118,23 @@ check_prerequisites() {
     print_success "Prerequisites satisfied"
 }
 
+# Check for an existing accessible Kubernetes cluster
+check_existing_cluster() {
+    if [ -n "$KUBECONFIG" ] && kubectl get nodes &>/dev/null; then
+        print_success "Using existing Kubernetes cluster"
+        SKIP_K3S_INSTALL=true
+        return
+    fi
+
+    SKIP_K3S_INSTALL=false
+}
+
 # Install k3s
 install_k3s() {
+    if [ "$SKIP_K3S_INSTALL" = "true" ]; then
+        return
+    fi
+
     if command -v k3s &> /dev/null; then
         print_success "k3s is already installed"
         K3S_VERSION=$(k3s --version | head -n1 | cut -d' ' -f3)
@@ -127,9 +156,13 @@ install_k3s() {
 
 # Wait for k3s to be ready
 wait_for_k3s() {
+    if [ "$SKIP_K3S_INSTALL" = "true" ]; then
+        return
+    fi
+
     print_info "Waiting for Kubernetes to be ready..."
 
-    # Set KUBECONFIG
+    # Set KUBECONFIG for k3s
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
     # Wait for node to be ready (max 60 seconds)
@@ -157,67 +190,76 @@ install_helm() {
     print_success "Helm installed successfully"
 }
 
-# Deploy Kubarr
-deploy_kubarr() {
+# Install or upgrade Kubarr (idempotent)
+install_or_upgrade_kubarr() {
     print_info "Deploying Kubarr to Kubernetes..."
 
-    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    # Use k3s KUBECONFIG if we installed k3s (not already set)
+    if [ "$SKIP_K3S_INSTALL" != "true" ]; then
+        export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    fi
 
     # Create namespace
     kubectl create namespace "$KUBARR_NAMESPACE" 2>/dev/null || true
 
-    # Add Helm repo or install from OCI
-    print_info "Installing Kubarr Helm chart..."
+    # Build common Helm arguments as an array for safe quoting
+    HELM_ARGS=(
+        kubarr
+        oci://ghcr.io/bmartensnl/kubarr/charts/kubarr
+        -n "$KUBARR_NAMESPACE"
+        --set frontend.service.type=NodePort
+        --set frontend.service.nodePort=30080
+        --set backend.service.type=NodePort
+        --set backend.service.nodePort=30081
+        --wait
+        --timeout 5m
+    )
 
-    if [ "$KUBARR_VERSION" = "latest" ]; then
-        helm install kubarr oci://ghcr.io/bmartensnl/kubarr/charts/kubarr \
-            -n "$KUBARR_NAMESPACE" \
-            --wait \
-            --timeout 5m
-    else
-        helm install kubarr oci://ghcr.io/bmartensnl/kubarr/charts/kubarr \
-            --version "$KUBARR_VERSION" \
-            -n "$KUBARR_NAMESPACE" \
-            --wait \
-            --timeout 5m
+    if [ "$KUBARR_VERSION" != "latest" ]; then
+        HELM_ARGS+=(--version "$KUBARR_VERSION")
     fi
 
-    print_success "Kubarr deployed successfully"
+    # Check if Kubarr is already installed
+    if helm list -n "$KUBARR_NAMESPACE" | grep -q kubarr; then
+        CURRENT_VERSION=$(helm list -n "$KUBARR_NAMESPACE" -o json 2>/dev/null | \
+            grep -o '"chart":"kubarr-[^"]*"' | head -n1 | sed 's/"chart":"kubarr-//;s/"//')
+        print_info "Kubarr already installed (chart version: ${CURRENT_VERSION:-unknown})"
+        if [ "$KUBARR_VERSION" = "latest" ]; then
+            print_info "Upgrading to latest version..."
+        else
+            print_info "Upgrading to version: $KUBARR_VERSION"
+        fi
+        helm upgrade "${HELM_ARGS[@]}"
+        print_success "Kubarr upgraded successfully"
+    else
+        print_info "Installing Kubarr Helm chart..."
+        helm install "${HELM_ARGS[@]}"
+        print_success "Kubarr deployed successfully"
+    fi
 }
 
-# Setup access
-setup_access() {
-    print_info "Setting up access to Kubarr..."
+# Detect the node's accessible IP address
+detect_node_ip() {
+    NODE_IP=$(kubectl get nodes \
+        -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' \
+        2>/dev/null || true)
 
-    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-
-    # Check if service exists
-    if ! kubectl get svc kubarr-frontend -n "$KUBARR_NAMESPACE" &>/dev/null; then
-        print_warning "Frontend service not found. Installation may be incomplete."
-        return
+    if [ -z "$NODE_IP" ]; then
+        NODE_IP="127.0.0.1"
     fi
-
-    # Get service port
-    SERVICE_PORT=$(kubectl get svc kubarr-frontend -n "$KUBARR_NAMESPACE" -o jsonpath='{.spec.ports[0].port}')
-
-    print_success "Kubarr is accessible via port-forward"
-    print_info "To access the dashboard, run:"
-    echo ""
-    echo "  kubectl port-forward -n $KUBARR_NAMESPACE svc/kubarr-frontend 8080:$SERVICE_PORT"
-    echo ""
-    print_info "Then open: http://localhost:8080"
 }
 
 # Get credentials
 get_credentials() {
     print_info "Retrieving access credentials..."
 
-    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    if [ "$SKIP_K3S_INSTALL" != "true" ]; then
+        export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    fi
 
     # Wait for backend pod to be ready
     kubectl wait --for=condition=ready pod -l app=kubarr-backend -n "$KUBARR_NAMESPACE" --timeout=60s &>/dev/null || true
 
-    # Try to get default credentials from deployment
     # Note: This depends on how Kubarr handles initial setup
     print_info "Default credentials will be shown on first login"
     print_warning "Make sure to change the default password after first login!"
@@ -225,6 +267,8 @@ get_credentials() {
 
 # Print completion message
 print_completion() {
+    detect_node_ip
+
     echo ""
     echo "╔════════════════════════════════════════════╗"
     echo "║     Kubarr Installation Complete! 🎉      ║"
@@ -232,15 +276,7 @@ print_completion() {
     echo ""
     print_success "Installation successful!"
     echo ""
-    echo "Next steps:"
-    echo ""
-    echo "1. Start port forwarding:"
-    echo "   ${GREEN}kubectl port-forward -n $KUBARR_NAMESPACE svc/kubarr-frontend 8080:80${NC}"
-    echo ""
-    echo "2. Open your browser:"
-    echo "   ${GREEN}http://localhost:8080${NC}"
-    echo ""
-    echo "3. Log in with default credentials (shown on first access)"
+    print_success "Kubarr is ready at: http://${NODE_IP}:30080"
     echo ""
     echo "Useful commands:"
     echo "  • Check status:    ${BLUE}kubectl get pods -n $KUBARR_NAMESPACE${NC}"
@@ -257,11 +293,11 @@ main() {
     check_root
     detect_system
     check_prerequisites
+    check_existing_cluster
     install_k3s
     wait_for_k3s
     install_helm
-    deploy_kubarr
-    setup_access
+    install_or_upgrade_kubarr
     get_credentials
     print_completion
 }
