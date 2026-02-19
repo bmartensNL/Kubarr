@@ -2,6 +2,7 @@ pub mod auth;
 pub mod charts;
 pub mod database;
 pub mod kubernetes;
+pub mod monitoring;
 pub mod server;
 
 use once_cell::sync::Lazy;
@@ -16,6 +17,7 @@ pub struct Config {
     pub kubernetes: kubernetes::KubernetesConfig,
     pub auth: auth::AuthConfig,
     pub charts: charts::ChartsConfig,
+    pub monitoring: monitoring::MonitoringConfig,
 
     // Build info
     pub commit_hash: String,
@@ -38,6 +40,7 @@ impl Config {
             kubernetes: kubernetes::KubernetesConfig::from_env(),
             auth: auth::AuthConfig::from_env(),
             charts: charts::ChartsConfig::from_env(),
+            monitoring: monitoring::MonitoringConfig::from_env(),
 
             // Build info
             commit_hash: env::var("COMMIT_HASH").unwrap_or_else(|_| "unknown".to_string()),
