@@ -188,7 +188,7 @@ test.describe('VPN Settings', () => {
           await testButton.click();
           await page.waitForTimeout(3000);
           // Should show some result (success or failure, not a crash)
-          const hasResult = await page.locator('text=/success|failed|error|connected|timeout/i').first().isVisible().catch(() => false);
+          const _hasResult = await page.locator('text=/success|failed|error|connected|timeout/i').first().isVisible().catch(() => false);
           // The page should still be functional
           await expect(page.locator('text=VPN Providers')).toBeVisible();
         } else {
