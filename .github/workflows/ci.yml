@@ -24,8 +24,14 @@ jobs:
     with:
       image-tag: ci-${{ github.sha }}
 
+  e2e:
+    needs: build
+    uses: ./.github/workflows/e2e-tests.yml
+    with:
+      image-tag: ci-${{ github.sha }}
+
   publish:
-    needs: test
+    needs: [test, e2e]
     if: github.event_name != 'pull_request'
     uses: ./.github/workflows/publish.yml
     with:
