@@ -24,6 +24,7 @@ The Kubarr backend supports the following environment variables:
 | `KUBARR_OAUTH2_ISSUER_URL` | OAuth2 issuer URL for token validation | `http://kubarr.kubarr.svc.cluster.local:8000` | No |
 | `KUBARR_DATABASE_URL` | PostgreSQL connection string | - | Yes (if using database) |
 | `KUBARR_JWT_SECRET` | Secret key for JWT token signing | - | Yes |
+| `KUBARR_GLUETUN_IMAGE` | Docker image for the Gluetun VPN sidecar container | `qmcgaw/gluetun:v3.40` | No |
 
 ### Setting Environment Variables
 
