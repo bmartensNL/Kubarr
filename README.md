@@ -76,19 +76,20 @@ curl -sfL https://raw.githubusercontent.com/bmartensNL/Kubarr/main/install.sh | 
 ```
 
 This will:
-- Install k3s if not already present
-- Deploy Kubarr via Helm
-- Configure access to the dashboard
+- Install k3s if not already present (skipped if `KUBECONFIG` points to an existing cluster)
+- Deploy Kubarr via Helm with NodePort access
+- Print the URL where Kubarr is accessible — no extra steps required
 
-Then start port forwarding and access the dashboard:
+Kubarr will be available at `http://<node-ip>:30080` immediately after the script completes.
+
+**System Requirements:** Linux with 2GB+ RAM recommended. macOS users must set `KUBECONFIG` to an existing cluster first (k3s is Linux-only).
+
+**Existing cluster:** If you already have a Kubernetes cluster, set `KUBECONFIG` before running and k3s installation will be skipped automatically:
 
 ```bash
-kubectl port-forward -n kubarr svc/kubarr-frontend 8080:80
+export KUBECONFIG=/path/to/your/kubeconfig
+curl -sfL https://raw.githubusercontent.com/bmartensNL/Kubarr/main/install.sh | sh -
 ```
-
-Open http://localhost:8080 in your browser.
-
-**System Requirements:** Linux with 2GB+ RAM recommended.
 
 ### Manual Installation
 
@@ -100,15 +101,21 @@ If you already have a Kubernetes cluster:
 # Create namespace
 kubectl create namespace kubarr
 
-# Install from OCI registry
-helm install kubarr oci://ghcr.io/bmartensnl/kubarr/charts/kubarr -n kubarr
+# Install from OCI registry with NodePort access
+helm install kubarr oci://ghcr.io/bmartensnl/kubarr/charts/kubarr -n kubarr \
+  --set frontend.service.type=NodePort \
+  --set frontend.service.nodePort=30080 \
+  --set backend.service.type=NodePort \
+  --set backend.service.nodePort=30081
 
 # Wait for pods to be ready
 kubectl wait --for=condition=ready pod -l app=kubarr -n kubarr --timeout=300s
 
-# Access the dashboard
-kubectl port-forward -n kubarr svc/kubarr-frontend 8080:80
+# Get node IP
+kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}'
 ```
+
+Open `http://<node-ip>:30080` in your browser.
 
 **Option 2: Local Development**
 
