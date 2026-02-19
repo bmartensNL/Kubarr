@@ -9,15 +9,25 @@ on:
     types: [opened, assigned]
   pull_request_review:
     types: [submitted]
+  # Auto-fix CI failures on claude[bot] PRs
+  pull_request:
+    types: [opened, synchronize]
 
 jobs:
   claude:
     if: |
-      github.actor == 'bmartensNL' && (
-        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-        (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      (
+        github.event_name == 'pull_request' &&
+        startsWith(github.head_ref, 'claude/') &&
+        github.event.pull_request.user.login == 'claude[bot]'
+      ) ||
+      (
+        github.actor == 'bmartensNL' && (
+          (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+          (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+          (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+          (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+        )
       )
     runs-on: ubuntu-latest
     permissions:
@@ -42,8 +52,9 @@ jobs:
           additional_permissions: |
             actions: read
 
-          # Optional: Give a custom prompt to Claude. If this is not specified, Claude will perform the instructions specified in the comment that tagged it.
-          # prompt: 'Update the pull request description to include a summary of changes.'
+          # When triggered by a PR event (CI failure auto-fix), give Claude explicit instructions
+          prompt: |
+            ${{ github.event_name == 'pull_request' && 'CI is failing on this pull request. Fetch the latest CI logs using the available tools, identify what is failing (lint errors, test failures, build errors, etc.), fix the root cause in the code, and push the fix to this branch. Do not change the PR description or title.' || '' }}
 
           claude_args: '--dangerously-skip-permissions'
 
