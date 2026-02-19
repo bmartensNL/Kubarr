@@ -1,11 +1,11 @@
 import { useState, FormEvent, useEffect, useRef, useMemo } from 'react'
-import { Ship, Shield, ArrowLeft, Loader2, User, Check } from 'lucide-react'
-import { sessionLogin, verify2FA, SessionLoginResponse, getAccounts, switchAccount, AccountInfo } from '../api/auth'
+import { Ship, Shield, ArrowLeft, Loader2, User, Check, Key } from 'lucide-react'
+import { sessionLogin, verify2FA, loginWithRecoveryCode, SessionLoginResponse, getAccounts, switchAccount, AccountInfo } from '../api/auth'
 import { getCurrentUser } from '../api/users'
 import { oauthApi, AvailableProvider } from '../api/oauth'
 import { precacheDashboard } from '../utils/precache'
 
-type LoginStep = 'credentials' | '2fa_required' | '2fa_setup_required'
+type LoginStep = 'credentials' | '2fa_required' | '2fa_setup_required' | 'recovery_code'
 
 export default function LoginPage() {
   const [username, setUsername] = useState('')
@@ -18,6 +18,7 @@ export default function LoginPage() {
   const [step, setStep] = useState<LoginStep>('credentials')
   const [totpCode, setTotpCode] = useState('')
   const totpInputRef = useRef<HTMLInputElement>(null)
+  const [recoveryCode, setRecoveryCode] = useState('')
 
   // OAuth providers
   const [oauthProviders, setOauthProviders] = useState<AvailableProvider[]>([])
@@ -194,9 +195,28 @@ export default function LoginPage() {
     }
   }
 
+  const handleRecoveryCodeSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!recoveryCode.trim()) return
+
+    setError(null)
+    setLoading(true)
+
+    try {
+      await loginWithRecoveryCode(username, password, recoveryCode.trim().toUpperCase())
+      window.location.href = redirectUrl
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { detail?: string } }, message?: string }
+      setError(error.response?.data?.detail || error.message || 'Invalid recovery code')
+      setRecoveryCode('')
+      setLoading(false)
+    }
+  }
+
   const handleBack = () => {
     setStep('credentials')
     setTotpCode('')
+    setRecoveryCode('')
     setError(null)
     setPassword('') // Clear password for security
   }
@@ -369,11 +389,84 @@ export default function LoginPage() {
 
               <button
                 type="button"
+                onClick={() => { setStep('recovery_code'); setTotpCode(''); setError(null) }}
+                className="w-full flex items-center justify-center gap-2 py-2 px-4 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-sm"
+              >
+                <Key size={14} />
+                Use recovery code instead
+              </button>
+
+              <button
+                type="button"
                 onClick={handleBack}
                 className="w-full flex items-center justify-center gap-2 py-2 px-4 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
               >
                 <ArrowLeft size={16} />
                 Back to Login
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )
+  }
+
+  // Recovery Code View
+  if (step === 'recovery_code') {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center px-4">
+        <div className="max-w-md w-full space-y-8">
+          <div className="text-center">
+            <div className="flex justify-center mb-4">
+              <div className="p-3 bg-amber-100 dark:bg-amber-900/30 rounded-full">
+                <Key size={32} className="text-amber-600 dark:text-amber-400" />
+              </div>
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+              Recovery Code
+            </h2>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+              Enter one of your saved recovery codes to sign in
+            </p>
+          </div>
+
+          <form className="mt-8 space-y-6" onSubmit={handleRecoveryCodeSubmit}>
+            {error && (
+              <div className="rounded-md bg-red-100 dark:bg-red-900/50 border border-red-300 dark:border-red-700 p-4">
+                <div className="text-sm text-red-700 dark:text-red-200">{error}</div>
+              </div>
+            )}
+
+            <div className="flex justify-center">
+              <input
+                type="text"
+                autoFocus
+                autoComplete="off"
+                value={recoveryCode}
+                onChange={(e) => setRecoveryCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10))}
+                placeholder="XXXXXXXXXX"
+                maxLength={10}
+                className="w-48 px-4 py-3 text-center text-xl font-mono tracking-[0.3em] border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+              />
+            </div>
+
+            <div className="space-y-3">
+              <button
+                type="submit"
+                disabled={loading || recoveryCode.length !== 10}
+                className="group relative w-full flex justify-center items-center gap-2 py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-amber-600 hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading && <Loader2 size={16} className="animate-spin" />}
+                {loading ? 'Verifying...' : 'Sign in with recovery code'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setStep('2fa_required'); setRecoveryCode(''); setError(null) }}
+                className="w-full flex items-center justify-center gap-2 py-2 px-4 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+              >
+                <ArrowLeft size={16} />
+                Use authenticator app instead
               </button>
             </div>
           </form>
