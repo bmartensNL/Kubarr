@@ -4,7 +4,7 @@ import { useTheme } from '../contexts/ThemeContext'
 import { User, Mail, Shield, Sun, Moon, Monitor, Check, Key, Smartphone, AlertTriangle, Eye, EyeOff, Loader2, Link2, Unlink, Palette, Info, Clock, Globe, Trash2, History, Pencil, X } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import type { Theme, TwoFactorStatusResponse, TwoFactorSetupResponse } from '../api/users'
-import { changeOwnPassword, get2FAStatus, setup2FA, enable2FA, disable2FA, updateOwnProfile, deleteOwnAccount } from '../api/users'
+import { changeOwnPassword, get2FAStatus, setup2FA, enable2FA, disable2FA, getRecoveryCodeCount, updateOwnProfile, deleteOwnAccount } from '../api/users'
 import { oauthApi, type LinkedAccount, type AvailableProvider } from '../api/oauth'
 import { getSessions, revokeSession, type SessionInfo } from '../api/auth'
 import { auditApi, type AuditLog } from '../api/audit'
@@ -42,6 +42,9 @@ export default function AccountPage() {
   const [twoFactorError, setTwoFactorError] = useState('')
   const [twoFactorSuccess, setTwoFactorSuccess] = useState('')
   const [processing2FA, setProcessing2FA] = useState(false)
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null)
+  const [recoveryCodeCount, setRecoveryCodeCount] = useState<number | null>(null)
+  const [copiedCodes, setCopiedCodes] = useState(false)
 
   // Linked accounts state
   const [linkedAccounts, setLinkedAccounts] = useState<LinkedAccount[]>([])
@@ -72,6 +75,14 @@ export default function AccountPage() {
       try {
         const status = await get2FAStatus()
         setTwoFactorStatus(status)
+        if (status.enabled) {
+          try {
+            const count = await getRecoveryCodeCount()
+            setRecoveryCodeCount(count.remaining)
+          } catch {
+            // Recovery code count is optional
+          }
+        }
       } catch (err) {
         console.error('Failed to load 2FA status:', err)
       } finally {
@@ -186,10 +197,12 @@ export default function AccountPage() {
 
     setProcessing2FA(true)
     try {
-      await enable2FA(verificationCode)
-      setTwoFactorSuccess('Two-factor authentication enabled successfully')
+      const result = await enable2FA(verificationCode)
       setSetupData(null)
       setVerificationCode('')
+      setRecoveryCodes(result.recovery_codes)
+      setRecoveryCodeCount(result.recovery_codes.length)
+      setCopiedCodes(false)
       const status = await get2FAStatus()
       setTwoFactorStatus(status)
     } catch (err: unknown) {
@@ -213,6 +226,8 @@ export default function AccountPage() {
       await disable2FA(disablePassword)
       setTwoFactorSuccess('Two-factor authentication disabled')
       setDisablePassword('')
+      setRecoveryCodes(null)
+      setRecoveryCodeCount(null)
       const status = await get2FAStatus()
       setTwoFactorStatus(status)
     } catch (err: unknown) {
@@ -954,7 +969,61 @@ export default function AccountPage() {
                     Required by your role
                   </span>
                 )}
+                {twoFactorStatus?.enabled && recoveryCodeCount !== null && (
+                  <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-sm font-medium ${
+                    recoveryCodeCount === 0
+                      ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                      : recoveryCodeCount <= 2
+                      ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
+                      : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
+                  }`}>
+                    <Key size={14} />
+                    {recoveryCodeCount} recovery {recoveryCodeCount === 1 ? 'code' : 'codes'} remaining
+                  </span>
+                )}
               </div>
+
+              {/* Recovery Codes Display (one-time, shown after enabling) */}
+              {recoveryCodes && recoveryCodes.length > 0 && (
+                <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                  <div className="flex items-start gap-2 mb-3">
+                    <AlertTriangle size={16} className="text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Save your recovery codes</p>
+                      <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+                        Store these codes somewhere safe. Each code can only be used once. They will not be shown again.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    {recoveryCodes.map((code, i) => (
+                      <code key={i} className="block px-3 py-1.5 bg-white dark:bg-gray-800 border border-amber-200 dark:border-amber-700 rounded text-sm font-mono text-center tracking-wider">
+                        {code}
+                      </code>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(recoveryCodes.join('\n'))
+                        setCopiedCodes(true)
+                        setTimeout(() => setCopiedCodes(false), 2000)
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded text-sm font-medium"
+                    >
+                      {copiedCodes ? <Check size={14} /> : <Key size={14} />}
+                      {copiedCodes ? 'Copied!' : 'Copy all'}
+                    </button>
+                    <button
+                      onClick={() => setRecoveryCodes(null)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/30 rounded text-sm font-medium"
+                    >
+                      <X size={14} />
+                      I've saved them
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Setup Flow */}
               {!twoFactorStatus?.enabled && !setupData && (

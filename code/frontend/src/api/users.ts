@@ -228,6 +228,15 @@ export interface TwoFactorStatusResponse {
   required_by_role: boolean;
 }
 
+export interface TwoFactorEnableResponse {
+  message: string;
+  recovery_codes: string[];
+}
+
+export interface RecoveryCodeCountResponse {
+  remaining: number;
+}
+
 /**
  * Set up 2FA - generates secret and QR code
  */
@@ -237,10 +246,18 @@ export const setup2FA = async (): Promise<TwoFactorSetupResponse> => {
 };
 
 /**
- * Enable 2FA - verifies code and activates
+ * Enable 2FA - verifies code and activates, returns one-time recovery codes
  */
-export const enable2FA = async (code: string): Promise<{ message: string }> => {
-  const response = await apiClient.post<{ message: string }>('/users/me/2fa/enable', { code });
+export const enable2FA = async (code: string): Promise<TwoFactorEnableResponse> => {
+  const response = await apiClient.post<TwoFactorEnableResponse>('/users/me/2fa/enable', { code });
+  return response.data;
+};
+
+/**
+ * Get remaining recovery code count (requires 2FA enabled)
+ */
+export const getRecoveryCodeCount = async (): Promise<RecoveryCodeCountResponse> => {
+  const response = await apiClient.get<RecoveryCodeCountResponse>('/users/me/2fa/recovery-codes');
   return response.data;
 };
 

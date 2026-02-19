@@ -14,9 +14,10 @@ use crate::endpoints::extractors::{get_user_app_access, get_user_permissions};
 use crate::error::{AppError, Result};
 use crate::middleware::{Authenticated, Authorized, UsersManage, UsersResetPassword, UsersView};
 use crate::models::prelude::*;
-use crate::models::{invite, role, user, user_preferences, user_role};
+use crate::models::{invite, role, two_factor_recovery_code, user, user_preferences, user_role};
 use crate::services::{
-    generate_totp_secret, get_totp_provisioning_uri, hash_password, verify_password, verify_totp,
+    generate_recovery_codes, generate_totp_secret, get_totp_provisioning_uri, hash_password,
+    hash_recovery_code, verify_password, verify_totp,
 };
 use crate::state::AppState;
 
@@ -39,6 +40,7 @@ pub fn users_routes(state: AppState) -> Router {
         .route("/me/2fa/enable", post(enable_2fa))
         .route("/me/2fa/disable", post(disable_2fa))
         .route("/me/2fa/status", get(get_2fa_status))
+        .route("/me/2fa/recovery-codes", get(get_recovery_code_count))
         .route("/pending", get(list_pending_users))
         .route("/invites", get(list_invites).post(create_invite))
         .route("/invites/{invite_id}", delete(delete_invite))
@@ -139,6 +141,17 @@ pub struct TwoFactorStatusResponse {
     pub enabled: bool,
     pub verified_at: Option<chrono::DateTime<chrono::Utc>>,
     pub required_by_role: bool,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct TwoFactorEnableResponse {
+    pub message: String,
+    pub recovery_codes: Vec<String>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct RecoveryCodeCountResponse {
+    pub remaining: u64,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -1090,17 +1103,19 @@ async fn setup_2fa(
     tag = "Users",
     request_body = Enable2FARequest,
     responses(
-        (status = 200, body = serde_json::Value)
+        (status = 200, body = TwoFactorEnableResponse)
     )
 )]
 async fn enable_2fa(
     State(state): State<AppState>,
     auth: Authenticated,
     Json(data): Json<Enable2FARequest>,
-) -> Result<Json<serde_json::Value>> {
+) -> Result<Json<TwoFactorEnableResponse>> {
     let db = state.get_db().await?;
+    let user_id = auth.user_id();
+
     // Get fresh user data
-    let user_record = User::find_by_id(auth.user_id())
+    let user_record = User::find_by_id(user_id)
         .one(&db)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
@@ -1132,9 +1147,32 @@ async fn enable_2fa(
     user_model.updated_at = Set(now);
     user_model.update(&db).await?;
 
-    Ok(Json(serde_json::json!({
-        "message": "Two-factor authentication enabled successfully"
-    })))
+    // Delete any existing recovery codes for this user (fresh set)
+    TwoFactorRecoveryCode::delete_many()
+        .filter(two_factor_recovery_code::Column::UserId.eq(user_id))
+        .exec(&db)
+        .await?;
+
+    // Generate 8 recovery codes and store hashed versions
+    let plaintext_codes = generate_recovery_codes();
+    for code in &plaintext_codes {
+        let code_hash = hash_recovery_code(code)?;
+        let recovery_code_model = two_factor_recovery_code::ActiveModel {
+            user_id: Set(user_id),
+            code_hash: Set(code_hash),
+            created_at: Set(now),
+            used_at: Set(None),
+            ..Default::default()
+        };
+        recovery_code_model.insert(&db).await?;
+    }
+
+    tracing::info!(user_id = user_id, "2FA enabled, {} recovery codes generated", plaintext_codes.len());
+
+    Ok(Json(TwoFactorEnableResponse {
+        message: "Two-factor authentication enabled successfully".to_string(),
+        recovery_codes: plaintext_codes,
+    }))
 }
 
 /// Disable 2FA (requires password confirmation)
@@ -1187,6 +1225,12 @@ async fn disable_2fa(
     user_model.updated_at = Set(now);
     user_model.update(&db).await?;
 
+    // Delete all recovery codes
+    TwoFactorRecoveryCode::delete_many()
+        .filter(two_factor_recovery_code::Column::UserId.eq(user_id))
+        .exec(&db)
+        .await?;
+
     Ok(Json(serde_json::json!({
         "message": "Two-factor authentication disabled"
     })))
@@ -1222,4 +1266,29 @@ async fn get_2fa_status(
         verified_at: user_record.totp_verified_at,
         required_by_role,
     }))
+}
+
+/// Get remaining recovery code count
+#[utoipa::path(
+    get,
+    path = "/api/users/me/2fa/recovery-codes",
+    tag = "Users",
+    responses(
+        (status = 200, body = RecoveryCodeCountResponse)
+    )
+)]
+async fn get_recovery_code_count(
+    State(state): State<AppState>,
+    auth: Authenticated,
+) -> Result<Json<RecoveryCodeCountResponse>> {
+    let db = state.get_db().await?;
+    let user_id = auth.user_id();
+
+    let remaining = TwoFactorRecoveryCode::find()
+        .filter(two_factor_recovery_code::Column::UserId.eq(user_id))
+        .filter(two_factor_recovery_code::Column::UsedAt.is_null())
+        .count(&db)
+        .await?;
+
+    Ok(Json(RecoveryCodeCountResponse { remaining }))
 }

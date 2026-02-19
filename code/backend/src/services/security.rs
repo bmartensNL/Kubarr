@@ -392,6 +392,43 @@ pub fn generate_2fa_challenge_token() -> String {
     generate_random_string(32)
 }
 
+// ==========================================================================
+// Recovery Code Functions
+// ==========================================================================
+
+const RECOVERY_CODE_CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+const RECOVERY_CODE_LEN: usize = 10;
+const RECOVERY_CODE_COUNT: usize = 8;
+const RECOVERY_CODE_BCRYPT_COST: u32 = 8;
+
+/// Generate N single-use recovery codes (plaintext, uppercase alphanumeric)
+pub fn generate_recovery_codes() -> Vec<String> {
+    let mut rng = rand::rng();
+    (0..RECOVERY_CODE_COUNT)
+        .map(|_| {
+            (0..RECOVERY_CODE_LEN)
+                .map(|_| {
+                    let idx = rng.random_range(0..RECOVERY_CODE_CHARSET.len());
+                    RECOVERY_CODE_CHARSET[idx] as char
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// Hash a recovery code for secure storage
+pub fn hash_recovery_code(code: &str) -> Result<String> {
+    let normalized = code.to_uppercase();
+    bcrypt::hash(normalized.as_str(), RECOVERY_CODE_BCRYPT_COST)
+        .map_err(|e| AppError::Internal(format!("Failed to hash recovery code: {}", e)))
+}
+
+/// Verify a plaintext recovery code against a stored hash
+pub fn verify_recovery_code(code: &str, hash: &str) -> bool {
+    let normalized = code.to_uppercase();
+    bcrypt::verify(normalized.as_str(), hash).unwrap_or(false)
+}
+
 /// Get the JWKS (JSON Web Key Set) for the public key
 pub fn get_jwks() -> Result<serde_json::Value> {
     let public_pem = get_public_key()?;

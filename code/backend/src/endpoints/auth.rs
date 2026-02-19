@@ -6,7 +6,7 @@ use axum::{
     Json, Router,
 };
 use chrono::{Duration, Utc};
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 
 use crate::config::CONFIG;
@@ -15,8 +15,10 @@ use crate::middleware::auth::{
     ACTIVE_SESSION_COOKIE, MAX_SESSIONS, SESSION_COOKIE_BASE, SESSION_COOKIE_NAME,
 };
 use crate::models::prelude::*;
-use crate::models::{session, user};
-use crate::services::{create_session_token, decode_session_token, verify_password, verify_totp};
+use crate::models::{role, session, two_factor_recovery_code, user, user_role};
+use crate::services::{
+    create_session_token, decode_session_token, verify_password, verify_recovery_code, verify_totp,
+};
 use crate::state::AppState;
 
 /// Create auth routes for session management
@@ -28,6 +30,7 @@ pub fn auth_routes(state: AppState) -> Router {
         .route("/sessions/{session_id}", delete(revoke_session))
         .route("/switch/{slot}", post(switch_session))
         .route("/accounts", get(list_accounts))
+        .route("/2fa/recover", post(recover_with_code))
         .with_state(state)
 }
 
@@ -67,6 +70,13 @@ pub struct SessionInfo {
     pub created_at: String,
     pub last_accessed_at: String,
     pub is_current: bool,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct RecoverRequest {
+    pub username: String,
+    pub password: String,
+    pub recovery_code: String,
 }
 
 // ============================================================================
@@ -192,6 +202,17 @@ fn find_available_slot(existing: &[(usize, i64, String)], user_id: i64) -> usize
 // Session Management Endpoints
 // ============================================================================
 
+/// Check if any of a user's roles require 2FA
+async fn user_role_requires_2fa(db: &sea_orm::DatabaseConnection, user_id: i64) -> bool {
+    let roles: Vec<role::Model> = Role::find()
+        .inner_join(UserRole)
+        .filter(user_role::Column::UserId.eq(user_id))
+        .all(db)
+        .await
+        .unwrap_or_default();
+    roles.iter().any(|r| r.requires_2fa)
+}
+
 /// Login with username and password, returns session cookie
 #[utoipa::path(
     post,
@@ -233,6 +254,13 @@ async fn login(
     // Verify password
     if !verify_password(&request.password, &found_user.hashed_password) {
         return Err(AppError::Unauthorized("Invalid credentials".to_string()));
+    }
+
+    // If role requires 2FA but user hasn't set it up, block login
+    if !found_user.totp_enabled && user_role_requires_2fa(&db, found_user.id).await {
+        return Err(AppError::BadRequest(
+            "Two-factor authentication setup required".to_string(),
+        ));
     }
 
     // Check TOTP if enabled
@@ -591,4 +619,169 @@ async fn list_accounts(
     }
 
     Ok(Json(accounts))
+}
+
+/// Login using a recovery code instead of a TOTP code
+#[utoipa::path(
+    post,
+    path = "/auth/2fa/recover",
+    tag = "Auth",
+    request_body = RecoverRequest,
+    responses(
+        (status = 200, body = LoginResponse)
+    )
+)]
+async fn recover_with_code(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<RecoverRequest>,
+) -> Result<Response> {
+    let db = state.get_db().await?;
+
+    // Find user by username or email
+    let found_user = User::find()
+        .filter(
+            user::Column::Username
+                .eq(&request.username)
+                .or(user::Column::Email.eq(&request.username)),
+        )
+        .one(&db)
+        .await?
+        .ok_or_else(|| AppError::Unauthorized("Invalid credentials".to_string()))?;
+
+    // Check if user is active and approved
+    if !found_user.is_active {
+        return Err(AppError::Unauthorized("Account is disabled".to_string()));
+    }
+    if !found_user.is_approved {
+        return Err(AppError::Unauthorized(
+            "Account is pending approval".to_string(),
+        ));
+    }
+
+    // Verify password
+    if !verify_password(&request.password, &found_user.hashed_password) {
+        return Err(AppError::Unauthorized("Invalid credentials".to_string()));
+    }
+
+    // Only allow recovery code login if 2FA is enabled
+    if !found_user.totp_enabled {
+        return Err(AppError::BadRequest(
+            "Two-factor authentication is not enabled on this account".to_string(),
+        ));
+    }
+
+    // Find all unused recovery codes for this user
+    let recovery_codes = TwoFactorRecoveryCode::find()
+        .filter(two_factor_recovery_code::Column::UserId.eq(found_user.id))
+        .filter(two_factor_recovery_code::Column::UsedAt.is_null())
+        .all(&db)
+        .await?;
+
+    if recovery_codes.is_empty() {
+        return Err(AppError::BadRequest(
+            "No recovery codes available. Please contact your administrator.".to_string(),
+        ));
+    }
+
+    // Find the matching recovery code
+    let normalized_code = request.recovery_code.to_uppercase();
+    let matched_code = recovery_codes
+        .iter()
+        .find(|rc| verify_recovery_code(&normalized_code, &rc.code_hash));
+
+    let matched_code = matched_code.ok_or_else(|| {
+        AppError::Unauthorized("Invalid recovery code".to_string())
+    })?;
+
+    // Mark the code as used
+    let now = Utc::now();
+    let mut code_model: two_factor_recovery_code::ActiveModel = matched_code.clone().into();
+    code_model.used_at = Set(Some(now));
+    code_model.update(&db).await?;
+
+    // Count remaining unused codes; if none left, disable 2FA
+    let remaining = TwoFactorRecoveryCode::find()
+        .filter(two_factor_recovery_code::Column::UserId.eq(found_user.id))
+        .filter(two_factor_recovery_code::Column::UsedAt.is_null())
+        .count(&db)
+        .await?;
+
+    if remaining == 0 {
+        // All codes used: disable 2FA so user can re-enroll
+        let mut user_model: user::ActiveModel = found_user.clone().into();
+        user_model.totp_enabled = Set(false);
+        user_model.totp_secret = Set(None);
+        user_model.totp_verified_at = Set(None);
+        user_model.updated_at = Set(now);
+        user_model.update(&db).await?;
+
+        tracing::warn!(
+            user_id = found_user.id,
+            "All 2FA recovery codes used - 2FA disabled, user must re-enroll"
+        );
+    }
+
+    // Create session record in database
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let expires_at = now + Duration::days(7);
+
+    let user_agent = headers
+        .get(header::USER_AGENT)
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.chars().take(255).collect::<String>());
+
+    let ip_address = headers
+        .get("x-forwarded-for")
+        .or_else(|| headers.get("x-real-ip"))
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.split(',').next().unwrap_or(s).trim().to_string());
+
+    let session = session::ActiveModel {
+        id: Set(session_id.clone()),
+        user_id: Set(found_user.id),
+        user_agent: Set(user_agent),
+        ip_address: Set(ip_address),
+        created_at: Set(now),
+        expires_at: Set(expires_at),
+        last_accessed_at: Set(now),
+        is_revoked: Set(false),
+    };
+    session.insert(&db).await?;
+
+    let session_token = create_session_token(&session_id)?;
+
+    let existing_sessions = get_existing_sessions(&state, &headers).await;
+    let slot = find_available_slot(&existing_sessions, found_user.id);
+
+    let response = Json(LoginResponse {
+        user_id: found_user.id,
+        username: found_user.username.clone(),
+        email: found_user.email.clone(),
+        session_slot: slot,
+    });
+
+    let secure = CONFIG.auth.oauth2_issuer_url.starts_with("https://");
+
+    tracing::info!(
+        user_id = found_user.id,
+        username = found_user.username,
+        "User logged in via recovery code"
+    );
+
+    let mut response_headers = axum::http::HeaderMap::new();
+    response_headers.insert(
+        header::SET_COOKIE,
+        create_session_cookie_for_slot(slot, &session_token, secure),
+    );
+    response_headers.append(
+        header::SET_COOKIE,
+        create_active_session_cookie(slot, secure),
+    );
+    response_headers.append(
+        header::SET_COOKIE,
+        create_session_cookie(&session_token, secure),
+    );
+
+    Ok((response_headers, response).into_response())
 }

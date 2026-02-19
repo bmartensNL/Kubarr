@@ -14,6 +14,7 @@ pub mod role_permission;
 pub mod server_config;
 pub mod session;
 pub mod system_setting;
+pub mod two_factor_recovery_code;
 pub mod user;
 pub mod user_notification;
 pub mod user_notification_pref;
@@ -39,6 +40,7 @@ pub mod prelude {
     pub use super::server_config::{self, Entity as ServerConfig};
     pub use super::session::{self, Entity as Session};
     pub use super::system_setting::{self, Entity as SystemSetting};
+    pub use super::two_factor_recovery_code::{self, Entity as TwoFactorRecoveryCode};
     pub use super::user::{self, Entity as User};
     pub use super::user_notification::{self, Entity as UserNotification};
     pub use super::user_notification_pref::{self, Entity as UserNotificationPref};
