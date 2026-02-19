@@ -93,7 +93,10 @@ COPY --from=builder /kubarr /app/kubarr
 COPY --from=asset-builder /helm /usr/local/bin/helm
 
 # Create charts directory (populated at runtime via OCI sync)
-RUN mkdir -p /app/charts
+# Add non-root user and set ownership
+RUN adduser -D -u 1000 -g kubarr kubarr && \
+    mkdir -p /app/charts && \
+    chown -R kubarr:kubarr /app
 
 # Set environment variables
 ENV COMMIT_HASH=${COMMIT_HASH}
@@ -103,6 +106,9 @@ ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
 # Expose API port
 EXPOSE 8000
+
+# Run as non-root user
+USER kubarr
 
 # Run the Rust binary
 ENTRYPOINT ["/app/kubarr"]
