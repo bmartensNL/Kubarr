@@ -18,7 +18,9 @@ pub mod vpn;
 
 use std::net::{IpAddr, SocketAddr};
 
-use axum::{extract::ConnectInfo, extract::State, middleware as axum_middleware, response::Html, Router};
+use axum::{
+    extract::ConnectInfo, extract::State, middleware as axum_middleware, response::Html, Router,
+};
 use sea_orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationTrait};
 use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::KeyExtractor, GovernorError, GovernorLayer,
@@ -52,7 +54,6 @@ impl KeyExtractor for PeerIpWithFallback {
         Ok(IpAddr::from([127, 0, 0, 1]))
     }
 }
-
 
 #[derive(OpenApi)]
 #[openapi(

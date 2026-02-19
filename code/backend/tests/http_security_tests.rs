@@ -31,7 +31,14 @@ async fn create_test_state() -> AppState {
     let chart_sync = Arc::new(ChartSyncService::new(catalog.clone()));
     let audit = AuditService::new();
     let notification = NotificationService::new();
-    AppState::new(Some(db), k8s_client, catalog, chart_sync, audit, notification)
+    AppState::new(
+        Some(db),
+        k8s_client,
+        catalog,
+        chart_sync,
+        audit,
+        notification,
+    )
 }
 
 // ============================================================================

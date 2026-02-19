@@ -41,7 +41,14 @@ async fn create_test_state() -> AppState {
     let audit = AuditService::new();
     let notification = NotificationService::new();
 
-    AppState::new(Some(db), k8s_client, catalog, chart_sync, audit, notification)
+    AppState::new(
+        Some(db),
+        k8s_client,
+        catalog,
+        chart_sync,
+        audit,
+        notification,
+    )
 }
 
 /// Helper to create a test AppState with an admin user (setup complete)
@@ -518,7 +525,9 @@ async fn test_setup_endpoints_protected_after_admin_creation() {
         // Verify the error message indicates setup is complete (case-insensitive check)
         let body_lower = body.to_lowercase();
         assert!(
-            body_lower.contains("setup") || body_lower.contains("complete") || body_lower.contains("forbidden"),
+            body_lower.contains("setup")
+                || body_lower.contains("complete")
+                || body_lower.contains("forbidden"),
             "Expected setup complete error message for {}, got: {}",
             endpoint,
             body

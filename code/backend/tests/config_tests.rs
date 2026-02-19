@@ -42,10 +42,7 @@ fn test_config_clone() {
 
     assert_eq!(config1.server.host, config2.server.host);
     assert_eq!(config1.server.port, config2.server.port);
-    assert_eq!(
-        config1.database.database_url,
-        config2.database.database_url
-    );
+    assert_eq!(config1.database.database_url, config2.database.database_url);
 }
 
 #[test]

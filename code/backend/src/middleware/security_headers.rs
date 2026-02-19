@@ -11,8 +11,7 @@ use axum::{
 // Compile-time constant header values — all are valid ASCII so `from_static` is safe.
 const X_FRAME_OPTIONS: HeaderValue = HeaderValue::from_static("DENY");
 const X_CONTENT_TYPE_OPTIONS: HeaderValue = HeaderValue::from_static("nosniff");
-const REFERRER_POLICY: HeaderValue =
-    HeaderValue::from_static("strict-origin-when-cross-origin");
+const REFERRER_POLICY: HeaderValue = HeaderValue::from_static("strict-origin-when-cross-origin");
 const X_XSS_PROTECTION: HeaderValue = HeaderValue::from_static("1; mode=block");
 const CONTENT_SECURITY_POLICY: HeaderValue = HeaderValue::from_static(
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'",
@@ -55,12 +54,7 @@ mod tests {
     async fn get_response_headers(path: &str) -> axum::http::HeaderMap {
         let app = test_app();
         let response = app
-            .oneshot(
-                Request::builder()
-                    .uri(path)
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
             .await
             .unwrap();
         response.headers().clone()
