@@ -11,6 +11,7 @@ pub struct Model {
     pub client_id: Option<String>,
     #[serde(skip_serializing)] // Don't expose secret in API responses
     pub client_secret: Option<String>,
+    pub auto_approve: bool,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
 }

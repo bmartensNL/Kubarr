@@ -238,6 +238,7 @@ async fn seed_oauth_providers(db: &SchemaManagerConnection<'_>) -> Result<(), Db
             client_secret: Set(None),
             created_at: Set(now),
             updated_at: Set(now),
+            ..Default::default()
         };
         provider.insert(db).await?;
     }

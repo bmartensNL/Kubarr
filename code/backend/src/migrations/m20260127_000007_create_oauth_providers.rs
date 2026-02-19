@@ -29,6 +29,12 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(OauthProviders::ClientId).string().null())
                     .col(ColumnDef::new(OauthProviders::ClientSecret).string().null())
                     .col(
+                        ColumnDef::new(OauthProviders::AutoApprove)
+                            .boolean()
+                            .not_null()
+                            .default(true),
+                    )
+                    .col(
                         ColumnDef::new(OauthProviders::CreatedAt)
                             .timestamp_with_time_zone()
                             .not_null(),
@@ -66,6 +72,8 @@ enum OauthProviders {
     ClientId,
     #[iden = "client_secret"]
     ClientSecret,
+    #[iden = "auto_approve"]
+    AutoApprove,
     #[iden = "created_at"]
     CreatedAt,
     #[iden = "updated_at"]
