@@ -235,6 +235,12 @@ async fn test_counter_does_not_increment_during_lockout() {
         .expect("User should exist");
 
     // During lockout: counter should NOT be incremented (check spec compliance)
-    assert_eq!(locked.failed_login_count, 0, "Counter should remain 0 during lockout period");
-    assert!(locked.locked_until.map(|t| t > Utc::now()).unwrap_or(false), "Account should still be locked");
+    assert_eq!(
+        locked.failed_login_count, 0,
+        "Counter should remain 0 during lockout period"
+    );
+    assert!(
+        locked.locked_until.map(|t| t > Utc::now()).unwrap_or(false),
+        "Account should still be locked"
+    );
 }
