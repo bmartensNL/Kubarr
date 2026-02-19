@@ -16,8 +16,13 @@ pub mod storage;
 pub mod users;
 pub mod vpn;
 
-use axum::{extract::State, middleware as axum_middleware, response::Html, Router};
+use std::net::{IpAddr, SocketAddr};
+
+use axum::{extract::ConnectInfo, extract::State, middleware as axum_middleware, response::Html, Router};
 use sea_orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationTrait};
+use tower_governor::{
+    governor::GovernorConfigBuilder, key_extractor::KeyExtractor, GovernorError, GovernorLayer,
+};
 use utoipa::OpenApi;
 
 use crate::config::CONFIG;
@@ -25,6 +30,29 @@ use crate::middleware::require_auth;
 use crate::models::prelude::*;
 use crate::models::{role, user_role};
 use crate::state::AppState;
+
+// ============================================================================
+// Rate limiting
+// ============================================================================
+
+/// IP key extractor that reads `ConnectInfo<SocketAddr>` when available (production),
+/// and falls back to `127.0.0.1` when not present (tests / `oneshot` calls).
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PeerIpWithFallback;
+
+impl KeyExtractor for PeerIpWithFallback {
+    type Key = IpAddr;
+
+    fn extract<T>(&self, req: &http::Request<T>) -> Result<IpAddr, GovernorError> {
+        // Available when served via into_make_service_with_connect_info
+        if let Some(connect_info) = req.extensions().get::<ConnectInfo<SocketAddr>>() {
+            return Ok(connect_info.0.ip());
+        }
+        // Fallback: use localhost — ensures tests never fail due to missing ConnectInfo
+        Ok(IpAddr::from([127, 0, 0, 1]))
+    }
+}
+
 
 #[derive(OpenApi)]
 #[openapi(
@@ -212,9 +240,24 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/system/version", axum::routing::get(get_version))
         .with_state(state.clone());
 
-    // Public routes (no auth required) - these already have state applied internally
+    // Rate limiting for auth routes: 10 req / 60 s per IP.
+    // per_second(6) = 1 token every 6 s → 10/minute sustained; burst_size(10) = initial burst.
+    let auth_governor = {
+        let mut b = GovernorConfigBuilder::default();
+        b.per_second(6).burst_size(10);
+        b.use_headers()
+            .key_extractor(PeerIpWithFallback)
+            .finish()
+            .expect("invalid rate-limit configuration")
+    };
+
+    // Public routes (no auth required) - these already have state applied internally.
+    // Auth routes additionally carry per-IP rate limiting (10 req/60 s).
     let public_routes = Router::new()
-        .nest("/auth", auth::auth_routes(state.clone()))
+        .nest(
+            "/auth",
+            auth::auth_routes(state.clone()).layer(GovernorLayer::new(auth_governor)),
+        )
         .nest("/api/setup", setup::setup_routes(state.clone()));
 
     // Protected API routes (auth required)

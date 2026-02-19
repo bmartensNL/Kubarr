@@ -561,6 +561,7 @@ async fn test_assign_vpn_to_app() {
     let assign_req = AssignVpnRequest {
         vpn_provider_id: provider.id,
         kill_switch_override: Some(false),
+        port_forwarding: None,
     };
 
     let config = kubarr::services::vpn::assign_vpn_to_app(&db, "qbittorrent", assign_req)
@@ -597,6 +598,7 @@ async fn test_assign_vpn_to_app_no_override() {
     let assign_req = AssignVpnRequest {
         vpn_provider_id: provider.id,
         kill_switch_override: None,
+        port_forwarding: None,
     };
 
     let config = kubarr::services::vpn::assign_vpn_to_app(&db, "sonarr", assign_req)
@@ -630,6 +632,7 @@ async fn test_assign_vpn_to_app_disabled_provider() {
     let assign_req = AssignVpnRequest {
         vpn_provider_id: provider.id,
         kill_switch_override: None,
+        port_forwarding: None,
     };
 
     let result = kubarr::services::vpn::assign_vpn_to_app(&db, "radarr", assign_req).await;
@@ -647,6 +650,7 @@ async fn test_assign_vpn_to_app_nonexistent_provider() {
     let assign_req = AssignVpnRequest {
         vpn_provider_id: 999,
         kill_switch_override: None,
+        port_forwarding: None,
     };
 
     let result = kubarr::services::vpn::assign_vpn_to_app(&db, "lidarr", assign_req).await;
@@ -694,6 +698,7 @@ async fn test_reassign_vpn_to_app() {
     let assign_req1 = AssignVpnRequest {
         vpn_provider_id: provider1.id,
         kill_switch_override: None,
+        port_forwarding: None,
     };
     kubarr::services::vpn::assign_vpn_to_app(&db, "prowlarr", assign_req1)
         .await
@@ -703,6 +708,7 @@ async fn test_reassign_vpn_to_app() {
     let assign_req2 = AssignVpnRequest {
         vpn_provider_id: provider2.id,
         kill_switch_override: Some(true),
+        port_forwarding: None,
     };
     let config = kubarr::services::vpn::assign_vpn_to_app(&db, "prowlarr", assign_req2)
         .await
@@ -736,6 +742,7 @@ async fn test_get_app_vpn_config() {
     let assign_req = AssignVpnRequest {
         vpn_provider_id: provider.id,
         kill_switch_override: None,
+        port_forwarding: None,
     };
     kubarr::services::vpn::assign_vpn_to_app(&db, "bazarr", assign_req)
         .await
@@ -787,6 +794,7 @@ async fn test_list_app_vpn_configs() {
         let assign_req = AssignVpnRequest {
             vpn_provider_id: provider.id,
             kill_switch_override: None,
+            port_forwarding: None,
         };
         kubarr::services::vpn::assign_vpn_to_app(&db, app_name, assign_req)
             .await
@@ -834,6 +842,7 @@ async fn test_vpn_provider_app_count() {
         let assign_req = AssignVpnRequest {
             vpn_provider_id: provider.id,
             kill_switch_override: None,
+            port_forwarding: None,
         };
         kubarr::services::vpn::assign_vpn_to_app(&db, app_name, assign_req)
             .await
@@ -873,6 +882,7 @@ async fn test_get_vpn_deployment_config() {
     let assign_req = AssignVpnRequest {
         vpn_provider_id: provider.id,
         kill_switch_override: Some(false),
+        port_forwarding: None,
     };
     kubarr::services::vpn::assign_vpn_to_app(&db, "testapp", assign_req)
         .await
@@ -922,6 +932,7 @@ async fn test_get_vpn_deployment_config_disabled_provider() {
         kill_switch_override: Set(None),
         created_at: Set(now),
         updated_at: Set(now),
+        port_forwarding: sea_orm::ActiveValue::NotSet,
     };
     config.insert(&db).await.unwrap();
 
