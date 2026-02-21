@@ -73,6 +73,13 @@ RUN apk add --no-cache curl tar tzdata ca-certificates && \
     mv "linux-${TARGETARCH}/helm" /helm && \
     chmod +x /helm
 
+# Download managed charts from kubarr-charts
+RUN mkdir -p /charts /tmp/kubarr-charts && \
+    curl -fsSL "https://github.com/bmartensNL/kubarr-charts/archive/refs/heads/main.tar.gz" | \
+    tar xz -C /tmp/kubarr-charts --strip-components=1 && \
+    cp -r /tmp/kubarr-charts/cloudflared /charts/ && \
+    rm -rf /tmp/kubarr-charts
+
 # Stage 3: Final Alpine image (includes DNS resolution)
 FROM alpine:3.23
 
@@ -92,8 +99,8 @@ COPY --from=builder /kubarr /app/kubarr
 # Copy Helm binary (statically linked)
 COPY --from=asset-builder /helm /usr/local/bin/helm
 
-# Bundle managed charts (cloudflared and future managed components)
-COPY code/backend/charts/ /app/charts/
+# Copy managed charts (downloaded from kubarr-charts in asset-builder)
+COPY --from=asset-builder /charts /app/charts
 
 # Add non-root user and set ownership
 RUN adduser -D -u 1000 -g kubarr kubarr && \
