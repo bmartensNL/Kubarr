@@ -5,6 +5,7 @@ edition = "2021"
 rust-version = "1.83"
 authors = ["Kubarr Team"]
 description = "Kubernetes application management dashboard"
+publish = false
 
 [dependencies]
 # Web framework
@@ -59,7 +60,6 @@ thiserror = "2"
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-validator = { version = "0.20", features = ["derive"] }
 async-trait = "0.1"
 once_cell = "1"
 parking_lot = "0.12"

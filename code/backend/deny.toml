@@ -6,8 +6,16 @@
 version = 2
 yanked = "warn"
 
+[[advisories.ignore]]
+# rsa 0.9.x timing side-channel (Marvin Attack) — no upstream fix available.
+# Used only for RS256 JWT signing/verification; not directly exposed to
+# attacker-controlled timing observations in this deployment context.
+id = "RUSTSEC-2023-0071"
+
 [licenses]
 version = 2
+# Skip license check for private (publish = false) packages like the root crate
+private.ignore = true
 # Common permissive licenses used in the Rust ecosystem
 allow = [
     "MIT",
@@ -19,6 +27,7 @@ allow = [
     "Unicode-3.0",
     "Zlib",
     "CC0-1.0",
+    "0BSD",
     "MPL-2.0",
     "OpenSSL",
 ]
