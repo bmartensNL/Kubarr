@@ -759,7 +759,6 @@ dependencies = [
  "ident_case",
  "proc-macro2",
  "quote",
- "strsim",
  "syn 2.0.116",
 ]
 
@@ -1938,7 +1937,7 @@ dependencies = [
  "lettre",
  "once_cell",
  "parking_lot",
- "paste",
+ "pastey",
  "rand 0.10.0",
  "rand_core 0.6.4",
  "reqwest",
@@ -1960,7 +1959,6 @@ dependencies = [
  "urlencoding",
  "utoipa",
  "uuid",
- "validator",
 ]
 
 [[package]]
@@ -2527,10 +2525,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "paste"
-version = "1.0.15"
+name = "pastey"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
+checksum = "35fb2e5f958ec131621fdd531e9fc186ed768cbe395337403ae56c17a74c68ec"
 
 [[package]]
 name = "pem"
@@ -4571,36 +4569,6 @@ dependencies = [
  "js-sys",
  "serde_core",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "validator"
-version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43fb22e1a008ece370ce08a3e9e4447a910e92621bb49b85d6e48a45397e7cfa"
-dependencies = [
- "idna",
- "once_cell",
- "regex",
- "serde",
- "serde_derive",
- "serde_json",
- "url",
- "validator_derive",
-]
-
-[[package]]
-name = "validator_derive"
-version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7df16e474ef958526d1205f6dda359fdfab79d9aa6d54bafcb92dcd07673dca"
-dependencies = [
- "darling 0.20.11",
- "once_cell",
- "proc-macro-error2",
- "proc-macro2",
- "quote",
- "syn 2.0.116",
 ]
 
 [[package]]

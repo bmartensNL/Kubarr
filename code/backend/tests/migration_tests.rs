@@ -215,7 +215,7 @@ async fn get_indexes(db: &DatabaseConnection, table: &str) -> Vec<String> {
 /// Run a test against both SQLite and PostgreSQL (if available)
 macro_rules! test_both_databases {
     ($test_name:ident, $test_fn:expr) => {
-        paste::paste! {
+        pastey::paste! {
             #[tokio::test]
             async fn [<$test_name _sqlite>]() {
                 let db = create_sqlite_db().await;
