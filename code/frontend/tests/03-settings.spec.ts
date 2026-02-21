@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
 test.describe('Settings Page', () => {
   test.beforeEach(async ({ page }) => {
@@ -8,7 +8,7 @@ test.describe('Settings Page', () => {
   });
 
   // Helper to click a sidebar button
-  const clickSidebarItem = async (page: any, label: string) => {
+  const clickSidebarItem = async (page: Page, label: string) => {
     // Target buttons inside the nav element (sidebar navigation)
     await page.locator(`nav button:has-text("${label}")`).click();
   };
@@ -35,6 +35,7 @@ test.describe('Settings Page', () => {
       await expect(page.locator('text=NETWORKING').first()).toBeVisible();
       await expect(page.locator('text=VPN').first()).toBeVisible();
       await expect(page.locator('text=Dynamic DNS').first()).toBeVisible();
+      await expect(page.locator('nav button:has-text("Cloudflare Tunnel")')).toBeVisible();
     });
 
     test('can navigate between sections', async ({ page }) => {

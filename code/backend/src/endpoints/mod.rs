@@ -1,6 +1,7 @@
 pub mod apps;
 pub mod audit;
 pub mod auth;
+pub mod cloudflare;
 pub mod extractors;
 pub mod frontend;
 pub mod logs;
@@ -179,6 +180,12 @@ use crate::state::AppState;
         vpn::remove_vpn,
         vpn::get_forwarded_port,
         vpn::list_supported_providers,
+        // Cloudflare
+        cloudflare::get_config,
+        cloudflare::save_config,
+        cloudflare::delete_config,
+        cloudflare::get_status,
+        cloudflare::validate_token,
     ),
     tags(
         (name = "Health", description = "Health check and version endpoints"),
@@ -196,6 +203,7 @@ use crate::state::AppState;
         (name = "Settings", description = "System settings"),
         (name = "OAuth", description = "OAuth provider configuration and login"),
         (name = "VPN", description = "VPN provider and app VPN configuration"),
+        (name = "Cloudflare", description = "Cloudflare Tunnel configuration"),
     )
 )]
 pub struct ApiDoc;
@@ -262,6 +270,7 @@ fn api_routes(state: AppState) -> Router {
         )
         .nest("/oauth", oauth::oauth_routes(state.clone()))
         .nest("/vpn", vpn::vpn_routes(state.clone()))
+        .nest("/cloudflare", cloudflare::cloudflare_routes(state.clone()))
 }
 
 #[utoipa::path(get, path = "/api/health", tag = "Health", responses((status = 200, description = "OK")))]

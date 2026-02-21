@@ -28,15 +28,17 @@ import {
 } from '../api/roles';
 import { getCatalog, App } from '../api/apps';
 import { getSettings, updateSetting, Setting } from '../api/settings';
-import { Users, Link, UserPlus, Settings, Sliders, Lock, Menu, X, FileText, CheckCircle, XCircle, AlertTriangle, Trash2, LayoutDashboard, Activity, Shield, Clock, TrendingUp, Bell, Mail, Send, MessageSquare, Network } from 'lucide-react';
+import { Users, Link, UserPlus, Settings, Sliders, Lock, Menu, X, FileText, CheckCircle, XCircle, AlertTriangle, Trash2, LayoutDashboard, Activity, Shield, Clock, TrendingUp, Bell, Mail, Send, MessageSquare, Network, Cloud } from 'lucide-react';
 import PermissionMatrix from '../components/permissions/PermissionMatrix';
 import { auditApi, AuditLog, AuditStats, AuditLogQuery } from '../api/audit';
 import { notificationsApi, NotificationChannel, NotificationEvent, NotificationLog } from '../api/notifications';
 import { oauthApi, OAuthProvider } from '../api/oauth';
 import { VpnTab } from '../components/vpn';
+import { CloudflareTab } from '../components/cloudflare';
 
 type ViewMode = 'list' | 'create' | 'edit';
-type SettingsSection = 'dashboard' | 'general' | 'users' | 'pending' | 'invites' | 'permissions' | 'audit' | 'notifications' | 'vpn' | 'ddns' | 'letsencrypt';
+type ApiErr = { response?: { data?: { detail?: string; error?: string } } };
+type SettingsSection = 'dashboard' | 'general' | 'users' | 'pending' | 'invites' | 'permissions' | 'audit' | 'notifications' | 'vpn' | 'ddns' | 'letsencrypt' | 'cloudflare';
 
 const SettingsPage: React.FC = () => {
   const { isAdmin, hasPermission } = useAuth();
@@ -139,6 +141,7 @@ const SettingsPage: React.FC = () => {
     if (isAdmin && activeSection === 'dashboard') {
       loadAuditStats();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, activeSection, auditPage, auditFilter]);
 
   // Load notification data when section is active
@@ -163,8 +166,8 @@ const SettingsPage: React.FC = () => {
       const data = await getUsers();
       setUsers(data);
       setError(null);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to load users');
+    } catch (err: unknown) {
+      setError((err as ApiErr).response?.data?.detail || 'Failed to load users');
     } finally {
       setLoading(false);
     }
@@ -174,7 +177,7 @@ const SettingsPage: React.FC = () => {
     try {
       const data = await getPendingUsers();
       setPendingUsers(data);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load pending users:', err);
     }
   };
@@ -183,7 +186,7 @@ const SettingsPage: React.FC = () => {
     try {
       const data = await getInvites();
       setInvites(data);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load invites:', err);
     }
   };
@@ -192,7 +195,7 @@ const SettingsPage: React.FC = () => {
     try {
       const data = await getRoles();
       setRoles(data);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load roles:', err);
     }
   };
@@ -201,7 +204,7 @@ const SettingsPage: React.FC = () => {
     try {
       const data = await getCatalog();
       setApps(data);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load apps:', err);
     }
   };
@@ -210,7 +213,7 @@ const SettingsPage: React.FC = () => {
     try {
       const data = await getSettings();
       setSystemSettings(data);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load settings:', err);
     }
   };
@@ -219,7 +222,7 @@ const SettingsPage: React.FC = () => {
     try {
       const providers = await oauthApi.getProviders();
       setOauthProviders(providers);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load OAuth providers:', err);
     }
   };
@@ -228,8 +231,8 @@ const SettingsPage: React.FC = () => {
     try {
       await oauthApi.updateProvider(providerId, { enabled });
       await loadOAuthProviders();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to update OAuth provider');
+    } catch (err: unknown) {
+      setError((err as ApiErr).response?.data?.error || 'Failed to update OAuth provider');
     }
   };
 
@@ -243,8 +246,8 @@ const SettingsPage: React.FC = () => {
       setEditingOAuthProvider(null);
       setOauthProviderConfig({ client_id: '', client_secret: '' });
       await loadOAuthProviders();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to save OAuth provider');
+    } catch (err: unknown) {
+      setError((err as ApiErr).response?.data?.error || 'Failed to save OAuth provider');
     } finally {
       setSavingOAuthProvider(false);
     }
@@ -281,7 +284,7 @@ const SettingsPage: React.FC = () => {
       setAuditLogs(response.logs);
       setAuditTotalPages(response.total_pages);
       setAuditTotal(response.total);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load audit logs:', err);
     } finally {
       setAuditLoading(false);
@@ -292,7 +295,7 @@ const SettingsPage: React.FC = () => {
     try {
       const stats = await auditApi.getStats();
       setAuditStats(stats);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load audit stats:', err);
     }
   };
@@ -307,8 +310,8 @@ const SettingsPage: React.FC = () => {
       alert(result.message);
       loadAuditLogs();
       loadAuditStats();
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to clear audit logs');
+    } catch (err: unknown) {
+      setError((err as ApiErr).response?.data?.detail || 'Failed to clear audit logs');
     } finally {
       setClearingLogs(false);
     }
@@ -471,8 +474,8 @@ const SettingsPage: React.FC = () => {
       const newValue = (!currentValue).toString();
       await updateSetting(key, newValue);
       await loadSettings();
-    } catch (err: any) {
-      setError(err.response?.data?.detail || `Failed to update setting ${key}`);
+    } catch (err: unknown) {
+      setError((err as ApiErr).response?.data?.detail || `Failed to update setting ${key}`);
     } finally {
       setSavingSettings(false);
     }
@@ -498,8 +501,8 @@ const SettingsPage: React.FC = () => {
         await deleteUser(user.id);
         await loadUsers();
         await loadPendingUsers();
-      } catch (err: any) {
-        setError(err.response?.data?.detail || 'Failed to delete user');
+      } catch (err: unknown) {
+        setError((err as ApiErr).response?.data?.detail || 'Failed to delete user');
       }
     }
   };
@@ -509,8 +512,8 @@ const SettingsPage: React.FC = () => {
       await approveUser(user.id);
       await loadUsers();
       await loadPendingUsers();
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to approve user');
+    } catch (err: unknown) {
+      setError((err as ApiErr).response?.data?.detail || 'Failed to approve user');
     }
   };
 
@@ -519,8 +522,8 @@ const SettingsPage: React.FC = () => {
       try {
         await rejectUser(user.id);
         await loadPendingUsers();
-      } catch (err: any) {
-        setError(err.response?.data?.detail || 'Failed to reject user');
+      } catch (err: unknown) {
+        setError((err as ApiErr).response?.data?.detail || 'Failed to reject user');
       }
     }
   };
@@ -541,8 +544,8 @@ const SettingsPage: React.FC = () => {
       const invite = await createInvite({ expires_in_days: 7 });
       setNewInvite(invite);
       await loadInvites();
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to create invite');
+    } catch (err: unknown) {
+      setError((err as ApiErr).response?.data?.detail || 'Failed to create invite');
     } finally {
       setCreatingInvite(false);
     }
@@ -557,8 +560,8 @@ const SettingsPage: React.FC = () => {
       try {
         await deleteInvite(invite.id);
         await loadInvites();
-      } catch (err: any) {
-        setError(err.response?.data?.detail || 'Failed to delete invite');
+      } catch (err: unknown) {
+        setError((err as ApiErr).response?.data?.detail || 'Failed to delete invite');
       }
     }
   };
@@ -601,8 +604,8 @@ const SettingsPage: React.FC = () => {
   //     setNewRoleName('');
   //     setNewRoleDescription('');
   //     await loadRoles();
-  //   } catch (err: any) {
-  //     setError(err.response?.data?.detail || 'Failed to create role');
+  //   } catch (err: unknown) {
+  //     setError((err as ApiErr).response?.data?.detail || 'Failed to create role');
   //   } finally {
   //     setCreatingRole(false);
   //   }
@@ -617,8 +620,8 @@ const SettingsPage: React.FC = () => {
   //     try {
   //       await deleteRole(role.id);
   //       await loadRoles();
-  //     } catch (err: any) {
-  //       setError(err.response?.data?.detail || 'Failed to delete role');
+  //     } catch (err: unknown) {
+  //       setError((err as ApiErr).response?.data?.detail || 'Failed to delete role');
   //     }
   //   }
   // };
@@ -643,6 +646,7 @@ const SettingsPage: React.FC = () => {
     { id: 'vpn' as SettingsSection, label: 'VPN', icon: Shield },
     { id: 'ddns' as SettingsSection, label: 'Dynamic DNS', icon: Network },
     { id: 'letsencrypt' as SettingsSection, label: "Let's Encrypt", icon: Lock },
+    { id: 'cloudflare' as SettingsSection, label: 'Cloudflare Tunnel', icon: Cloud },
   ];
 
   const accessManagementItems = [
@@ -1851,6 +1855,9 @@ const SettingsPage: React.FC = () => {
                 </div>
               </div>
             )}
+
+            {/* Cloudflare Tunnel Section */}
+            {activeSection === 'cloudflare' && <CloudflareTab />}
 
             {/* Let's Encrypt Section */}
             {activeSection === 'letsencrypt' && (

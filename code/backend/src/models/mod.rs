@@ -1,6 +1,7 @@
 pub mod app_vpn_config;
 pub mod audit_log;
 pub mod bootstrap_status;
+pub mod cloudflare_tunnel;
 pub mod invite;
 pub mod notification_channel;
 pub mod notification_event;
@@ -27,6 +28,7 @@ pub mod prelude {
     pub use super::app_vpn_config::{self, Entity as AppVpnConfig};
     pub use super::audit_log::{self, Entity as AuditLog};
     pub use super::bootstrap_status::{self, Entity as BootstrapStatus};
+    pub use super::cloudflare_tunnel::{self, Entity as CloudflareTunnel};
     pub use super::invite::{self, Entity as Invite};
     pub use super::notification_channel::{self, Entity as NotificationChannel};
     pub use super::notification_event::{self, Entity as NotificationEvent};

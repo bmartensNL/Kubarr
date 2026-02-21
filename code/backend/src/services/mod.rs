@@ -3,6 +3,7 @@ pub mod bootstrap;
 pub mod cadvisor;
 pub mod catalog;
 pub mod chart_sync;
+pub mod cloudflare;
 pub mod deployment;
 pub mod k8s;
 pub mod network_broadcaster;

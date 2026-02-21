@@ -114,6 +114,12 @@ define_permissions! {
     VpnView => "vpn.view",
     /// Manage VPN providers and assign VPN to apps
     VpnManage => "vpn.manage",
+
+    // Cloudflare Tunnel
+    /// View Cloudflare Tunnel configuration and status
+    CloudflareView => "cloudflare.view",
+    /// Manage Cloudflare Tunnel (deploy/remove)
+    CloudflareManage => "cloudflare.manage",
 }
 
 /// Extractor that requires a specific permission

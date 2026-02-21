@@ -1,0 +1,26 @@
+replicaCount: 2
+
+image:
+  repository: cloudflare/cloudflared
+  tag: "2025.2.1"
+  pullPolicy: IfNotPresent
+
+# Tunnel token configuration.
+# The service always pre-creates the secret, so only existingSecret is used.
+tunnelToken:
+  # Name of an existing K8s Secret with a "token" key
+  existingSecret: ""
+  # Inline value (used only when existingSecret is empty)
+  value: ""
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi
+
+serviceAccount:
+  create: true
+  name: ""
