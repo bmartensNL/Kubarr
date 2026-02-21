@@ -29,6 +29,7 @@ pub struct ChartSyncService {
 }
 
 impl ChartSyncService {
+    #[allow(clippy::expect_used)]
     pub fn new(catalog: SharedCatalog) -> Self {
         Self {
             catalog,

@@ -10,7 +10,12 @@ publish = false
 [dependencies]
 # Web framework
 axum = { version = "0.8", features = ["macros", "multipart", "ws"] }
-tower-http = { version = "0.6", features = ["cors", "fs", "trace", "compression-gzip"] }
+tower-http = { version = "0.6", features = [
+  "cors",
+  "fs",
+  "trace",
+  "compression-gzip",
+] }
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
 tokio-tungstenite = "0.28"
@@ -18,8 +23,18 @@ futures-util = "0.3"
 http = "1"
 
 # Database
-sea-orm = { version = "1.1", features = ["sqlx-postgres", "sqlx-sqlite", "runtime-tokio-native-tls", "macros", "with-chrono"] }
-sea-orm-migration = { version = "1.1", features = ["sqlx-postgres", "sqlx-sqlite", "runtime-tokio-native-tls"] }
+sea-orm = { version = "1.1", features = [
+  "sqlx-postgres",
+  "sqlx-sqlite",
+  "runtime-tokio-native-tls",
+  "macros",
+  "with-chrono",
+] }
+sea-orm-migration = { version = "1.1", features = [
+  "sqlx-postgres",
+  "sqlx-sqlite",
+  "runtime-tokio-native-tls",
+] }
 
 # Kubernetes
 kube = { version = "3.0", features = ["runtime", "client", "derive"] }
@@ -45,10 +60,19 @@ serde_yaml = "0.9"
 utoipa = { version = "5", features = ["axum_extras", "chrono"] }
 
 # HTTP client (for Prometheus/VictoriaLogs and notification APIs)
-reqwest = { version = "0.13", default-features = false, features = ["json", "form", "query", "native-tls"] }
+reqwest = { version = "0.13", default-features = false, features = [
+  "json",
+  "form",
+  "query",
+  "native-tls",
+] }
 
 # Email notifications
-lettre = { version = "0.11", default-features = false, features = ["tokio1-native-tls", "smtp-transport", "builder"] }
+lettre = { version = "0.11", default-features = false, features = [
+  "tokio1-native-tls",
+  "smtp-transport",
+  "builder",
+] }
 
 # URL encoding
 urlencoding = "2"

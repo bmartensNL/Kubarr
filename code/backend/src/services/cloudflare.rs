@@ -37,6 +37,7 @@ const CLOUDFLARED_CHART_PATH: &str = "/app/charts/cloudflared";
 const CF_API_BASE: &str = "https://api.cloudflare.com/client/v4";
 
 // Shared reqwest client for Cloudflare API requests
+#[allow(clippy::expect_used)]
 static CF_HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
     reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))

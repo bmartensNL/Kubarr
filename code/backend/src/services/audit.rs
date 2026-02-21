@@ -253,7 +253,7 @@ pub async fn get_audit_stats(db: &DbConn) -> Result<AuditStats> {
         .await?;
 
     let today = chrono::Utc::now().date_naive();
-    let today_start = today.and_hms_opt(0, 0, 0).unwrap();
+    let today_start = today.and_hms_opt(0, 0, 0).unwrap_or_default();
     let today_start_utc =
         chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(today_start, chrono::Utc);
 

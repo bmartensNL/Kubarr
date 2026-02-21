@@ -26,6 +26,7 @@ impl Default for ProxyService {
 }
 
 impl ProxyService {
+    #[allow(clippy::expect_used)]
     pub fn new() -> Self {
         Self {
             client: Client::builder()

@@ -79,6 +79,7 @@ pub async fn fetch_cadvisor_metrics(client: &Client) -> Vec<ContainerNetworkMetr
 }
 
 /// Fetch cAdvisor metrics from a specific node
+#[allow(clippy::expect_used)]
 async fn fetch_node_cadvisor_metrics(
     client: &Client,
     node_name: &str,
@@ -310,6 +311,7 @@ container_network_receive_bytes_total{interface="lo",namespace="kubarr",pod="bac
     }
 
     #[test]
+    #[allow(clippy::unwrap_used)]
     fn test_aggregate_by_namespace() {
         let metrics = vec![
             ContainerNetworkMetrics {

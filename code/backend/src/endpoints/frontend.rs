@@ -243,6 +243,7 @@ fn rewrite_js_paths(text: &str, prefix: &str) -> String {
 }
 
 /// Create a redirect response to the app error page
+#[allow(clippy::unwrap_used)]
 fn redirect_to_app_error(app_name: &str, reason: &str, details: &str) -> Response<Body> {
     let encoded_details = urlencoding::encode(details);
     let redirect_url = format!(

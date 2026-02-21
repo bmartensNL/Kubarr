@@ -9,7 +9,7 @@ use kube::{
 use serde::Deserialize;
 
 use crate::config::CONFIG;
-use crate::error::Result;
+use crate::error::{AppError, Result};
 
 /// Kubernetes client manager
 pub struct K8sClient {
@@ -58,6 +58,7 @@ impl K8sClient {
     }
 
     /// Check if metrics-server is available
+    #[allow(clippy::expect_used)]
     pub async fn check_metrics_server_available(&self) -> bool {
         // Try to list pod metrics
         let result = self
@@ -65,7 +66,7 @@ impl K8sClient {
             .request::<PodMetricsList>(
                 http::Request::get("/apis/metrics.k8s.io/v1beta1/pods?limit=1")
                     .body(vec![])
-                    .unwrap(),
+                    .expect("static URL is valid"),
             )
             .await;
 
@@ -158,7 +159,9 @@ impl K8sClient {
     ) -> Result<Vec<PodMetrics>> {
         // Get pod metrics from metrics-server
         let url = format!("/apis/metrics.k8s.io/v1beta1/namespaces/{}/pods", namespace);
-        let request = http::Request::get(&url).body(vec![]).unwrap();
+        let request = http::Request::get(&url)
+            .body(vec![])
+            .map_err(|e| AppError::Internal(e.to_string()))?;
 
         let metrics_list: PodMetricsList = match self.client.request(request).await {
             Ok(m) => m,

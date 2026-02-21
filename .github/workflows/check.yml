@@ -4,7 +4,10 @@ on:
   workflow_call:
 
 jobs:
-  backend:
+  # ── Backend ──────────────────────────────────────────────────────────────────
+
+  backend-fmt-clippy:
+    name: backend / fmt & clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -16,46 +19,37 @@ jobs:
           workspaces: code/backend
       - run: cargo fmt --check
         working-directory: code/backend
-      - run: cargo clippy --no-deps -- -D warnings
+      - run: cargo clippy --no-deps -- -D warnings -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic
         working-directory: code/backend
 
-  frontend:
+  backend-docs:
+    name: backend / docs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
         with:
-          node-version: '20'
-          cache: npm
-          cache-dependency-path: code/frontend/package-lock.json
-      - run: npm ci
-        working-directory: code/frontend
-      - run: npm run lint
-        working-directory: code/frontend
-
-  secrets:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
+          workspaces: code/backend
+      - run: cargo doc --no-deps --document-private-items
+        working-directory: code/backend
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUSTDOCFLAGS: "-D rustdoc::broken_intra_doc_links"
 
-  trivy:
+  backend-msrv:
+    name: backend / msrv
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: aquasecurity/trivy-action@0.28.0
+      - uses: dtolnay/rust-toolchain@1.83
+      - uses: Swatinem/rust-cache@v2
         with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln,secret,misconfig
-          severity: CRITICAL,HIGH
-          exit-code: '1'
+          workspaces: code/backend
+      - run: cargo check --locked
+        working-directory: code/backend
 
-  deny:
+  backend-deny:
+    name: backend / deny
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -63,7 +57,8 @@ jobs:
         with:
           manifest-path: code/backend/Cargo.toml
 
-  unused-deps:
+  backend-unused-deps:
+    name: backend / unused deps
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -77,7 +72,82 @@ jobs:
       - run: cargo machete
         working-directory: code/backend
 
+  backend-toml-fmt:
+    name: backend / toml fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: taplo-cli
+      - run: taplo fmt --check
+        working-directory: code/backend
+
+  backend-coverage:
+    name: backend / coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: code/backend
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-tarpaulin
+      - run: cargo tarpaulin --no-fail-fast --out Xml --output-dir coverage
+        working-directory: code/backend
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: code/backend/coverage/cobertura.xml
+          retention-days: 30
+
+  # ── Frontend ─────────────────────────────────────────────────────────────────
+
+  frontend-lint:
+    name: frontend / lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: code/frontend/package-lock.json
+      - run: npm ci
+        working-directory: code/frontend
+      - run: npm run lint
+        working-directory: code/frontend
+
+  # ── General ──────────────────────────────────────────────────────────────────
+
+  secrets:
+    name: general / secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  trivy:
+    name: general / trivy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+
   dockerfiles:
+    name: general / dockerfiles
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

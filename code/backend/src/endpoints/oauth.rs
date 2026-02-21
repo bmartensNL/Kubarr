@@ -650,7 +650,11 @@ async fn oauth_callback(
     );
 
     let mut headers = HeaderMap::new();
-    headers.insert(SET_COOKIE, HeaderValue::from_str(&cookie).unwrap());
+    headers.insert(
+        SET_COOKIE,
+        HeaderValue::from_str(&cookie)
+            .map_err(|e| AppError::Internal(format!("invalid cookie header: {}", e)))?,
+    );
 
     Ok((headers, Redirect::to("/")).into_response())
 }

@@ -504,7 +504,7 @@ async fn get_cluster_network_history(
 
     let end_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_secs_f64();
     let start_time = end_time - duration_seconds as f64;
 
@@ -589,7 +589,7 @@ async fn get_cluster_metrics_history(
 
     let end_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_secs_f64();
     let start_time = end_time - duration_seconds as f64;
 
@@ -681,7 +681,7 @@ async fn get_app_detail_metrics(
 
     let end_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_secs_f64();
     let start_time = end_time - duration_seconds as f64;
 
