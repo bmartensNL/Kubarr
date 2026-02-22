@@ -2,7 +2,7 @@
 name = "kubarr"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.83"
+rust-version = "1.88"
 authors = ["Kubarr Team"]
 description = "Kubernetes application management dashboard"
 publish = false

@@ -286,7 +286,7 @@ fn test_telegram_provider_from_config_missing_token_returns_error() {
 #[test]
 fn test_messagebird_provider_from_config_success_with_originator() {
     let config = serde_json::json!({
-        "api_key": "test-api-key-12345",
+        "api_key": "fake",
         "originator": "Kubarr"
     });
 
@@ -300,7 +300,7 @@ fn test_messagebird_provider_from_config_success_with_originator() {
 #[test]
 fn test_messagebird_provider_from_config_success_without_originator() {
     let config = serde_json::json!({
-        "api_key": "test-api-key-12345"
+        "api_key": "fake"
         // no originator — should default to "Kubarr"
     });
 

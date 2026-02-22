@@ -167,7 +167,7 @@ fn wireguard_provider_body(name: &str) -> String {
         "vpn_type": "wireguard",
         "service_provider": "custom",
         "credentials": {
-            "private_key": "test_private_key_abc123",
+            "private_key": "fake-key",
             "addresses": ["10.0.0.1/32"]
         }
     })
