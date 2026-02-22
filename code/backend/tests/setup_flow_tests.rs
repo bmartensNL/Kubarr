@@ -76,7 +76,7 @@ async fn test_setup_required_true_when_no_admin() {
 async fn test_setup_required_false_when_admin_exists() {
     let db = create_test_db_with_seed().await;
     create_test_user_with_role(&db, "admin", "admin@example.com", "password", "admin").await;
-    let state = build_test_app_state_with_db(db);
+    let state = build_test_app_state_with_db(db).await;
 
     let (status, body) = get(create_router(state), "/api/setup/required").await;
 
@@ -95,7 +95,7 @@ async fn test_setup_required_accessible_after_admin_creation() {
     // the self-disabling guard so the frontend can redirect to the dashboard.
     let db = create_test_db_with_seed().await;
     create_test_user_with_role(&db, "admin2", "admin2@example.com", "password", "admin").await;
-    let state = build_test_app_state_with_db(db);
+    let state = build_test_app_state_with_db(db).await;
 
     let (status, _) = get(create_router(state), "/api/setup/required").await;
     assert_ne!(
@@ -139,7 +139,7 @@ async fn test_setup_status_returns_setup_required_true_before_admin() {
 async fn test_setup_status_forbidden_after_admin_creation() {
     let db = create_test_db_with_seed().await;
     create_test_user_with_role(&db, "admin3", "admin3@example.com", "password", "admin").await;
-    let state = build_test_app_state_with_db(db);
+    let state = build_test_app_state_with_db(db).await;
 
     let (status, body) = get(create_router(state), "/api/setup/status").await;
     assert_eq!(
@@ -193,7 +193,7 @@ async fn test_generate_credentials_returns_credentials() {
 async fn test_generate_credentials_forbidden_after_admin_creation() {
     let db = create_test_db_with_seed().await;
     create_test_user_with_role(&db, "admin4", "admin4@example.com", "password", "admin").await;
-    let state = build_test_app_state_with_db(db);
+    let state = build_test_app_state_with_db(db).await;
 
     let (status, body) = get(create_router(state), "/api/setup/generate-credentials").await;
     assert_eq!(
@@ -247,7 +247,7 @@ async fn test_bootstrap_status_returns_components_list() {
 async fn test_bootstrap_status_forbidden_after_admin_creation() {
     let db = create_test_db_with_seed().await;
     create_test_user_with_role(&db, "admin5", "admin5@example.com", "password", "admin").await;
-    let state = build_test_app_state_with_db(db);
+    let state = build_test_app_state_with_db(db).await;
 
     let (status, body) = get(create_router(state), "/api/setup/bootstrap/status").await;
     assert_eq!(
@@ -266,7 +266,7 @@ async fn test_bootstrap_status_forbidden_after_admin_creation() {
 async fn test_all_protected_setup_endpoints_return_403_after_admin_creation() {
     let db = create_test_db_with_seed().await;
     create_test_user_with_role(&db, "admin6", "admin6@example.com", "password", "admin").await;
-    let state = build_test_app_state_with_db(db);
+    let state = build_test_app_state_with_db(db).await;
 
     // All of these are self-disabling: they return 403 once an admin user exists.
     let protected_setup_endpoints = vec![

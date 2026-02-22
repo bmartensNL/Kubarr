@@ -1163,6 +1163,267 @@ fn build_openvpn_secret_data(
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::vpn_provider::VpnType;
+    use serde_json::json;
+
+    // -------------------------------------------------------------------------
+    // validate_credentials tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_validate_credentials_wireguard_with_private_key_ok() {
+        let creds = json!({ "private_key": "wg_priv_key_base64==" });
+        assert!(validate_credentials(&VpnType::WireGuard, &creds).is_ok());
+    }
+
+    #[test]
+    fn test_validate_credentials_wireguard_without_private_key_err() {
+        let creds = json!({ "public_key": "wg_pub_key_base64==" });
+        let result = validate_credentials(&VpnType::WireGuard, &creds);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            AppError::BadRequest(msg) => {
+                assert!(
+                    msg.contains("private_key"),
+                    "Expected message about private_key, got: {}",
+                    msg
+                );
+            }
+            other => panic!("Expected BadRequest, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_validate_credentials_wireguard_private_key_null_is_err() {
+        // null values are treated as None by as_str()
+        let creds = json!({ "private_key": null });
+        let result = validate_credentials(&VpnType::WireGuard, &creds);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_credentials_openvpn_with_username_and_password_ok() {
+        let creds = json!({ "username": "user1", "password": "pass1" });
+        assert!(validate_credentials(&VpnType::OpenVpn, &creds).is_ok());
+    }
+
+    #[test]
+    fn test_validate_credentials_openvpn_without_username_err() {
+        let creds = json!({ "password": "pass1" });
+        let result = validate_credentials(&VpnType::OpenVpn, &creds);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            AppError::BadRequest(msg) => {
+                assert!(
+                    msg.contains("username"),
+                    "Expected message about username, got: {}",
+                    msg
+                );
+            }
+            other => panic!("Expected BadRequest, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_validate_credentials_openvpn_without_password_err() {
+        let creds = json!({ "username": "user1" });
+        let result = validate_credentials(&VpnType::OpenVpn, &creds);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            AppError::BadRequest(msg) => {
+                assert!(
+                    msg.contains("password"),
+                    "Expected message about password, got: {}",
+                    msg
+                );
+            }
+            other => panic!("Expected BadRequest, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_validate_credentials_openvpn_empty_object_err() {
+        let creds = json!({});
+        let result = validate_credentials(&VpnType::OpenVpn, &creds);
+        assert!(result.is_err());
+    }
+
+    // -------------------------------------------------------------------------
+    // build_wireguard_secret_data tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_build_wireguard_secret_data_minimal_only_private_key() {
+        let creds = json!({ "private_key": "my-wg-private-key" });
+        let mut data: BTreeMap<String, String> = BTreeMap::new();
+        build_wireguard_secret_data(&creds, &mut data).unwrap();
+
+        assert_eq!(
+            data.get("WIREGUARD_PRIVATE_KEY").map(String::as_str),
+            Some("my-wg-private-key")
+        );
+        // Optional fields must NOT be present
+        assert!(!data.contains_key("WIREGUARD_ADDRESSES"));
+        assert!(!data.contains_key("WIREGUARD_PUBLIC_KEY"));
+        assert!(!data.contains_key("VPN_ENDPOINT_IP"));
+        assert!(!data.contains_key("VPN_ENDPOINT_PORT"));
+        assert!(!data.contains_key("WIREGUARD_PRESHARED_KEY"));
+    }
+
+    #[test]
+    fn test_build_wireguard_secret_data_full_credentials() {
+        let creds = json!({
+            "private_key": "priv_key",
+            "addresses": ["10.0.0.1/32", "fd00::1/128"],
+            "public_key": "pub_key",
+            "endpoint_ip": "1.2.3.4",
+            "endpoint_port": 51820u64,
+            "preshared_key": "psk"
+        });
+        let mut data: BTreeMap<String, String> = BTreeMap::new();
+        build_wireguard_secret_data(&creds, &mut data).unwrap();
+
+        assert_eq!(
+            data.get("WIREGUARD_PRIVATE_KEY").map(String::as_str),
+            Some("priv_key")
+        );
+        assert_eq!(
+            data.get("WIREGUARD_ADDRESSES").map(String::as_str),
+            Some("10.0.0.1/32,fd00::1/128")
+        );
+        assert_eq!(
+            data.get("WIREGUARD_PUBLIC_KEY").map(String::as_str),
+            Some("pub_key")
+        );
+        assert_eq!(
+            data.get("VPN_ENDPOINT_IP").map(String::as_str),
+            Some("1.2.3.4")
+        );
+        assert_eq!(
+            data.get("VPN_ENDPOINT_PORT").map(String::as_str),
+            Some("51820")
+        );
+        assert_eq!(
+            data.get("WIREGUARD_PRESHARED_KEY").map(String::as_str),
+            Some("psk")
+        );
+    }
+
+    #[test]
+    fn test_build_wireguard_secret_data_addresses_empty_array_not_inserted() {
+        // An empty addresses array should not produce the WIREGUARD_ADDRESSES key
+        let creds = json!({ "private_key": "pk", "addresses": [] });
+        let mut data: BTreeMap<String, String> = BTreeMap::new();
+        build_wireguard_secret_data(&creds, &mut data).unwrap();
+
+        assert!(!data.contains_key("WIREGUARD_ADDRESSES"));
+    }
+
+    #[test]
+    fn test_build_wireguard_secret_data_single_address() {
+        let creds = json!({ "private_key": "pk", "addresses": ["10.0.0.2/32"] });
+        let mut data: BTreeMap<String, String> = BTreeMap::new();
+        build_wireguard_secret_data(&creds, &mut data).unwrap();
+
+        assert_eq!(
+            data.get("WIREGUARD_ADDRESSES").map(String::as_str),
+            Some("10.0.0.2/32")
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // build_openvpn_secret_data tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_build_openvpn_secret_data_minimal_username_and_password() {
+        let creds = json!({ "username": "vpnuser", "password": "s3cr3t" });
+        let mut data: BTreeMap<String, String> = BTreeMap::new();
+        build_openvpn_secret_data(&creds, &mut data).unwrap();
+
+        assert_eq!(
+            data.get("OPENVPN_USER").map(String::as_str),
+            Some("vpnuser")
+        );
+        assert_eq!(
+            data.get("OPENVPN_PASSWORD").map(String::as_str),
+            Some("s3cr3t")
+        );
+        // Optional server selection keys must NOT be present
+        assert!(!data.contains_key("SERVER_COUNTRIES"));
+        assert!(!data.contains_key("SERVER_CITIES"));
+        assert!(!data.contains_key("SERVER_HOSTNAMES"));
+    }
+
+    #[test]
+    fn test_build_openvpn_secret_data_full_credentials() {
+        let creds = json!({
+            "username": "vpnuser",
+            "password": "s3cr3t",
+            "server_countries": "Netherlands,Germany",
+            "server_cities": "Amsterdam",
+            "server_hostnames": "nl1.vpn.example.com"
+        });
+        let mut data: BTreeMap<String, String> = BTreeMap::new();
+        build_openvpn_secret_data(&creds, &mut data).unwrap();
+
+        assert_eq!(
+            data.get("OPENVPN_USER").map(String::as_str),
+            Some("vpnuser")
+        );
+        assert_eq!(
+            data.get("OPENVPN_PASSWORD").map(String::as_str),
+            Some("s3cr3t")
+        );
+        assert_eq!(
+            data.get("SERVER_COUNTRIES").map(String::as_str),
+            Some("Netherlands,Germany")
+        );
+        assert_eq!(
+            data.get("SERVER_CITIES").map(String::as_str),
+            Some("Amsterdam")
+        );
+        assert_eq!(
+            data.get("SERVER_HOSTNAMES").map(String::as_str),
+            Some("nl1.vpn.example.com")
+        );
+    }
+
+    #[test]
+    fn test_build_openvpn_secret_data_missing_username_produces_no_key() {
+        // build_openvpn_secret_data itself does NOT validate — it silently skips
+        // missing fields (validation is separate via validate_credentials).
+        let creds = json!({ "password": "s3cr3t" });
+        let mut data: BTreeMap<String, String> = BTreeMap::new();
+        build_openvpn_secret_data(&creds, &mut data).unwrap();
+
+        assert!(!data.contains_key("OPENVPN_USER"));
+        assert_eq!(
+            data.get("OPENVPN_PASSWORD").map(String::as_str),
+            Some("s3cr3t")
+        );
+    }
+
+    #[test]
+    fn test_build_openvpn_secret_data_partial_server_selection() {
+        // Only server_countries provided, others absent
+        let creds = json!({
+            "username": "user",
+            "password": "pass",
+            "server_countries": "US"
+        });
+        let mut data: BTreeMap<String, String> = BTreeMap::new();
+        build_openvpn_secret_data(&creds, &mut data).unwrap();
+
+        assert_eq!(data.get("SERVER_COUNTRIES").map(String::as_str), Some("US"));
+        assert!(!data.contains_key("SERVER_CITIES"));
+        assert!(!data.contains_key("SERVER_HOSTNAMES"));
+    }
+}
+
 /// Get list of supported VPN service providers
 pub fn get_supported_providers() -> Vec<SupportedProvider> {
     vec![

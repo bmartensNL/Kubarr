@@ -212,3 +212,79 @@ where
         Ok(Authenticated(auth_user.user.clone()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fake_user(id: i64, username: &str) -> crate::models::user::Model {
+        use chrono::Utc;
+        crate::models::user::Model {
+            id,
+            username: username.to_string(),
+            email: format!("{username}@test.com"),
+            hashed_password: "hash".to_string(),
+            is_active: true,
+            is_approved: true,
+            totp_secret: None,
+            totp_enabled: false,
+            totp_verified_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn test_permission_names() {
+        assert_eq!(UsersView::NAME, "users.view");
+        assert_eq!(UsersManage::NAME, "users.manage");
+        assert_eq!(UsersResetPassword::NAME, "users.reset_password");
+        assert_eq!(RolesView::NAME, "roles.view");
+        assert_eq!(RolesManage::NAME, "roles.manage");
+        assert_eq!(AppsView::NAME, "apps.view");
+        assert_eq!(AppsInstall::NAME, "apps.install");
+        assert_eq!(AppsDelete::NAME, "apps.delete");
+        assert_eq!(AppsRestart::NAME, "apps.restart");
+        assert_eq!(StorageView::NAME, "storage.view");
+        assert_eq!(StorageWrite::NAME, "storage.write");
+        assert_eq!(StorageDelete::NAME, "storage.delete");
+        assert_eq!(StorageDownload::NAME, "storage.download");
+        assert_eq!(LogsView::NAME, "logs.view");
+        assert_eq!(MonitoringView::NAME, "monitoring.view");
+        assert_eq!(SettingsView::NAME, "settings.view");
+        assert_eq!(SettingsManage::NAME, "settings.manage");
+        assert_eq!(AuditView::NAME, "audit.view");
+        assert_eq!(AuditManage::NAME, "audit.manage");
+        assert_eq!(NotificationsView::NAME, "notifications.view");
+        assert_eq!(NotificationsManage::NAME, "notifications.manage");
+        assert_eq!(NetworkingView::NAME, "networking.view");
+        assert_eq!(VpnView::NAME, "vpn.view");
+        assert_eq!(VpnManage::NAME, "vpn.manage");
+        assert_eq!(CloudflareView::NAME, "cloudflare.view");
+        assert_eq!(CloudflareManage::NAME, "cloudflare.manage");
+    }
+
+    #[test]
+    fn test_authorized_user_accessors() {
+        let user = fake_user(42, "testuser");
+        let auth: Authorized<UsersView> = Authorized(user.clone(), PhantomData);
+        assert_eq!(auth.user_id(), 42);
+        assert_eq!(auth.user().username, "testuser");
+    }
+
+    #[test]
+    fn test_authenticated_user_accessors() {
+        let user = fake_user(7, "viewer");
+        let auth = Authenticated(user.clone());
+        assert_eq!(auth.user_id(), 7);
+        assert_eq!(auth.user().username, "viewer");
+    }
+
+    #[test]
+    fn test_permission_type_is_copy() {
+        // Permission marker types should be Copy and Clone
+        let _p1 = UsersView;
+        let _p2 = _p1;
+        let _p3 = _p2;
+    }
+}

@@ -21,13 +21,21 @@ use kubarr::state::{AppState, SharedCatalog, SharedK8sClient};
 /// Build a test AppState from an existing DatabaseConnection.
 ///
 /// Use this when you need direct control over the database (e.g., to seed
-/// specific users before constructing the state).
-pub fn build_test_app_state_with_db(db: DatabaseConnection) -> AppState {
+/// specific users before constructing the state). Also initialises the
+/// `NotificationService` and `AuditService` internal DB connections so that
+/// their methods (e.g. `get_unread_count`, `log`) work in integration tests —
+/// mirroring what the production bootstrapper does.
+pub async fn build_test_app_state_with_db(db: DatabaseConnection) -> AppState {
     let k8s_client: SharedK8sClient = Arc::new(RwLock::new(None));
     let catalog: SharedCatalog = Arc::new(RwLock::new(AppCatalog::default()));
     let chart_sync = Arc::new(ChartSyncService::new(catalog.clone()));
     let audit = AuditService::new();
     let notification = NotificationService::new();
+
+    // Mirror what the bootstrapper does: give both services their own DB handle.
+    audit.set_db(db.clone()).await;
+    notification.set_db(db.clone()).await;
+
     AppState::new(
         Some(db),
         k8s_client,
@@ -41,7 +49,7 @@ pub fn build_test_app_state_with_db(db: DatabaseConnection) -> AppState {
 /// Build a test AppState with a seeded database.
 pub async fn build_test_app_state() -> AppState {
     let db = create_test_db_with_seed().await;
-    build_test_app_state_with_db(db)
+    build_test_app_state_with_db(db).await
 }
 
 /// Create an in-memory SQLite database for testing

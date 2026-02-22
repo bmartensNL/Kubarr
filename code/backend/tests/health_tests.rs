@@ -145,7 +145,7 @@ async fn test_system_health_not_setup_required_when_admin_exists() {
     // Create an admin user to mark setup as complete
     create_test_user_with_role(&db, "admin", "admin@example.com", "password", "admin").await;
 
-    let state = build_test_app_state_with_db(db);
+    let state = build_test_app_state_with_db(db).await;
     let app = create_router(state);
 
     let response = app

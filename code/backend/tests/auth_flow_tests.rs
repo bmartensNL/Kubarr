@@ -133,7 +133,7 @@ async fn test_login_valid_credentials_returns_200() {
         "admin",
     )
     .await;
-    let state = build_test_app_state_with_db(db);
+    let state = build_test_app_state_with_db(db).await;
 
     let app = create_router(state);
     let (status, cookie) = do_login(app, "testuser", "correctpassword").await;
@@ -148,7 +148,7 @@ async fn test_login_valid_credentials_returns_user_info() {
 
     let db = create_test_db_with_seed().await;
     create_test_user_with_role(&db, "myuser", "myuser@example.com", "mypassword", "admin").await;
-    let state = build_test_app_state_with_db(db);
+    let state = build_test_app_state_with_db(db).await;
 
     let body = serde_json::json!({
         "username": "myuser",
@@ -191,7 +191,7 @@ async fn test_login_invalid_password_returns_401() {
 
     let db = create_test_db_with_seed().await;
     create_test_user_with_role(&db, "user2", "user2@example.com", "correct", "viewer").await;
-    let state = build_test_app_state_with_db(db);
+    let state = build_test_app_state_with_db(db).await;
 
     let app = create_router(state);
     let (status, _) = do_login(app, "user2", "wrongpassword").await;
@@ -208,7 +208,7 @@ async fn test_login_unknown_user_returns_401() {
     ensure_jwt_keys().await;
 
     let db = create_test_db_with_seed().await;
-    let state = build_test_app_state_with_db(db);
+    let state = build_test_app_state_with_db(db).await;
 
     let app = create_router(state);
     let (status, _) = do_login(app, "nonexistent", "anypassword").await;
@@ -246,7 +246,7 @@ async fn test_login_inactive_user_returns_401() {
         inactive_user.insert(&db).await.unwrap();
     }
 
-    let state = build_test_app_state_with_db(db);
+    let state = build_test_app_state_with_db(db).await;
     let app = create_router(state);
     let (status, _) = do_login(app, "inactive_user", "password123").await;
 
@@ -273,7 +273,7 @@ async fn test_login_unapproved_user_returns_401() {
     )
     .await;
 
-    let state = build_test_app_state_with_db(db);
+    let state = build_test_app_state_with_db(db).await;
     let app = create_router(state);
     let (status, _) = do_login(app, "pending_user", "password123").await;
 
@@ -291,7 +291,7 @@ async fn test_login_unapproved_user_returns_401() {
 #[tokio::test]
 async fn test_logout_without_session_returns_200() {
     // Logout is graceful — it clears the cookie even without a valid session
-    let state = build_test_app_state_with_db(create_test_db_with_seed().await);
+    let state = build_test_app_state_with_db(create_test_db_with_seed().await).await;
     let app = create_router(state);
 
     let response = app
@@ -318,7 +318,7 @@ async fn test_logout_with_session_returns_200() {
 
     let db = create_test_db_with_seed().await;
     create_test_user_with_role(&db, "logoutuser", "logout@example.com", "password", "admin").await;
-    let state = build_test_app_state_with_db(db);
+    let state = build_test_app_state_with_db(db).await;
 
     // Login first
     let (login_status, cookie) =
@@ -348,7 +348,7 @@ async fn test_logout_with_session_returns_200() {
 
 #[tokio::test]
 async fn test_list_sessions_without_auth_returns_401() {
-    let state = build_test_app_state_with_db(create_test_db_with_seed().await);
+    let state = build_test_app_state_with_db(create_test_db_with_seed().await).await;
     let app = create_router(state);
 
     let response = app
@@ -371,7 +371,7 @@ async fn test_list_sessions_with_valid_session_returns_200() {
 
     let db = create_test_db_with_seed().await;
     create_test_user_with_role(&db, "sessuser", "sess@example.com", "password", "admin").await;
-    let state = build_test_app_state_with_db(db);
+    let state = build_test_app_state_with_db(db).await;
 
     // Login to get a session cookie
     let (_, cookie) = do_login(create_router(state.clone()), "sessuser", "password").await;
@@ -404,7 +404,7 @@ async fn test_list_sessions_shows_current_session() {
 
     let db = create_test_db_with_seed().await;
     create_test_user_with_role(&db, "currsess", "currsess@example.com", "password", "admin").await;
-    let state = build_test_app_state_with_db(db);
+    let state = build_test_app_state_with_db(db).await;
 
     let (_, cookie) = do_login(create_router(state.clone()), "currsess", "password").await;
     let cookie = cookie.unwrap();
@@ -430,7 +430,7 @@ async fn test_revoke_current_session_returns_bad_request() {
 
     let db = create_test_db_with_seed().await;
     create_test_user_with_role(&db, "revokeuser", "revoke@example.com", "password", "admin").await;
-    let state = build_test_app_state_with_db(db);
+    let state = build_test_app_state_with_db(db).await;
 
     // Login to get current session
     let (_, cookie) = do_login(create_router(state.clone()), "revokeuser", "password").await;
@@ -478,7 +478,7 @@ async fn test_revoke_nonexistent_session_returns_not_found() {
         "admin",
     )
     .await;
-    let state = build_test_app_state_with_db(db);
+    let state = build_test_app_state_with_db(db).await;
 
     let (_, cookie) = do_login(create_router(state.clone()), "revokeuser2", "password").await;
     let cookie = cookie.unwrap();
@@ -519,7 +519,7 @@ async fn test_viewer_cannot_access_settings() {
         "viewer",
     )
     .await;
-    let state = build_test_app_state_with_db(db);
+    let state = build_test_app_state_with_db(db).await;
 
     let (_, cookie) = do_login(create_router(state.clone()), "vieweruser", "password").await;
     let cookie = cookie.unwrap();
@@ -546,7 +546,7 @@ async fn test_viewer_cannot_manage_users() {
         "viewer",
     )
     .await;
-    let state = build_test_app_state_with_db(db);
+    let state = build_test_app_state_with_db(db).await;
 
     let (_, cookie) = do_login(create_router(state.clone()), "vieweruser2", "password").await;
     let cookie = cookie.unwrap();
@@ -566,7 +566,7 @@ async fn test_admin_can_access_settings() {
 
     let db = create_test_db_with_seed().await;
     create_test_user_with_role(&db, "adminuser", "admin@example.com", "password", "admin").await;
-    let state = build_test_app_state_with_db(db);
+    let state = build_test_app_state_with_db(db).await;
 
     let (_, cookie) = do_login(create_router(state.clone()), "adminuser", "password").await;
     let cookie = cookie.unwrap();

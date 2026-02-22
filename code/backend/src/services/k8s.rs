@@ -472,3 +472,226 @@ fn format_memory(bytes: i64) -> String {
         format!("{:.2}Gi", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -------------------------------------------------------------------------
+    // format_age tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_format_age_zero_seconds() {
+        assert_eq!(format_age(0), "0s");
+    }
+
+    #[test]
+    fn test_format_age_thirty_seconds() {
+        assert_eq!(format_age(30), "30s");
+    }
+
+    #[test]
+    fn test_format_age_fifty_nine_seconds() {
+        assert_eq!(format_age(59), "59s");
+    }
+
+    #[test]
+    fn test_format_age_sixty_seconds_is_one_minute() {
+        assert_eq!(format_age(60), "1m");
+    }
+
+    #[test]
+    fn test_format_age_one_hundred_nineteen_seconds_is_one_minute() {
+        // 119 / 60 == 1
+        assert_eq!(format_age(119), "1m");
+    }
+
+    #[test]
+    fn test_format_age_3599_seconds_is_59_minutes() {
+        // 3599 / 60 == 59
+        assert_eq!(format_age(3599), "59m");
+    }
+
+    #[test]
+    fn test_format_age_3600_seconds_is_one_hour() {
+        assert_eq!(format_age(3600), "1h");
+    }
+
+    #[test]
+    fn test_format_age_86399_seconds_is_23_hours() {
+        // 86399 / 3600 == 23
+        assert_eq!(format_age(86399), "23h");
+    }
+
+    #[test]
+    fn test_format_age_86400_seconds_is_one_day() {
+        assert_eq!(format_age(86400), "1d");
+    }
+
+    #[test]
+    fn test_format_age_172800_seconds_is_two_days() {
+        assert_eq!(format_age(172800), "2d");
+    }
+
+    // -------------------------------------------------------------------------
+    // parse_cpu tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_cpu_nanocores() {
+        assert_eq!(parse_cpu("500n"), 500);
+    }
+
+    #[test]
+    fn test_parse_cpu_nanocores_100() {
+        assert_eq!(parse_cpu("100n"), 100);
+    }
+
+    #[test]
+    fn test_parse_cpu_microcores() {
+        // 1u == 1 * 1000 nanocores
+        assert_eq!(parse_cpu("1u"), 1000);
+    }
+
+    #[test]
+    fn test_parse_cpu_millicores() {
+        // 500m == 500 * 1_000_000 nanocores
+        assert_eq!(parse_cpu("500m"), 500_000_000);
+    }
+
+    #[test]
+    fn test_parse_cpu_millicores_250() {
+        assert_eq!(parse_cpu("250m"), 250_000_000);
+    }
+
+    #[test]
+    fn test_parse_cpu_whole_cores_one() {
+        // "1" == 1 * 1_000_000_000 nanocores
+        assert_eq!(parse_cpu("1"), 1_000_000_000);
+    }
+
+    #[test]
+    fn test_parse_cpu_whole_cores_two() {
+        assert_eq!(parse_cpu("2"), 2_000_000_000);
+    }
+
+    #[test]
+    fn test_parse_cpu_invalid_returns_zero() {
+        assert_eq!(parse_cpu("invalid"), 0);
+    }
+
+    // -------------------------------------------------------------------------
+    // format_cpu tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_format_cpu_zero() {
+        // 0 nanocores → 0 millicores → "0m"
+        assert_eq!(format_cpu(0), "0m");
+    }
+
+    #[test]
+    fn test_format_cpu_500_millicores() {
+        assert_eq!(format_cpu(500_000_000), "500m");
+    }
+
+    #[test]
+    fn test_format_cpu_999_millicores() {
+        assert_eq!(format_cpu(999_000_000), "999m");
+    }
+
+    #[test]
+    fn test_format_cpu_one_core() {
+        // 1_000_000_000 nanocores == 1000 millicores → "1.00" (cores)
+        assert_eq!(format_cpu(1_000_000_000), "1.00");
+    }
+
+    #[test]
+    fn test_format_cpu_two_and_half_cores() {
+        // 2_500_000_000 nanocores == 2500 millicores → "2.50" cores
+        assert_eq!(format_cpu(2_500_000_000), "2.50");
+    }
+
+    // -------------------------------------------------------------------------
+    // parse_memory tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_memory_kibibytes() {
+        // 512Ki == 512 * 1024 == 524288 bytes
+        assert_eq!(parse_memory("512Ki"), 524_288);
+    }
+
+    #[test]
+    fn test_parse_memory_mebibytes() {
+        // 256Mi == 256 * 1024 * 1024 == 268435456 bytes
+        assert_eq!(parse_memory("256Mi"), 268_435_456);
+    }
+
+    #[test]
+    fn test_parse_memory_gibibytes() {
+        // 1Gi == 1024^3 == 1073741824 bytes
+        assert_eq!(parse_memory("1Gi"), 1_073_741_824);
+    }
+
+    #[test]
+    fn test_parse_memory_raw_bytes() {
+        // no suffix → parsed as plain integer
+        assert_eq!(parse_memory("1024"), 1024);
+    }
+
+    #[test]
+    fn test_parse_memory_tebibytes() {
+        // 2Ti == 2 * 1024^4 bytes
+        let expected: i64 = 2 * 1024 * 1024 * 1024 * 1024;
+        assert_eq!(parse_memory("2Ti"), expected);
+    }
+
+    #[test]
+    fn test_parse_memory_invalid_returns_zero() {
+        assert_eq!(parse_memory("bad"), 0);
+    }
+
+    // -------------------------------------------------------------------------
+    // format_memory tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_format_memory_zero() {
+        // 0 bytes → 0 / 1024 == 0 → "0Ki"
+        assert_eq!(format_memory(0), "0Ki");
+    }
+
+    #[test]
+    fn test_format_memory_one_kibibyte() {
+        assert_eq!(format_memory(1024), "1Ki");
+    }
+
+    #[test]
+    fn test_format_memory_one_mebibyte() {
+        assert_eq!(format_memory(1_048_576), "1Mi");
+    }
+
+    #[test]
+    fn test_format_memory_one_gibibyte() {
+        assert_eq!(format_memory(1_073_741_824), "1.00Gi");
+    }
+
+    #[test]
+    fn test_format_memory_two_gibibytes() {
+        assert_eq!(format_memory(2_147_483_648), "2.00Gi");
+    }
+
+    #[test]
+    fn test_format_memory_below_mebibyte_shows_ki() {
+        // 512 * 1024 == 524288 bytes — less than 1 MiB → shown as Ki
+        assert_eq!(format_memory(524_288), "512Ki");
+    }
+
+    #[test]
+    fn test_format_memory_below_gibibyte_shows_mi() {
+        // 128 * 1024 * 1024 == 134217728 bytes — less than 1 GiB → shown as Mi
+        assert_eq!(format_memory(134_217_728), "128Mi");
+    }
+}

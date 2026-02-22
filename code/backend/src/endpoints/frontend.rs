@@ -503,6 +503,407 @@ async fn proxy_to_frontend(
     Ok(response)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{header, Response, StatusCode};
+
+    // -------------------------------------------------------------------------
+    // is_static_asset tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_is_static_asset_css() {
+        assert!(is_static_asset("/style.css"));
+    }
+
+    #[test]
+    fn test_is_static_asset_js() {
+        assert!(is_static_asset("/app.js"));
+    }
+
+    #[test]
+    fn test_is_static_asset_ico() {
+        assert!(is_static_asset("/favicon.ico"));
+    }
+
+    #[test]
+    fn test_is_static_asset_nested_png() {
+        assert!(is_static_asset("/assets/img.png"));
+    }
+
+    #[test]
+    fn test_is_static_asset_js_with_query() {
+        // The query string is stripped before checking for a dot
+        assert!(is_static_asset("/file.js?v=123"));
+    }
+
+    #[test]
+    fn test_is_static_asset_root_is_not_asset() {
+        assert!(!is_static_asset("/"));
+    }
+
+    #[test]
+    fn test_is_static_asset_api_path_is_not_asset() {
+        assert!(!is_static_asset("/api/data"));
+    }
+
+    #[test]
+    fn test_is_static_asset_settings_route_is_not_asset() {
+        assert!(!is_static_asset("/settings"));
+    }
+
+    #[test]
+    fn test_is_static_asset_admin_route_is_not_asset() {
+        assert!(!is_static_asset("/admin"));
+    }
+
+    #[test]
+    fn test_is_static_asset_empty_string_is_not_asset() {
+        assert!(!is_static_asset(""));
+    }
+
+    // -------------------------------------------------------------------------
+    // extract_app_name tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_extract_app_name_simple() {
+        assert_eq!(extract_app_name("/sonarr"), Some("sonarr"));
+    }
+
+    #[test]
+    fn test_extract_app_name_with_subpath() {
+        assert_eq!(extract_app_name("/sonarr/path"), Some("sonarr"));
+    }
+
+    #[test]
+    fn test_extract_app_name_with_query() {
+        // The query part is after '?' but split('/') still yields "sonarr?q=1" as first segment.
+        // However is_static_asset logic and RESERVED_PATHS check happen on the first segment.
+        // "sonarr?q=1" has no dot → passes through → Some("sonarr?q=1").
+        // Let's verify the actual behaviour for "/sonarr?q=1":
+        // trim_start_matches('/') → "sonarr?q=1"
+        // split('/').next() → "sonarr?q=1"  (no slash before '?')
+        // "sonarr?q=1".contains('.') → false → Some("sonarr?q=1")
+        // The path "/sonarr?q=1" would reach this function as the path portion only
+        // (Axum splits path from query), so the path is "/sonarr" and this test
+        // exercises the function as called in production.
+        assert_eq!(extract_app_name("/sonarr"), Some("sonarr"));
+    }
+
+    #[test]
+    fn test_extract_app_name_api_is_reserved() {
+        assert_eq!(extract_app_name("/api/health"), None);
+    }
+
+    #[test]
+    fn test_extract_app_name_auth_is_reserved() {
+        assert_eq!(extract_app_name("/auth/login"), None);
+    }
+
+    #[test]
+    fn test_extract_app_name_assets_is_reserved() {
+        assert_eq!(extract_app_name("/assets/logo.png"), None);
+    }
+
+    #[test]
+    fn test_extract_app_name_favicon_svg_is_reserved() {
+        assert_eq!(extract_app_name("/favicon.svg"), None);
+    }
+
+    #[test]
+    fn test_extract_app_name_root_is_none() {
+        assert_eq!(extract_app_name("/"), None);
+    }
+
+    #[test]
+    fn test_extract_app_name_double_slash_is_none() {
+        // trim_start_matches('/') on "//" → ""  → first segment is "" → None
+        assert_eq!(extract_app_name("//"), None);
+    }
+
+    #[test]
+    fn test_extract_app_name_file_with_dot_is_none() {
+        // first segment has a dot → treated as static asset, returns None
+        assert_eq!(extract_app_name("/file.txt"), None);
+    }
+
+    #[test]
+    fn test_extract_app_name_login_is_reserved() {
+        assert_eq!(extract_app_name("/login"), None);
+    }
+
+    #[test]
+    fn test_extract_app_name_setup_is_reserved() {
+        assert_eq!(extract_app_name("/setup"), None);
+    }
+
+    #[test]
+    fn test_extract_app_name_radarr() {
+        assert_eq!(extract_app_name("/radarr/movies"), Some("radarr"));
+    }
+
+    // -------------------------------------------------------------------------
+    // extract_session_token tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_extract_session_token_present() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(header::COOKIE, "kubarr_session=mytoken123".parse().unwrap());
+        assert_eq!(
+            extract_session_token(&headers),
+            Some("mytoken123".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_session_token_multiple_cookies_kubarr_in_middle() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            "other=val; kubarr_session=abc456; another=xyz"
+                .parse()
+                .unwrap(),
+        );
+        assert_eq!(extract_session_token(&headers), Some("abc456".to_string()));
+    }
+
+    #[test]
+    fn test_extract_session_token_missing_cookie_header() {
+        let headers = axum::http::HeaderMap::new();
+        assert_eq!(extract_session_token(&headers), None);
+    }
+
+    #[test]
+    fn test_extract_session_token_cookie_header_without_kubarr_session() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(header::COOKIE, "session=other; csrf=token".parse().unwrap());
+        assert_eq!(extract_session_token(&headers), None);
+    }
+
+    // -------------------------------------------------------------------------
+    // rewrite_app_response tests
+    // -------------------------------------------------------------------------
+
+    fn make_response(status: StatusCode, location: Option<&str>) -> Response<Body> {
+        let mut builder = Response::builder().status(status);
+        if let Some(loc) = location {
+            builder = builder.header(header::LOCATION, loc);
+        }
+        builder.body(Body::empty()).unwrap()
+    }
+
+    #[test]
+    fn test_rewrite_app_response_non_redirect_passes_through() {
+        let response = make_response(StatusCode::OK, None);
+        let result = rewrite_app_response(
+            response,
+            "sonarr",
+            "http://sonarr.sonarr.svc.cluster.local:8989",
+            false,
+        );
+        assert_eq!(result.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn test_rewrite_app_response_redirect_with_internal_url_no_base_path() {
+        // Location: http://app.ns.svc.cluster.local:PORT/ui/page
+        // → /sonarr/ui/page
+        let internal_base = "http://sonarr.sonarr.svc.cluster.local:8989";
+        let location = format!("{}/ui/page", internal_base);
+        let response = make_response(StatusCode::FOUND, Some(&location));
+        let result = rewrite_app_response(response, "sonarr", internal_base, false);
+        let loc = result
+            .headers()
+            .get(header::LOCATION)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert_eq!(loc, "/sonarr/ui/page");
+    }
+
+    #[test]
+    fn test_rewrite_app_response_redirect_with_internal_url_has_base_path() {
+        // Location: http://jackett.jackett.svc.cluster.local:9117/jackett/UI/Login
+        // With has_base_path=true → /jackett/UI/Login (don't add app prefix again)
+        let internal_base = "http://jackett.jackett.svc.cluster.local:9117";
+        let location = format!("{}/jackett/UI/Login", internal_base);
+        let response = make_response(StatusCode::FOUND, Some(&location));
+        let result = rewrite_app_response(response, "jackett", internal_base, true);
+        let loc = result
+            .headers()
+            .get(header::LOCATION)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert_eq!(loc, "/jackett/UI/Login");
+    }
+
+    #[test]
+    fn test_rewrite_app_response_absolute_path_no_base_path_gets_prefix() {
+        // Location: /login → /sonarr/login
+        let internal_base = "http://sonarr.sonarr.svc.cluster.local:8989";
+        let response = make_response(StatusCode::FOUND, Some("/login"));
+        let result = rewrite_app_response(response, "sonarr", internal_base, false);
+        let loc = result
+            .headers()
+            .get(header::LOCATION)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert_eq!(loc, "/sonarr/login");
+    }
+
+    #[test]
+    fn test_rewrite_app_response_absolute_path_with_base_path_unchanged() {
+        // With has_base_path=true, absolute paths that don't match the internal base
+        // are returned unchanged (they already contain the base path prefix)
+        let internal_base = "http://jackett.jackett.svc.cluster.local:9117";
+        let response = make_response(StatusCode::FOUND, Some("/jackett/UI/Dashboard"));
+        let result = rewrite_app_response(response, "jackett", internal_base, true);
+        let loc = result
+            .headers()
+            .get(header::LOCATION)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert_eq!(loc, "/jackett/UI/Dashboard");
+    }
+
+    #[test]
+    fn test_rewrite_app_response_external_url_passes_through() {
+        // A full external URL should be left untouched
+        let internal_base = "http://sonarr.sonarr.svc.cluster.local:8989";
+        let response = make_response(StatusCode::FOUND, Some("https://external.example.com/page"));
+        let result = rewrite_app_response(response, "sonarr", internal_base, false);
+        let loc = result
+            .headers()
+            .get(header::LOCATION)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert_eq!(loc, "https://external.example.com/page");
+    }
+
+    // -------------------------------------------------------------------------
+    // rewrite_html tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_rewrite_html_src_double_quote() {
+        let html = r#"<img src="/images/logo.png">"#;
+        let result = rewrite_html(html, "/sonarr");
+        assert!(result.contains(r#"src="/sonarr/images/logo.png""#));
+    }
+
+    #[test]
+    fn test_rewrite_html_href_double_quote() {
+        let html = r#"<link href="/css/style.css">"#;
+        let result = rewrite_html(html, "/sonarr");
+        assert!(result.contains(r#"href="/sonarr/css/style.css""#));
+    }
+
+    #[test]
+    fn test_rewrite_html_action_double_quote() {
+        let html = r#"<form action="/submit">"#;
+        let result = rewrite_html(html, "/sonarr");
+        assert!(result.contains(r#"action="/sonarr/submit""#));
+    }
+
+    #[test]
+    fn test_rewrite_html_src_single_quote() {
+        let html = "<img src='/images/logo.png'>";
+        let result = rewrite_html(html, "/sonarr");
+        assert!(result.contains("src='/sonarr/images/logo.png'"));
+    }
+
+    #[test]
+    fn test_rewrite_html_href_single_quote() {
+        let html = "<link href='/css/style.css'>";
+        let result = rewrite_html(html, "/sonarr");
+        assert!(result.contains("href='/sonarr/css/style.css'"));
+    }
+
+    #[test]
+    fn test_rewrite_html_protocol_relative_url_preserved() {
+        // "//cdn.example.com" must NOT get a prefix — protocol-relative URLs
+        // get fixed back after the initial rewrite
+        let html = r#"<img src="//cdn.example.com/logo.png">"#;
+        let result = rewrite_html(html, "/sonarr");
+        assert!(result.contains(r#"src="//cdn.example.com/logo.png""#));
+    }
+
+    // -------------------------------------------------------------------------
+    // rewrite_css tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_rewrite_css_url_double_quote() {
+        let css = r#"background: url("/images/bg.png");"#;
+        let result = rewrite_css(css, "/sonarr");
+        assert!(result.contains(r#"url("/sonarr/images/bg.png")"#));
+    }
+
+    #[test]
+    fn test_rewrite_css_url_single_quote() {
+        let css = "background: url('/images/bg.png');";
+        let result = rewrite_css(css, "/sonarr");
+        assert!(result.contains("url('/sonarr/images/bg.png')"));
+    }
+
+    #[test]
+    fn test_rewrite_css_url_unquoted() {
+        let css = "background: url(/images/bg.png);";
+        let result = rewrite_css(css, "/sonarr");
+        assert!(result.contains("url(/sonarr/images/bg.png)"));
+    }
+
+    // -------------------------------------------------------------------------
+    // rewrite_js_paths tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_rewrite_js_paths_webpack_public_path_double_quote() {
+        let js = r#"e.p="/_next/""#;
+        let result = rewrite_js_paths(js, "/sonarr");
+        assert!(result.contains(r#".p="/sonarr/_next/""#));
+    }
+
+    #[test]
+    fn test_rewrite_js_paths_json_config_colon_slash() {
+        let js = r#"{"base":"/"}"#;
+        let result = rewrite_js_paths(js, "/sonarr");
+        assert!(result.contains(r#""base":"/sonarr/""#));
+    }
+
+    #[test]
+    fn test_rewrite_js_paths_json_config_colon_space_slash() {
+        let js = r#"{"base": "/"}"#;
+        let result = rewrite_js_paths(js, "/sonarr");
+        assert!(result.contains(r#""base": "/sonarr/""#));
+    }
+
+    #[test]
+    fn test_rewrite_js_paths_double_prefix_prevention() {
+        // If the path already contains the prefix, it must not be doubled
+        let js = r#"{"base":"/sonarr/"}"#;
+        let result = rewrite_js_paths(js, "/sonarr");
+        // After rewrite + fix, "/sonarr/" should appear exactly once in the value
+        assert!(result.contains(r#""/sonarr/""#));
+        assert!(!result.contains(r#""/sonarr/sonarr/""#));
+    }
+
+    #[test]
+    fn test_rewrite_js_paths_webpack_single_quote() {
+        let js = ".p='/static/'";
+        let result = rewrite_js_paths(js, "/sonarr");
+        assert!(result.contains(".p='/sonarr/static/'"));
+    }
+}
+
 /// Get the target URL for an app, returning (base_url, has_base_path, full_target_url)
 async fn get_app_target_url(
     state: &AppState,

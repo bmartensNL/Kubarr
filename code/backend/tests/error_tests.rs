@@ -141,3 +141,76 @@ fn test_io_error_from_conversion() {
     let app_error: AppError = io_err.into();
     assert!(matches!(app_error, AppError::Io(_)));
 }
+
+#[tokio::test]
+async fn test_bad_gateway_error() {
+    let error = AppError::BadGateway("upstream timeout".to_string());
+    let response = error.into_response();
+    let (status, body) = get_response_body(response).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert!(body.contains("upstream timeout"));
+}
+
+#[tokio::test]
+async fn test_database_error_response() {
+    let db_err = sea_orm::DbErr::Custom("test db error".to_string());
+    let error = AppError::Database(db_err);
+    let response = error.into_response();
+    let (status, body) = get_response_body(response).await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    // Database errors have their message hidden from clients
+    let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert!(parsed.get("detail").is_some());
+}
+
+#[tokio::test]
+async fn test_yaml_error_response() {
+    let yaml_err = serde_yaml::from_str::<serde_json::Value>("{unclosed: [").unwrap_err();
+    let error = AppError::Yaml(yaml_err);
+    let response = error.into_response();
+    let (status, body) = get_response_body(response).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("YAML error") || body.contains("detail"));
+}
+
+#[tokio::test]
+async fn test_io_error_response() {
+    let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "access denied");
+    let error = AppError::Io(io_err);
+    let response = error.into_response();
+    let (status, body) = get_response_body(response).await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert!(body.contains("IO error") || body.contains("detail"));
+}
+
+#[tokio::test]
+async fn test_json_parse_error_response() {
+    let json_err = serde_json::from_str::<serde_json::Value>("not valid json").unwrap_err();
+    let error = AppError::Json(json_err);
+    let response = error.into_response();
+    let (status, body) = get_response_body(response).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("JSON error") || body.contains("detail"));
+}
+
+#[test]
+fn test_error_display_remaining_variants() {
+    assert_eq!(
+        AppError::BadGateway("proxy error".to_string()).to_string(),
+        "Bad gateway: proxy error"
+    );
+}
+
+#[test]
+fn test_database_error_from_conversion() {
+    let db_err = sea_orm::DbErr::Custom("connection failed".to_string());
+    let app_error: AppError = db_err.into();
+    assert!(matches!(app_error, AppError::Database(_)));
+}
+
+#[test]
+fn test_yaml_error_from_conversion() {
+    let yaml_err = serde_yaml::from_str::<serde_json::Value>("{bad yaml: [").unwrap_err();
+    let app_error: AppError = yaml_err.into();
+    assert!(matches!(app_error, AppError::Yaml(_)));
+}

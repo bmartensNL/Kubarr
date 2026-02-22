@@ -805,3 +805,827 @@ fn mask_recipient(recipient: &str) -> String {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::audit_log::AuditAction;
+
+    // -------------------------------------------------------------------------
+    // format_event_title tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_format_event_title_login() {
+        assert_eq!(format_event_title(&AuditAction::Login), "Login Successful");
+    }
+
+    #[test]
+    fn test_format_event_title_login_failed() {
+        assert_eq!(
+            format_event_title(&AuditAction::LoginFailed),
+            "Login Failed"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_logout() {
+        assert_eq!(format_event_title(&AuditAction::Logout), "Logged Out");
+    }
+
+    #[test]
+    fn test_format_event_title_token_refresh() {
+        assert_eq!(
+            format_event_title(&AuditAction::TokenRefresh),
+            "Session Token Refreshed"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_two_factor_enabled() {
+        assert_eq!(
+            format_event_title(&AuditAction::TwoFactorEnabled),
+            "2FA Enabled"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_two_factor_disabled() {
+        assert_eq!(
+            format_event_title(&AuditAction::TwoFactorDisabled),
+            "2FA Disabled"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_two_factor_verified() {
+        assert_eq!(
+            format_event_title(&AuditAction::TwoFactorVerified),
+            "2FA Verification Successful"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_two_factor_failed() {
+        assert_eq!(
+            format_event_title(&AuditAction::TwoFactorFailed),
+            "2FA Verification Failed"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_password_changed() {
+        assert_eq!(
+            format_event_title(&AuditAction::PasswordChanged),
+            "Password Changed"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_user_created() {
+        assert_eq!(
+            format_event_title(&AuditAction::UserCreated),
+            "New User Created"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_user_updated() {
+        assert_eq!(
+            format_event_title(&AuditAction::UserUpdated),
+            "User Updated"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_user_deleted() {
+        assert_eq!(
+            format_event_title(&AuditAction::UserDeleted),
+            "User Deleted"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_user_approved() {
+        assert_eq!(
+            format_event_title(&AuditAction::UserApproved),
+            "User Approved"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_user_deactivated() {
+        assert_eq!(
+            format_event_title(&AuditAction::UserDeactivated),
+            "User Deactivated"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_user_activated() {
+        assert_eq!(
+            format_event_title(&AuditAction::UserActivated),
+            "User Activated"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_role_created() {
+        assert_eq!(
+            format_event_title(&AuditAction::RoleCreated),
+            "Role Created"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_role_updated() {
+        assert_eq!(
+            format_event_title(&AuditAction::RoleUpdated),
+            "Role Updated"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_role_deleted() {
+        assert_eq!(
+            format_event_title(&AuditAction::RoleDeleted),
+            "Role Deleted"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_role_assigned() {
+        assert_eq!(
+            format_event_title(&AuditAction::RoleAssigned),
+            "Role Assigned"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_role_unassigned() {
+        assert_eq!(
+            format_event_title(&AuditAction::RoleUnassigned),
+            "Role Unassigned"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_app_installed() {
+        assert_eq!(
+            format_event_title(&AuditAction::AppInstalled),
+            "App Installed"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_app_uninstalled() {
+        assert_eq!(
+            format_event_title(&AuditAction::AppUninstalled),
+            "App Uninstalled"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_app_started() {
+        assert_eq!(format_event_title(&AuditAction::AppStarted), "App Started");
+    }
+
+    #[test]
+    fn test_format_event_title_app_stopped() {
+        assert_eq!(format_event_title(&AuditAction::AppStopped), "App Stopped");
+    }
+
+    #[test]
+    fn test_format_event_title_app_restarted() {
+        assert_eq!(
+            format_event_title(&AuditAction::AppRestarted),
+            "App Restarted"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_app_configured() {
+        assert_eq!(
+            format_event_title(&AuditAction::AppConfigured),
+            "App Configured"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_app_accessed() {
+        assert_eq!(
+            format_event_title(&AuditAction::AppAccessed),
+            "App Accessed"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_system_setting_changed() {
+        assert_eq!(
+            format_event_title(&AuditAction::SystemSettingChanged),
+            "System Setting Changed"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_invite_created() {
+        assert_eq!(
+            format_event_title(&AuditAction::InviteCreated),
+            "Invite Link Created"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_invite_used() {
+        assert_eq!(
+            format_event_title(&AuditAction::InviteUsed),
+            "Invite Link Used"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_invite_deleted() {
+        assert_eq!(
+            format_event_title(&AuditAction::InviteDeleted),
+            "Invite Link Deleted"
+        );
+    }
+
+    #[test]
+    fn test_format_event_title_api_access() {
+        assert_eq!(format_event_title(&AuditAction::ApiAccess), "API Access");
+    }
+
+    // -------------------------------------------------------------------------
+    // format_event_body tests
+    // -------------------------------------------------------------------------
+
+    // Authentication variants — these do NOT branch on details; username is used.
+
+    #[test]
+    fn test_format_event_body_login_with_username() {
+        let body = format_event_body(&AuditAction::Login, Some("alice"), None);
+        assert_eq!(body, "User alice logged in successfully");
+    }
+
+    #[test]
+    fn test_format_event_body_login_without_username() {
+        let body = format_event_body(&AuditAction::Login, None, None);
+        assert_eq!(body, "User Unknown logged in successfully");
+    }
+
+    #[test]
+    fn test_format_event_body_login_failed_with_username() {
+        let body = format_event_body(&AuditAction::LoginFailed, Some("bob"), None);
+        assert_eq!(body, "Failed login attempt for user bob");
+    }
+
+    #[test]
+    fn test_format_event_body_logout_with_username() {
+        let body = format_event_body(&AuditAction::Logout, Some("alice"), None);
+        assert_eq!(body, "User alice logged out");
+    }
+
+    #[test]
+    fn test_format_event_body_token_refresh_with_username() {
+        let body = format_event_body(&AuditAction::TokenRefresh, Some("alice"), None);
+        assert_eq!(body, "Session token refreshed for user alice");
+    }
+
+    #[test]
+    fn test_format_event_body_two_factor_enabled() {
+        let body = format_event_body(&AuditAction::TwoFactorEnabled, Some("alice"), None);
+        assert_eq!(body, "User alice enabled two-factor authentication");
+    }
+
+    #[test]
+    fn test_format_event_body_two_factor_disabled() {
+        let body = format_event_body(&AuditAction::TwoFactorDisabled, Some("alice"), None);
+        assert_eq!(body, "User alice disabled two-factor authentication");
+    }
+
+    #[test]
+    fn test_format_event_body_two_factor_verified() {
+        let body = format_event_body(&AuditAction::TwoFactorVerified, Some("alice"), None);
+        assert_eq!(body, "User alice successfully verified 2FA code");
+    }
+
+    #[test]
+    fn test_format_event_body_two_factor_failed() {
+        let body = format_event_body(&AuditAction::TwoFactorFailed, Some("alice"), None);
+        assert_eq!(body, "User alice failed 2FA verification");
+    }
+
+    #[test]
+    fn test_format_event_body_password_changed() {
+        let body = format_event_body(&AuditAction::PasswordChanged, Some("alice"), None);
+        assert_eq!(body, "User alice changed their password");
+    }
+
+    // Variants that branch on detail presence (with and without details).
+
+    #[test]
+    fn test_format_event_body_user_created_no_detail() {
+        let body = format_event_body(&AuditAction::UserCreated, Some("admin"), None);
+        assert_eq!(body, "New user account created by admin");
+    }
+
+    #[test]
+    fn test_format_event_body_user_created_with_detail() {
+        let body = format_event_body(&AuditAction::UserCreated, Some("admin"), Some("newuser"));
+        assert_eq!(body, "New user account created by admin: newuser");
+    }
+
+    #[test]
+    fn test_format_event_body_user_updated_no_detail() {
+        let body = format_event_body(&AuditAction::UserUpdated, Some("admin"), None);
+        assert_eq!(body, "User account updated by admin");
+    }
+
+    #[test]
+    fn test_format_event_body_user_updated_with_detail() {
+        let body = format_event_body(
+            &AuditAction::UserUpdated,
+            Some("admin"),
+            Some("email changed"),
+        );
+        assert_eq!(body, "User account updated by admin: email changed");
+    }
+
+    #[test]
+    fn test_format_event_body_user_deleted_no_detail() {
+        let body = format_event_body(&AuditAction::UserDeleted, Some("admin"), None);
+        assert_eq!(body, "User account deleted by admin");
+    }
+
+    #[test]
+    fn test_format_event_body_user_deleted_with_detail() {
+        let body = format_event_body(&AuditAction::UserDeleted, Some("admin"), Some("alice"));
+        assert_eq!(body, "User account deleted by admin: alice");
+    }
+
+    #[test]
+    fn test_format_event_body_user_approved_no_detail() {
+        let body = format_event_body(&AuditAction::UserApproved, Some("admin"), None);
+        assert_eq!(body, "User account approved by admin");
+    }
+
+    #[test]
+    fn test_format_event_body_user_approved_with_detail() {
+        // detail is the approved username
+        let body = format_event_body(&AuditAction::UserApproved, Some("admin"), Some("alice"));
+        assert_eq!(body, "User alice approved by admin");
+    }
+
+    #[test]
+    fn test_format_event_body_user_deactivated_no_detail() {
+        let body = format_event_body(&AuditAction::UserDeactivated, Some("admin"), None);
+        assert_eq!(body, "User account deactivated by admin");
+    }
+
+    #[test]
+    fn test_format_event_body_user_deactivated_with_detail() {
+        let body = format_event_body(&AuditAction::UserDeactivated, Some("admin"), Some("alice"));
+        assert_eq!(body, "User alice deactivated by admin");
+    }
+
+    #[test]
+    fn test_format_event_body_user_activated_no_detail() {
+        let body = format_event_body(&AuditAction::UserActivated, Some("admin"), None);
+        assert_eq!(body, "User account activated by admin");
+    }
+
+    #[test]
+    fn test_format_event_body_user_activated_with_detail() {
+        let body = format_event_body(&AuditAction::UserActivated, Some("admin"), Some("alice"));
+        assert_eq!(body, "User alice activated by admin");
+    }
+
+    #[test]
+    fn test_format_event_body_role_created_no_detail() {
+        let body = format_event_body(&AuditAction::RoleCreated, Some("admin"), None);
+        assert_eq!(body, "New role created by admin");
+    }
+
+    #[test]
+    fn test_format_event_body_role_created_with_detail() {
+        let body = format_event_body(&AuditAction::RoleCreated, Some("admin"), Some("editor"));
+        assert_eq!(body, "New role created by admin: editor");
+    }
+
+    #[test]
+    fn test_format_event_body_role_updated_no_detail() {
+        let body = format_event_body(&AuditAction::RoleUpdated, Some("admin"), None);
+        assert_eq!(body, "Role updated by admin");
+    }
+
+    #[test]
+    fn test_format_event_body_role_updated_with_detail() {
+        let body = format_event_body(&AuditAction::RoleUpdated, Some("admin"), Some("editor"));
+        assert_eq!(body, "Role updated by admin: editor");
+    }
+
+    #[test]
+    fn test_format_event_body_role_deleted_no_detail() {
+        let body = format_event_body(&AuditAction::RoleDeleted, Some("admin"), None);
+        assert_eq!(body, "Role deleted by admin");
+    }
+
+    #[test]
+    fn test_format_event_body_role_deleted_with_detail() {
+        let body = format_event_body(&AuditAction::RoleDeleted, Some("admin"), Some("editor"));
+        assert_eq!(body, "Role deleted by admin: editor");
+    }
+
+    #[test]
+    fn test_format_event_body_role_assigned_no_detail() {
+        let body = format_event_body(&AuditAction::RoleAssigned, Some("admin"), None);
+        assert_eq!(body, "Role assigned by admin");
+    }
+
+    #[test]
+    fn test_format_event_body_role_assigned_with_detail() {
+        let body = format_event_body(
+            &AuditAction::RoleAssigned,
+            Some("admin"),
+            Some("editor -> alice"),
+        );
+        assert_eq!(body, "Role assigned by admin: editor -> alice");
+    }
+
+    #[test]
+    fn test_format_event_body_role_unassigned_no_detail() {
+        let body = format_event_body(&AuditAction::RoleUnassigned, Some("admin"), None);
+        assert_eq!(body, "Role unassigned by admin");
+    }
+
+    #[test]
+    fn test_format_event_body_role_unassigned_with_detail() {
+        let body = format_event_body(
+            &AuditAction::RoleUnassigned,
+            Some("admin"),
+            Some("editor -> alice"),
+        );
+        assert_eq!(body, "Role unassigned by admin: editor -> alice");
+    }
+
+    #[test]
+    fn test_format_event_body_app_installed_no_detail() {
+        let body = format_event_body(&AuditAction::AppInstalled, Some("admin"), None);
+        assert_eq!(body, "App installed by admin");
+    }
+
+    #[test]
+    fn test_format_event_body_app_installed_with_detail() {
+        let body = format_event_body(&AuditAction::AppInstalled, Some("admin"), Some("sonarr"));
+        assert_eq!(body, "App installed by admin: sonarr");
+    }
+
+    #[test]
+    fn test_format_event_body_app_uninstalled_no_detail() {
+        let body = format_event_body(&AuditAction::AppUninstalled, Some("admin"), None);
+        assert_eq!(body, "App uninstalled by admin");
+    }
+
+    #[test]
+    fn test_format_event_body_app_uninstalled_with_detail() {
+        let body = format_event_body(&AuditAction::AppUninstalled, Some("admin"), Some("sonarr"));
+        assert_eq!(body, "App uninstalled by admin: sonarr");
+    }
+
+    #[test]
+    fn test_format_event_body_app_started_no_detail() {
+        let body = format_event_body(&AuditAction::AppStarted, Some("admin"), None);
+        assert_eq!(body, "App started by admin");
+    }
+
+    #[test]
+    fn test_format_event_body_app_started_with_detail() {
+        let body = format_event_body(&AuditAction::AppStarted, Some("admin"), Some("radarr"));
+        assert_eq!(body, "App started by admin: radarr");
+    }
+
+    #[test]
+    fn test_format_event_body_app_stopped_no_detail() {
+        let body = format_event_body(&AuditAction::AppStopped, Some("admin"), None);
+        assert_eq!(body, "App stopped by admin");
+    }
+
+    #[test]
+    fn test_format_event_body_app_stopped_with_detail() {
+        let body = format_event_body(&AuditAction::AppStopped, Some("admin"), Some("radarr"));
+        assert_eq!(body, "App stopped by admin: radarr");
+    }
+
+    #[test]
+    fn test_format_event_body_app_restarted_no_detail() {
+        let body = format_event_body(&AuditAction::AppRestarted, Some("admin"), None);
+        assert_eq!(body, "App restarted by admin");
+    }
+
+    #[test]
+    fn test_format_event_body_app_restarted_with_detail() {
+        let body = format_event_body(&AuditAction::AppRestarted, Some("admin"), Some("radarr"));
+        assert_eq!(body, "App restarted by admin: radarr");
+    }
+
+    #[test]
+    fn test_format_event_body_app_configured_no_detail() {
+        let body = format_event_body(&AuditAction::AppConfigured, Some("admin"), None);
+        assert_eq!(body, "App configuration changed by admin");
+    }
+
+    #[test]
+    fn test_format_event_body_app_configured_with_detail() {
+        let body = format_event_body(&AuditAction::AppConfigured, Some("admin"), Some("sonarr"));
+        assert_eq!(body, "App configuration changed by admin: sonarr");
+    }
+
+    #[test]
+    fn test_format_event_body_app_accessed_no_detail() {
+        let body = format_event_body(&AuditAction::AppAccessed, Some("alice"), None);
+        assert_eq!(body, "App accessed by alice");
+    }
+
+    #[test]
+    fn test_format_event_body_app_accessed_with_detail() {
+        // Special format: "User {user} accessed {detail}"
+        let body = format_event_body(&AuditAction::AppAccessed, Some("alice"), Some("sonarr"));
+        assert_eq!(body, "User alice accessed sonarr");
+    }
+
+    #[test]
+    fn test_format_event_body_system_setting_changed_no_detail() {
+        let body = format_event_body(&AuditAction::SystemSettingChanged, Some("admin"), None);
+        assert_eq!(body, "System setting changed by admin");
+    }
+
+    #[test]
+    fn test_format_event_body_system_setting_changed_with_detail() {
+        let body = format_event_body(
+            &AuditAction::SystemSettingChanged,
+            Some("admin"),
+            Some("smtp_host"),
+        );
+        assert_eq!(body, "System setting changed by admin: smtp_host");
+    }
+
+    #[test]
+    fn test_format_event_body_invite_created_no_detail() {
+        let body = format_event_body(&AuditAction::InviteCreated, Some("admin"), None);
+        assert_eq!(body, "Invite link created by admin");
+    }
+
+    #[test]
+    fn test_format_event_body_invite_created_with_detail() {
+        let body = format_event_body(&AuditAction::InviteCreated, Some("admin"), Some("abc123"));
+        assert_eq!(body, "Invite link created by admin: abc123");
+    }
+
+    #[test]
+    fn test_format_event_body_invite_used_no_detail() {
+        let body = format_event_body(&AuditAction::InviteUsed, Some("alice"), None);
+        assert_eq!(body, "Invite link used by alice");
+    }
+
+    #[test]
+    fn test_format_event_body_invite_used_with_detail() {
+        let body = format_event_body(&AuditAction::InviteUsed, Some("alice"), Some("abc123"));
+        assert_eq!(body, "Invite link used by alice: abc123");
+    }
+
+    #[test]
+    fn test_format_event_body_invite_deleted_no_detail() {
+        let body = format_event_body(&AuditAction::InviteDeleted, Some("admin"), None);
+        assert_eq!(body, "Invite link deleted by admin");
+    }
+
+    #[test]
+    fn test_format_event_body_invite_deleted_with_detail() {
+        let body = format_event_body(&AuditAction::InviteDeleted, Some("admin"), Some("abc123"));
+        assert_eq!(body, "Invite link deleted by admin: abc123");
+    }
+
+    #[test]
+    fn test_format_event_body_api_access_no_detail() {
+        let body = format_event_body(&AuditAction::ApiAccess, Some("alice"), None);
+        assert_eq!(body, "API accessed by alice");
+    }
+
+    #[test]
+    fn test_format_event_body_api_access_with_detail() {
+        let body = format_event_body(
+            &AuditAction::ApiAccess,
+            Some("alice"),
+            Some("GET /api/apps"),
+        );
+        assert_eq!(body, "API accessed by alice: GET /api/apps");
+    }
+
+    #[test]
+    fn test_format_event_body_no_username_no_detail() {
+        // Username falls back to "Unknown", empty detail suppresses the detail clause
+        let body = format_event_body(&AuditAction::AppInstalled, None, None);
+        assert_eq!(body, "App installed by Unknown");
+    }
+
+    #[test]
+    fn test_format_event_body_no_username_with_detail() {
+        let body = format_event_body(&AuditAction::AppInstalled, None, Some("sonarr"));
+        assert_eq!(body, "App installed by Unknown: sonarr");
+    }
+
+    // -------------------------------------------------------------------------
+    // mask_recipient tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_mask_recipient_email_normal() {
+        // Shows first 2 chars of local part + domain
+        assert_eq!(mask_recipient("alice@example.com"), "al***@example.com");
+    }
+
+    #[test]
+    fn test_mask_recipient_email_long_local() {
+        assert_eq!(mask_recipient("jonathan@domain.org"), "jo***@domain.org");
+    }
+
+    #[test]
+    fn test_mask_recipient_email_short_local_two_chars() {
+        // local part length == 2 → falls through to "***@***"
+        assert_eq!(mask_recipient("ab@example.com"), "***@***");
+    }
+
+    #[test]
+    fn test_mask_recipient_email_short_local_one_char() {
+        assert_eq!(mask_recipient("a@example.com"), "***@***");
+    }
+
+    #[test]
+    fn test_mask_recipient_phone_normal() {
+        // "+12345678" → "+12***78" (first 3 chars + *** + last 2)
+        assert_eq!(mask_recipient("+12345678"), "+12***78");
+    }
+
+    #[test]
+    fn test_mask_recipient_phone_long() {
+        // "+14155551234" → "+14***34"
+        assert_eq!(mask_recipient("+14155551234"), "+14***34");
+    }
+
+    #[test]
+    fn test_mask_recipient_phone_short_four_chars() {
+        // "+123" → len 4, not > 4 → "+***"
+        assert_eq!(mask_recipient("+123"), "+***");
+    }
+
+    #[test]
+    fn test_mask_recipient_phone_short_two_chars() {
+        assert_eq!(mask_recipient("+1"), "+***");
+    }
+
+    #[test]
+    fn test_mask_recipient_other_long() {
+        // Telegram chat IDs or similar: "1234567890" (len > 5) → "123***90"
+        assert_eq!(mask_recipient("1234567890"), "123***90");
+    }
+
+    #[test]
+    fn test_mask_recipient_other_exactly_six_chars() {
+        // len 6 > 5 → first 3 + *** + last 2
+        assert_eq!(mask_recipient("abcdef"), "abc***ef");
+    }
+
+    #[test]
+    fn test_mask_recipient_other_short_five_chars() {
+        // len 5, not > 5 → "***"
+        assert_eq!(mask_recipient("abcde"), "***");
+    }
+
+    #[test]
+    fn test_mask_recipient_other_very_short() {
+        assert_eq!(mask_recipient("ab"), "***");
+    }
+
+    // -------------------------------------------------------------------------
+    // ChannelType tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_channel_type_as_str() {
+        assert_eq!(ChannelType::Email.as_str(), "email");
+        assert_eq!(ChannelType::Telegram.as_str(), "telegram");
+        assert_eq!(ChannelType::MessageBird.as_str(), "messagebird");
+    }
+
+    #[test]
+    fn test_channel_type_parse_valid() {
+        assert_eq!(ChannelType::parse("email"), Some(ChannelType::Email));
+        assert_eq!(ChannelType::parse("telegram"), Some(ChannelType::Telegram));
+        assert_eq!(
+            ChannelType::parse("messagebird"),
+            Some(ChannelType::MessageBird)
+        );
+    }
+
+    #[test]
+    fn test_channel_type_parse_case_insensitive() {
+        assert_eq!(ChannelType::parse("EMAIL"), Some(ChannelType::Email));
+        assert_eq!(ChannelType::parse("Telegram"), Some(ChannelType::Telegram));
+        assert_eq!(
+            ChannelType::parse("MessageBird"),
+            Some(ChannelType::MessageBird)
+        );
+    }
+
+    #[test]
+    fn test_channel_type_parse_unknown() {
+        assert_eq!(ChannelType::parse("signal"), None);
+        assert_eq!(ChannelType::parse(""), None);
+        assert_eq!(ChannelType::parse("slack"), None);
+    }
+
+    #[test]
+    fn test_channel_type_all_contains_all_variants() {
+        let all = ChannelType::all();
+        assert_eq!(all.len(), 3);
+        assert!(all.contains(&ChannelType::Email));
+        assert!(all.contains(&ChannelType::Telegram));
+        assert!(all.contains(&ChannelType::MessageBird));
+    }
+
+    #[test]
+    fn test_channel_type_display() {
+        assert_eq!(format!("{}", ChannelType::Email), "email");
+        assert_eq!(format!("{}", ChannelType::Telegram), "telegram");
+        assert_eq!(format!("{}", ChannelType::MessageBird), "messagebird");
+    }
+
+    // -------------------------------------------------------------------------
+    // NotificationSeverity tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_notification_severity_as_str() {
+        assert_eq!(NotificationSeverity::Info.as_str(), "info");
+        assert_eq!(NotificationSeverity::Warning.as_str(), "warning");
+        assert_eq!(NotificationSeverity::Critical.as_str(), "critical");
+    }
+
+    #[test]
+    fn test_notification_severity_parse_warning() {
+        assert_eq!(
+            NotificationSeverity::parse("warning"),
+            NotificationSeverity::Warning
+        );
+    }
+
+    #[test]
+    fn test_notification_severity_parse_critical() {
+        assert_eq!(
+            NotificationSeverity::parse("critical"),
+            NotificationSeverity::Critical
+        );
+    }
+
+    #[test]
+    fn test_notification_severity_parse_info() {
+        assert_eq!(
+            NotificationSeverity::parse("info"),
+            NotificationSeverity::Info
+        );
+    }
+
+    #[test]
+    fn test_notification_severity_parse_case_insensitive() {
+        assert_eq!(
+            NotificationSeverity::parse("WARNING"),
+            NotificationSeverity::Warning
+        );
+        assert_eq!(
+            NotificationSeverity::parse("CRITICAL"),
+            NotificationSeverity::Critical
+        );
+    }
+
+    #[test]
+    fn test_notification_severity_parse_unknown_defaults_to_info() {
+        // Anything unknown falls back to Info
+        assert_eq!(
+            NotificationSeverity::parse("unknown"),
+            NotificationSeverity::Info
+        );
+        assert_eq!(NotificationSeverity::parse(""), NotificationSeverity::Info);
+        assert_eq!(
+            NotificationSeverity::parse("debug"),
+            NotificationSeverity::Info
+        );
+    }
+
+    #[test]
+    fn test_notification_severity_display() {
+        assert_eq!(format!("{}", NotificationSeverity::Info), "info");
+        assert_eq!(format!("{}", NotificationSeverity::Warning), "warning");
+        assert_eq!(format!("{}", NotificationSeverity::Critical), "critical");
+    }
+}

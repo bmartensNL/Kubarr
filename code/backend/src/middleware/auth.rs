@@ -252,3 +252,101 @@ fn unauthorized_response(message: &str) -> Response {
     )
         .into_response()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fake_user(id: i64) -> user::Model {
+        use chrono::Utc;
+        user::Model {
+            id,
+            username: "testuser".to_string(),
+            email: "test@example.com".to_string(),
+            hashed_password: "hash".to_string(),
+            is_active: true,
+            is_approved: true,
+            totp_secret: None,
+            totp_enabled: false,
+            totp_verified_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn test_has_permission_present() {
+        let user = AuthenticatedUser {
+            user: fake_user(1),
+            permissions: vec!["users.view".to_string(), "apps.view".to_string()],
+        };
+        assert!(user.has_permission("users.view"));
+        assert!(user.has_permission("apps.view"));
+    }
+
+    #[test]
+    fn test_has_permission_absent() {
+        let user = AuthenticatedUser {
+            user: fake_user(1),
+            permissions: vec!["users.view".to_string()],
+        };
+        assert!(!user.has_permission("users.manage"));
+        assert!(!user.has_permission("apps.install"));
+    }
+
+    #[test]
+    fn test_has_permission_empty() {
+        let user = AuthenticatedUser {
+            user: fake_user(1),
+            permissions: vec![],
+        };
+        assert!(!user.has_permission("any.permission"));
+    }
+
+    #[test]
+    fn test_has_app_access_via_wildcard() {
+        let user = AuthenticatedUser {
+            user: fake_user(1),
+            permissions: vec!["app.*".to_string()],
+        };
+        assert!(user.has_app_access("sonarr"));
+        assert!(user.has_app_access("radarr"));
+    }
+
+    #[test]
+    fn test_has_app_access_via_specific() {
+        let user = AuthenticatedUser {
+            user: fake_user(1),
+            permissions: vec!["app.sonarr".to_string()],
+        };
+        assert!(user.has_app_access("sonarr"));
+        assert!(!user.has_app_access("radarr"));
+    }
+
+    #[test]
+    fn test_has_app_access_no_perms() {
+        let user = AuthenticatedUser {
+            user: fake_user(1),
+            permissions: vec!["users.view".to_string()],
+        };
+        assert!(!user.has_app_access("sonarr"));
+    }
+
+    #[tokio::test]
+    async fn test_unauthorized_response_status() {
+        use http_body_util::BodyExt;
+        let response = unauthorized_response("not logged in");
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["detail"], "not logged in");
+    }
+
+    #[test]
+    fn test_session_cookie_constants() {
+        assert_eq!(SESSION_COOKIE_BASE, "kubarr_session");
+        assert_eq!(SESSION_COOKIE_NAME, "kubarr_session");
+        assert_eq!(ACTIVE_SESSION_COOKIE, "kubarr_active");
+        assert!(MAX_SESSIONS > 0);
+    }
+}

@@ -225,3 +225,96 @@ fn tungstenite_to_axum(msg: tungstenite::Message) -> Option<Message> {
         tungstenite::Message::Frame(_) => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::header as h;
+
+    fn headers_with(key: &'static str, value: &str) -> HeaderMap {
+        let mut map = HeaderMap::new();
+        map.insert(key, value.parse().expect("valid header value"));
+        map
+    }
+
+    #[test]
+    fn test_is_websocket_upgrade_true() {
+        let headers = headers_with("upgrade", "websocket");
+        assert!(is_websocket_upgrade(&headers));
+    }
+
+    #[test]
+    fn test_is_websocket_upgrade_case_insensitive() {
+        let headers = headers_with("upgrade", "WebSocket");
+        assert!(is_websocket_upgrade(&headers));
+    }
+
+    #[test]
+    fn test_is_websocket_upgrade_false_no_header() {
+        let headers = HeaderMap::new();
+        assert!(!is_websocket_upgrade(&headers));
+    }
+
+    #[test]
+    fn test_is_websocket_upgrade_false_different_value() {
+        let headers = headers_with("upgrade", "h2c");
+        assert!(!is_websocket_upgrade(&headers));
+    }
+
+    #[test]
+    fn test_axum_to_tungstenite_text() {
+        let msg = Message::Text("hello".to_string().into());
+        let result = axum_to_tungstenite(msg);
+        assert!(matches!(result, Some(tungstenite::Message::Text(_))));
+    }
+
+    #[test]
+    fn test_axum_to_tungstenite_binary() {
+        let msg = Message::Binary(axum::body::Bytes::from(vec![1_u8, 2, 3]));
+        let result = axum_to_tungstenite(msg);
+        assert!(matches!(result, Some(tungstenite::Message::Binary(_))));
+    }
+
+    #[test]
+    fn test_axum_to_tungstenite_close() {
+        let msg = Message::Close(None);
+        let result = axum_to_tungstenite(msg);
+        assert!(matches!(result, Some(tungstenite::Message::Close(None))));
+    }
+
+    #[test]
+    fn test_tungstenite_to_axum_text() {
+        let msg = tungstenite::Message::Text("world".to_string().into());
+        let result = tungstenite_to_axum(msg);
+        assert!(matches!(result, Some(Message::Text(_))));
+    }
+
+    #[test]
+    fn test_tungstenite_to_axum_binary() {
+        let msg = tungstenite::Message::Binary(axum::body::Bytes::from(vec![4_u8, 5, 6]));
+        let result = tungstenite_to_axum(msg);
+        assert!(matches!(result, Some(Message::Binary(_))));
+    }
+
+    #[test]
+    fn test_tungstenite_to_axum_close() {
+        let msg = tungstenite::Message::Close(None);
+        let result = tungstenite_to_axum(msg);
+        assert!(matches!(result, Some(Message::Close(_))));
+    }
+
+    #[test]
+    fn test_tungstenite_to_axum_frame_returns_none() {
+        use tungstenite::protocol::frame::Frame;
+        let frame = Frame::ping(vec![]);
+        let msg = tungstenite::Message::Frame(frame);
+        let result = tungstenite_to_axum(msg);
+        assert!(result.is_none(), "Frame messages must be dropped");
+    }
+
+    #[test]
+    fn test_proxy_service_new() {
+        let svc = ProxyService::new();
+        let _cloned = svc.clone(); // must be cloneable
+    }
+}
